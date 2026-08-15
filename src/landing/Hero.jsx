@@ -3,17 +3,7 @@ import "./landing.css";
 
 export default function Hero() {
   const navigate = useNavigate();
-
-  function handleWatchDemo() {
-    const demoSection = document.getElementById("platform-preview");
-
-    if (demoSection) {
-      demoSection.scrollIntoView({
-        behavior: "smooth",
-      });
-    }
-  }
-
+  
   return (
     <section style={{ 
       backgroundColor: "#f9f8f6", 
@@ -70,24 +60,7 @@ export default function Hero() {
             Start Building →
           </button>
 
-          <button
-            type="button"
-            onClick={handleWatchDemo}
-            style={{
-              background: "transparent",
-              color: "#111",
-              border: "1px solid #111",
-              padding: "16px 32px",
-              fontSize: "0.95rem",
-              fontWeight: "500",
-              letterSpacing: "0.5px",
-              borderRadius: "0px",
-              cursor: "pointer",
-              fontFamily: "'Mograp', sans-serif",
-            }}
-          >
-            Watch Demo
-          </button>
+          
         </div>
 
       </div>

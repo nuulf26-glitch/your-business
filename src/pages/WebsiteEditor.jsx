@@ -7,8 +7,7 @@ import "../styles/websiteEditor.css";
 export default function WebsiteEditor() {
 
   // Tablet mode
-  const [device, setDevice] = useState("tablet");
-
+const [device, setDevice] = useState("desktop");
 
   // Website Data
   const [brandName, setBrandName] = useState("My Brand");
@@ -107,9 +106,10 @@ export default function WebsiteEditor() {
     websiteData
   );
 
+localStorage.setItem("websitePublished", "true");
 
   alert("Website Published!");
-
+localStorage.setItem("websitePublished", "true");
 };
 
 

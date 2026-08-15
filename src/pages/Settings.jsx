@@ -36,6 +36,7 @@ function Settings() {
   const [storeDocId, setStoreDocId] = useState("");
 
   const [businessName, setBusinessName] = useState("");
+  const [supportEmail, setSupportEmail] = useState("");
   const [businessEmail, setBusinessEmail] = useState("");
   const [storeCurrency, setStoreCurrency] = useState("USD");
   const [phonePrefix, setPhonePrefix] = useState("+1");
@@ -88,6 +89,7 @@ function Settings() {
             setBusinessEmail(
               data.businessEmail || currentUser.email || ""
             );
+            setSupportEmail(data.supportEmail || "");
             
             // قراءة العملة والمفتاح المحفوظين مسبقاً إن وجدوا
             const savedCurrency = data.currency || "USD";
@@ -140,6 +142,7 @@ function Settings() {
           userId: user.uid,
           businessName: businessName.trim(),
           businessEmail: businessEmail.trim(),
+          supportEmail: supportEmail.trim(),
           phonePrefix: phonePrefix,
           phone: phone.trim(),
           currency: storeCurrency,
@@ -241,7 +244,21 @@ function Settings() {
                   autoComplete="email"
                 />
               </div>
+<div className="settings-field">
+  <label htmlFor="supportEmail">
+    Support email
+  </label>
 
+  <input
+    id="supportEmail"
+    type="email"
+    value={supportEmail}
+    onChange={(event) =>
+      setSupportEmail(event.target.value)
+    }
+    placeholder="support@example.com"
+  />
+</div>
               {/* اختيار العملة لكل عملات العالم */}
               <div className="settings-field">
                 <label htmlFor="currency">

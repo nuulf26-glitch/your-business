@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { createUserWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebase";
+import { saveUserProfile } from "../services/userService";
 import "../styles/auth.css";
-
+import { createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
 function Signup() {
   const navigate = useNavigate();
 
@@ -16,8 +16,8 @@ function Signup() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function handleSignup(event) {
-    event.preventDefault();
+async function handleSignup(event) {   
+   event.preventDefault();
     setError("");
 
     if (!businessName.trim() || !fullName.trim() || !email.trim() || !password) {
@@ -33,13 +33,27 @@ function Signup() {
     try {
       setLoading(true);
 
-      await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const userCredential = await createUserWithEmailAndPassword(
+  auth,
+  email.trim(),
+  password
+);
+try {
 
-      navigate("/create-website");
+await saveUserProfile(userCredential.user.uid, {
+  email: email.trim(),
+  fullName: fullName.trim(),
+  businessName: businessName.trim(),
+  marketingConsent: true,
+});
+} catch (error) {
+  console.error("PROFILE SAVE ERROR:", error.code, error.message);
+}
+
+await sendEmailVerification(userCredential.user);
+navigate("/create-website");
     } catch (signupError) {
-      console.error(signupError);
-
-      if (signupError.code === "auth/email-already-in-use") {
+console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (signupError.code === "auth/email-already-in-use") {
         setError("An account already exists with this email.");
       } else if (signupError.code === "auth/invalid-email") {
         setError("Please enter a valid email address.");

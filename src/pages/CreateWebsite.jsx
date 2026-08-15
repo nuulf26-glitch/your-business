@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/createWebsite.css";
+import { saveStore } from "../services/storeService";
 
 // Generic descriptions with no third-party platform names
 const businessGoals = [
@@ -48,7 +49,9 @@ function CreateWebsite() {
         .replace(/\s+/g, "-"),
     };
 
-    localStorage.setItem("websiteSetup", JSON.stringify(websiteData));
+localStorage.setItem("websiteSetup", JSON.stringify(websiteData));
+
+saveStore(websiteData);
     navigate("/dashboard");
   }
 

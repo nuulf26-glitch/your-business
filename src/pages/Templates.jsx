@@ -1,5 +1,123 @@
-  function Templates() {
-return (
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+const categories = [
+  { id: "all", label: "All" },
+  { id: "restaurant", label: "Restaurant" },
+  { id: "startup", label: "Startup" },
+  { id: "realestate", label: "Real Estate" },
+  { id: "beauty", label: "Beauty" },
+  { id: "fashion", label: "Fashion" },
+  { id: "portfolio", label: "Portfolio" },
+  { id: "fitness", label: "Fitness" },
+  { id: "coffee", label: "Coffee" },
+];
+const templates = [
+  {
+    id: "restaurant",
+    title: "Restaurant",
+    category: "restaurant",
+    badge: "Food Business",
+    description: "A modern website for restaurants and food brands.",
+    features: ["Menu", "Reservations", "Online Orders"],
+    previewBg: "#f5f5f5",
+  },
+  {
+    id: "startup",
+    title: "Startup",
+    category: "startup",
+    badge: "Technology",
+    description: "A clean website for startups and digital products.",
+    features: ["Landing Page", "Services", "Analytics"],
+    previewBg: "#eef2ff",
+  },
+  {
+    id: "realestate",
+    title: "Real Estate",
+    category: "realestate",
+    badge: "Property",
+    description: "Showcase properties with a professional layout.",
+    features: ["Listings", "Gallery", "Contact"],
+    previewBg: "#f8fafc",
+  },
+  {
+    id: "beauty",
+    title: "Beauty",
+    category: "beauty",
+    badge: "Beauty Brand",
+    description: "Elegant design for beauty businesses.",
+    features: ["Products", "Booking", "Brand Page"],
+    previewBg: "#fff1f2",
+  },
+  {
+    id: "fashion",
+    title: "Fashion",
+    category: "fashion",
+    badge: "Fashion Store",
+    description: "Luxury layout for fashion brands.",
+    features: ["Shop", "Collections", "Lookbook"],
+    previewBg: "#fafafa",
+  },
+  {
+    id: "portfolio",
+    title: "Portfolio",
+    category: "portfolio",
+    badge: "Creative",
+    description: "Show your work with a professional portfolio.",
+    features: ["Projects", "Gallery", "About"],
+    previewBg: "#f1f5f9",
+  },
+  {
+    id: "fitness",
+    title: "Fitness",
+    category: "fitness",
+    badge: "Fitness",
+    description: "Website for gyms and fitness coaches.",
+    features: ["Programs", "Classes", "Contact"],
+    previewBg: "#ecfdf5",
+  },
+  {
+    id: "coffee",
+    title: "Coffee",
+    category: "coffee",
+    badge: "Cafe",
+    description: "Beautiful website for cafes and coffee shops.",
+    features: ["Menu", "Location", "Orders"],
+    previewBg: "#fef3c7",
+  },
+];
+function Templates() {
+  const navigate = useNavigate();
+
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [favorites, setFavorites] = useState([]);
+const [previewTemplate, setPreviewTemplate] = useState(null);
+
+const filteredTemplates = templates.filter((tpl) => {
+  const matchesCategory =
+    selectedCategory === "all" ||
+    tpl.category === selectedCategory;
+
+  const matchesSearch =
+    tpl.title.toLowerCase().includes(searchQuery.toLowerCase());
+
+  return matchesCategory && matchesSearch;
+});
+
+function toggleFavorite(id) {
+  setFavorites((current) =>
+    current.includes(id)
+      ? current.filter((item) => item !== id)
+      : [...current, id]
+  );
+}
+
+function handleSelectTemplate(id) {
+  localStorage.setItem("selectedTemplate", id);
+  navigate("/editor");
+}
+  return (
     <div
       className="templates-page-container"
       style={{
@@ -341,7 +459,8 @@ return (
               >
 
                 <button
-                  onClick={() => navigate(`/preview/${tpl.id}`)}
+                onClick={() => handleSelectTemplate(tpl.id)}
+
                   style={{
                     flex:1,
                     padding:"12px",

@@ -228,8 +228,9 @@ function Dashboard() {
               onClick={() =>
                 navigate(
                   websiteSetup?.storeUrl
-                    ? `/store/${websiteSetup.storeUrl}`
-                    : "/templates"
+  ? `/store/${websiteSetup.storeUrl}`
+  : "/editor"
+  
                 )
               }
             >

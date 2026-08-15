@@ -24,13 +24,15 @@ import StoreSetup from "./pages/StoreSetup";
 import StoreDesigner from "./pages/StoreDesigner";
 import Shipping from "./pages/Shipping";
 import Settings from "./pages/Settings";
-
+import TemplatePreview from "./pages/TemplatePreview";
+import ForgotPassword from "./pages/ForgotPassword";
 function App() {
   return (
     <Routes>
       {/* Main public pages */}
       <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/create-website" element={<CreateWebsite />} />
       <Route path="/templates" element={<Templates />} />
@@ -45,8 +47,6 @@ function App() {
       <Route path="/payment" element={<Payment />} />
       <Route path="/platform-payment" element={<PlatformPayment />} />
       <Route path="/order-success" element={<OrderSuccess />} />
-
-      {/* Business dashboard */}
       <Route
         path="/dashboard"
         element={
@@ -131,8 +131,9 @@ function App() {
       <Route path="/privacy" element={<PrivacyPolicy />} />
 
       {/* Unknown pages return home */}
-      <Route path="*" element={<LandingPage />} />
+<Route path="*" element={<h1>Page Not Found</h1>} />
     </Routes>
+
   );
 }
 
