@@ -156,12 +156,7 @@ function Dashboard() {
             Website Editor
           </button>
 
-          <button
-            type="button"
-            onClick={() => navigate("/templates")}
-          >
-            Templates
-          </button>
+          
 
           <button
             type="button"

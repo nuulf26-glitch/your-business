@@ -282,24 +282,22 @@ function StoreDesigner() {
   return (
     <DashboardLayout>
       <div className="store-designer-page">
-        <header className="designer-header">
-          <div>
-            <span>Website editor</span>
+       <header className="designer-header">
+  <div>
+    <span>Website editor</span>
 
-            <h1>Store Designer</h1>
+    <h1>Store Designer</h1>
 
-            <p>
-              Customize your storefront layout, colors, images,
-              and product card style.
-            </p>
-          </div>
+    <p>
+      Customize your storefront layout, colors, images,
+      and product card style.
+    </p>
+  </div>
+</header>
 
-          <div className="designer-template-status">
-            <span>Selected template</span>
-            <strong>{selectedTemplate.name}</strong>
-            <p>{selectedTemplate.description}</p>
-          </div>
-        </header>
+
+            
+
 
         {error && (
           <div className="designer-message error">
@@ -457,48 +455,7 @@ function StoreDesigner() {
               </div>
             </section>
 
-            <section className="designer-section">
-              <div className="designer-section-heading">
-                <span>03</span>
-
-                <div>
-                  <h2>Choose a template</h2>
-
-                  <p>
-                    Select the overall style of your storefront.
-                  </p>
-                </div>
-              </div>
-
-              <div className="designer-template-grid">
-                {templates.map((templateOption) => (
-                  <button
-                    key={templateOption.id}
-                    type="button"
-                    className={
-                      template === templateOption.id
-                        ? "designer-template-option active"
-                        : "designer-template-option"
-                    }
-                    onClick={() =>
-                      setTemplate(templateOption.id)
-                    }
-                  >
-                    <div
-                      className={`designer-template-thumbnail ${templateOption.id}`}
-                    >
-                      <span />
-                      <span />
-                      <span />
-                    </div>
-
-                    <strong>{templateOption.name}</strong>
-
-                    <p>{templateOption.description}</p>
-                  </button>
-                ))}
-              </div>
-            </section>
+           
 
             <section className="designer-section">
               <div className="designer-section-heading">

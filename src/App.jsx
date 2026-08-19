@@ -36,6 +36,7 @@ function App() {
       <Route path="/signup" element={<Signup />} />
       <Route path="/create-website" element={<CreateWebsite />} />
       <Route path="/templates" element={<Templates />} />
+      <Route path="/template-preview/:id" element={<TemplatePreview />} />
       <Route path="/editor" element={<WebsiteEditor />} />
 
       {/* Customer store */}
