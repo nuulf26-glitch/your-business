@@ -1,3 +1,5 @@
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "./firebase";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -24,13 +26,10 @@ function PublicStore() {
           setWebsiteSetup(store);
         }
 
-        // Load website editor data
-        const savedEditor =
-          localStorage.getItem("websiteEditorData");
-
-        if (savedEditor) {
-          setEditorData(JSON.parse(savedEditor));
-        }
+      
+        if (store) {
+  setWebsiteSetup(store);
+}
 
         // Load products belonging to this store
         const storeProducts =
@@ -333,5 +332,30 @@ function PublicStore() {
   );
 }
 
+const websiteId = store?.businessName
+  ?.toLowerCase()
+  .replace(/\s+/g, "-");
+
+
+if (websiteId) {
+
+  const websiteRef = doc(
+    db,
+    "websites",
+    websiteId
+  );
+
+  const websiteSnap = await getDoc(websiteRef);
+
+
+  if (websiteSnap.exists()) {
+
+    setEditorData(
+      websiteSnap.data()
+    );
+
+  }
+
+}
 export default PublicStore;
 ``
