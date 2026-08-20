@@ -332,29 +332,4 @@ function PublicStore() {
   );
 }
 
-const websiteId = store?.businessName
-  ?.toLowerCase()
-  .replace(/\s+/g, "-");
-
-
-if (websiteId) {
-
-  const websiteRef = doc(
-    db,
-    "websites",
-    websiteId
-  );
-
-  const websiteSnap = await getDoc(websiteRef);
-
-
-  if (websiteSnap.exists()) {
-
-    setEditorData(
-      websiteSnap.data()
-    );
-
-  }
-
-}
 export default PublicStore;
