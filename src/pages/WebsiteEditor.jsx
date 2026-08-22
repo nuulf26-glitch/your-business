@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { HexColorPicker } from "react-colorful";
 import { db } from "../firebase";
 import { doc, setDoc } from "firebase/firestore";
+import { getStore, saveStore } from "../services/storeService";
 import "../styles/websiteEditor.css";
 import { templateData } from "../data/templateData";
 import ModernTemplate from "../templates/ModernTemplate";
@@ -451,32 +452,18 @@ alert("Saved");
 
 
 const publishWebsite = async () => {
-
   try {
-
-    await setDoc(
-      doc(
-        db,
-        "websites",
-        brandName
-          .toLowerCase()
-          .replace(/\s+/g, "-")
-      ),
-      {
-        brandName,
-        elements,
-        chatEmail,
-        primaryColor,
-        backgroundColor,
-        published: true,
-        updatedAt: new Date().toISOString()
-      }
-    );
-
-
+    const existingStore = await getStore();
+    await saveStore({
+      ...existingStore,
+      brandName,
+      elements,
+      chatEmail,
+      primaryColor,
+      backgroundColor,
+      published: true,
+    });
     alert("Website Published Successfully");
-
-
   } catch (error) {
 
 console.error("Publish error:", error.message, error);

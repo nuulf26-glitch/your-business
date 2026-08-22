@@ -27,6 +27,7 @@ function PublicStore() {
       
         if (store) {
   setWebsiteSetup(store);
+  setEditorData(store);
 }
 
         // Load products belonging to this store
@@ -218,6 +219,32 @@ function addToCart(product) {
       </header>
 
       <main>
+        {(editorData?.elements || []).length > 0 && (
+          <section className="public-store-designed" style={{ position: "relative" }}>
+            {(editorData?.elements || []).map((element) => (
+              <div
+                key={element.id}
+                style={{
+                  position: "absolute",
+                  left: element.x,
+                  top: element.y,
+                  fontFamily: element.style?.fontFamily,
+                  fontSize: element.style?.fontSize,
+                  color: element.style?.color,
+                  fontWeight: element.style?.fontWeight,
+                }}
+              >
+                {element.type === "heading" && <h1>{element.content}</h1>}
+                {element.type === "text" && <p>{element.content}</p>}
+                {element.type === "button" && (
+                  <button style={{ backgroundColor: primaryColor, color: "white" }}>
+                    {element.content}
+                  </button>
+                )}
+              </div>
+            ))}
+          </section>
+        )}
         <section className="public-store-hero">
           <div className="public-store-hero-content">
             <span>New collection</span>
