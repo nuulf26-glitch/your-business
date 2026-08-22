@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/payment.css";
-
+import { doc, updateDoc } from "firebase/firestore";
+import { db } from "../firebase";
 function Payment() {
   const navigate = useNavigate();
 
@@ -34,42 +35,27 @@ function Payment() {
     );
   }, [order]);
 
-  function updateSavedOrder(paymentStatus, orderStatus) {
-    try {
-      const savedOrders = localStorage.getItem("businessOrders");
-      const parsedOrders = savedOrders ? JSON.parse(savedOrders) : [];
-      const safeOrders = Array.isArray(parsedOrders) ? parsedOrders : [];
 
-      const updatedOrders = safeOrders.map((savedOrder) =>
-        savedOrder.id === order.id
-          ? {
-              ...savedOrder,
-              paymentMethod,
-              paymentStatus,
-              status: orderStatus,
-            }
-          : savedOrder
-      );
 
-      localStorage.setItem(
-        "businessOrders",
-        JSON.stringify(updatedOrders)
-      );
-    } catch (saveError) {
-      console.error("Could not update saved order:", saveError);
-    }
-  }
-
-  function completeOrder(paymentStatus, orderStatus) {
-    const completedOrder = {
+async function completeOrder(paymentStatus, orderStatus) {
+      const completedOrder = {
       ...order,
       paymentMethod,
       paymentStatus,
       status: orderStatus,
       completedAt: new Date().toISOString(),
     };
-
-    updateSavedOrder(paymentStatus, orderStatus);
+if (order.firebaseId) {
+  await updateDoc(
+    doc(db, "orders", order.firebaseId),
+    {
+      paymentMethod,
+      paymentStatus,
+      status: orderStatus,
+      completedAt: new Date(),
+    }
+  );
+}
 
     localStorage.setItem(
       "completedOrder",
@@ -105,9 +91,10 @@ function Payment() {
         return;
       }
 
-      if (paymentMethod === "cash") {
-        completeOrder("Cash on delivery", "New");
-      }
+     if (paymentMethod === "cash") {
+  await completeOrder("Cash on delivery", "New");
+}
+
     } catch (paymentError) {
       console.error("Payment failed:", paymentError);
       setError("Payment could not be completed.");

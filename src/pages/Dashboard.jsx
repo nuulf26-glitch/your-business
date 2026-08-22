@@ -1,6 +1,14 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
+
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+} from "firebase/firestore";
+import { auth, db } from "../firebase";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -25,7 +33,74 @@ function readLocalStorageArray(key) {
 
 function Dashboard() {
   const navigate = useNavigate();
+ const [orders, setOrders] = useState([]);
+const [customers, setCustomers] = useState([]);
+const [products, setProducts] = useState([]);
 
+  useEffect(() => {
+    async function loadDashboardData() {
+      try {
+        const user = auth.currentUser;
+
+        if (!user) {
+          setOrders([]);
+          setCustomers([]);
+          return;
+        }
+
+        const storeUrl =
+          localStorage.getItem("storeUrl") ||
+          JSON.parse(
+            localStorage.getItem("websiteSetup")
+          )?.storeUrl ||
+          "";
+
+        if (!storeUrl) {
+          return;
+        }
+
+        const ordersQuery = query(
+          collection(db, "orders"),
+          where("storeUrl", "==", storeUrl)
+        );
+
+        const customersQuery = query(
+          collection(db, "customers"),
+          where("storeUrl", "==", storeUrl)
+        );
+
+        const ordersSnapshot = await getDocs(
+          ordersQuery
+        );
+
+        const customersSnapshot = await getDocs(
+          customersQuery
+        );
+
+        setOrders(
+          ordersSnapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          }))
+        );
+
+        setCustomers(
+          customersSnapshot.docs.map((item) => ({
+            id: item.id,
+            ...item.data(),
+          }))
+        );
+
+      } catch (error) {
+        console.error(
+          "Could not load dashboard data:",
+          error
+        );
+      }
+    }
+
+    loadDashboardData();
+  }, []);
   // Load baseline configurations
   const websiteSetup = useMemo(() => {
     try {
@@ -47,21 +122,6 @@ function Dashboard() {
     }
   }, []);
 
-  // Dynamic state arrays - automatically start empty [] yielding 0 stats
-  const products = useMemo(
-    () => readLocalStorageArray("businessProducts"),
-    []
-  );
-
-  const orders = useMemo(
-    () => readLocalStorageArray("businessOrders"),
-    []
-  );
-
-  const customers = useMemo(
-    () => readLocalStorageArray("businessCustomers"),
-    []
-  );
 
   const businessName =
     editorData?.brandName ||

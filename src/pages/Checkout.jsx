@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/checkout.css";
-import { addDoc, collection } from "firebase/firestore";
+import {
+  addDoc,
+  collection,
+  doc,
+  setDoc,
+  getDoc,
+} from "firebase/firestore";
+
 import { db, auth } from "../firebase";
 
 const initialForm = {
@@ -109,68 +116,61 @@ const storeUrl = cart[0]?.storeUrl || "";
         paymentStatus: "Pending",
         date: new Date().toISOString(),
       };
-await addDoc(collection(db, "orders"), {
+const orderRef = await addDoc(collection(db, "orders"), {
   ...newOrder,
   createdAt: new Date(),
 });
-      const savedOrders = localStorage.getItem("businessOrders");
-      const parsedOrders = savedOrders ? JSON.parse(savedOrders) : [];
-      const safeOrders = Array.isArray(parsedOrders) ? parsedOrders : [];
 
-      localStorage.setItem(
-        "businessOrders",
-        JSON.stringify([newOrder, ...safeOrders])
-      );
+newOrder.firebaseId = orderRef.id;
 
-      const savedCustomers = localStorage.getItem("businessCustomers");
-      const parsedCustomers = savedCustomers
-        ? JSON.parse(savedCustomers)
-        : [];
-      const safeCustomers = Array.isArray(parsedCustomers)
-        ? parsedCustomers
-        : [];
+const customerId = form.email
+  .trim()
+  .toLowerCase()
+  .replace(/[^a-z0-9]/g, "-");
 
-      const existingCustomer = safeCustomers.find(
-        (customer) =>
-          customer.email.toLowerCase() === form.email.trim().toLowerCase()
-      );
+const customerRef = doc(
+  db,
+  "customers",
+  `${storeUrl}-${customerId}`
+);
 
-      let updatedCustomers;
+const customerSnap = await getDoc(customerRef);
 
-      if (existingCustomer) {
-        updatedCustomers = safeCustomers.map((customer) =>
-          customer.id === existingCustomer.id
-            ? {
-                ...customer,
-                name: form.fullName.trim(),
-                phone: form.phone.trim(),
-                orders: Number(customer.orders || 0) + 1,
-                totalSpent: Number(customer.totalSpent || 0) + total,
-                lastOrder: new Date().toISOString().slice(0, 10),
-                status: "Active",
-              }
-            : customer
-        );
-      } else {
-        updatedCustomers = [
-          {
-            id: `customer-${Date.now()}`,
-            name: form.fullName.trim(),
-            email: form.email.trim(),
-            phone: form.phone.trim(),
-            orders: 1,
-            totalSpent: total,
-            lastOrder: new Date().toISOString().slice(0, 10),
-            status: "New",
-          },
-          ...safeCustomers,
-        ];
-      }
+if (customerSnap.exists()) {
+  const customer = customerSnap.data();
 
-      localStorage.setItem(
-        "businessCustomers",
-        JSON.stringify(updatedCustomers)
-      );
+  await setDoc(
+    customerRef,
+    {
+      name: form.fullName.trim(),
+      email: form.email.trim(),
+      phone: form.phone.trim(),
+      storeUrl,
+      orders: Number(customer.orders || 0) + 1,
+      totalSpent:
+        Number(customer.totalSpent || 0) + total,
+      lastOrder: new Date().toISOString(),
+      status: "Active",
+    },
+    { merge: true }
+  );
+} else {
+  await setDoc(customerRef, {
+    name: form.fullName.trim(),
+    email: form.email.trim(),
+    phone: form.phone.trim(),
+    storeUrl,
+    orders: 1,
+    totalSpent: total,
+    lastOrder: new Date().toISOString(),
+    status: "New",
+  });
+}
+
+     
+
+     
+
 
       localStorage.setItem("pendingOrder", JSON.stringify(newOrder));
 

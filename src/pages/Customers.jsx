@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import "../styles/customers.css";
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  updateDoc,
+  doc,
+  deleteDoc,
+} from "firebase/firestore";
+
+import { auth, db } from "../firebase";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -30,32 +41,56 @@ function Customers() {
   const [statusFilter, setStatusFilter] = useState("All");
 
   useEffect(() => {
-    const savedCustomers = localStorage.getItem("businessCustomers");
-
-    if (!savedCustomers) {
-      setCustomers([]);
-      return;
-    }
-
+  async function loadCustomers() {
     try {
-      const parsed = JSON.parse(savedCustomers);
-      setCustomers(Array.isArray(parsed) ? parsed : []);
-    } catch (error) {
-      console.error("Could not load customers:", error);
-      setCustomers([]);
-    }
-  }, []);
+      const user = auth.currentUser;
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "businessCustomers",
-        JSON.stringify(customers)
+      if (!user) {
+        setCustomers([]);
+        return;
+      }
+
+      const storeUrl =
+        localStorage.getItem("storeUrl") ||
+        JSON.parse(
+          localStorage.getItem("websiteSetup")
+        )?.storeUrl ||
+        "";
+
+      if (!storeUrl) {
+        setCustomers([]);
+        return;
+      }
+
+      const q = query(
+        collection(db, "customers"),
+        where("storeUrl", "==", storeUrl)
       );
+
+      const snapshot = await getDocs(q);
+
+      const firebaseCustomers =
+        snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+
+      setCustomers(firebaseCustomers);
+
     } catch (error) {
-      console.error("Could not save customers:", error);
+      console.error(
+        "Could not load customers:",
+        error
+      );
+
+      setCustomers([]);
     }
-  }, [customers]);
+  }
+
+  loadCustomers();
+}, []);
+
+  
 
   const filteredCustomers = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -111,7 +146,15 @@ function Customers() {
     );
   }, [customers]);
 
-  function updateStatus(customerId, newStatus) {
+  async function updateStatus(customerId, newStatus) {
+  try {
+    await updateDoc(
+      doc(db, "customers", customerId),
+      {
+        status: newStatus,
+      }
+    );
+
     setCustomers((currentCustomers) =>
       currentCustomers.map((customer) =>
         customer.id === customerId
@@ -122,23 +165,41 @@ function Customers() {
           : customer
       )
     );
+  } catch (error) {
+    console.error(
+      "Could not update customer status:",
+      error
+    );
+  }
+}
+
+ async function deleteCustomer(customerId) {
+  const confirmed = window.confirm(
+    "Are you sure you want to delete this customer?"
+  );
+
+  if (!confirmed) {
+    return;
   }
 
-  function deleteCustomer(customerId) {
-    const confirmed = window.confirm(
-      "Are you sure you want to delete this customer?"
+  try {
+    await deleteDoc(
+      doc(db, "customers", customerId)
     );
-
-    if (!confirmed) {
-      return;
-    }
 
     setCustomers((currentCustomers) =>
       currentCustomers.filter(
         (customer) => customer.id !== customerId
       )
     );
+  } catch (error) {
+    console.error(
+      "Could not delete customer:",
+      error
+    );
   }
+}
+
 
   function getCustomerInitials(name) {
     return String(name || "Customer")

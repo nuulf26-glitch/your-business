@@ -57,8 +57,10 @@ function ProductPage() {
           item.productId === product.id
             ? {
                 ...item,
-                quantity: item.quantity + quantity,
-              }
+quantity: Math.min(
+  Number(product.stock),
+  item.quantity + quantity
+),              }
             : item
         );
       } else {

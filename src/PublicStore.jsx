@@ -22,9 +22,7 @@ function PublicStore() {
         // Load store information from Firebase
         const store = await getStoreByUrl(storeUrl);
 
-        if (store) {
-          setWebsiteSetup(store);
-        }
+        
 
       
         if (store) {
@@ -78,6 +76,51 @@ function PublicStore() {
 
     return websiteSetup.storeUrl === storeUrl;
   }, [websiteSetup, storeUrl]);
+function addToCart(product) {
+  const savedCart =
+    JSON.parse(
+      localStorage.getItem("businessCart")
+    ) || [];
+
+  const existingProduct = savedCart.find(
+    (item) =>
+      item.productId === product.id
+  );
+
+  let updatedCart;
+
+  if (existingProduct) {
+    updatedCart = savedCart.map((item) =>
+      item.productId === product.id
+        ? {
+            ...item,
+            quantity:
+              item.quantity + 1,
+          }
+        : item
+    );
+  } else {
+    updatedCart = [
+      ...savedCart,
+      {
+        productId: product.id,
+        name: product.name,
+        price: product.sellingPrice,
+        quantity: 1,
+        imageUrl: product.imageUrl,
+        category: product.category,
+        storeUrl: product.storeUrl,
+      },
+    ];
+  }
+
+  localStorage.setItem(
+    "businessCart",
+    JSON.stringify(updatedCart)
+  );
+
+  alert("Added to cart");
+}
 
   function openProduct(productId) {
     navigate(`/product/${productId}`);
@@ -265,21 +308,38 @@ function PublicStore() {
 
                     <h3>{product.name}</h3>
 
-                    <p>
-                      {Number(
-                        product.sellingPrice
-                      ).toFixed(2)}
-                    </p>
+<p className="public-product-description">
+  {product.description}
+</p>
+
+<p className="public-product-price">
+  {Number(
+    product.sellingPrice
+  ).toFixed(2)}
+</p>
+
+<span className="public-product-stock">
+  {product.stock > 0
+    ? `${product.stock} available`
+    : "Out of stock"}
+</span>
 
                     <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openProduct(product.id);
-                      }}
-                    >
-                      View product
-                    </button>
+  type="button"
+  disabled={product.stock <= 0}
+  onClick={(event) => {
+    event.stopPropagation();
+
+    if (product.stock > 0) {
+     addToCart(product)
+
+    }
+  }}
+>
+  {product.stock > 0
+    ? "Add to cart"
+    : "Out of stock"}
+</button>
                   </div>
                 </article>
               ))}

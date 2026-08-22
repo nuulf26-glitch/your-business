@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import "../styles/orders.css";
-import { collection, getDocs, query, where } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  updateDoc,
+  doc,
+  deleteDoc,
+} from "firebase/firestore";
 import { auth, db } from "../firebase";
 const statuses = [
   "New",
@@ -57,12 +65,6 @@ function Orders() {
   loadOrders();
 }, []);
  
-  useEffect(() => {
-    localStorage.setItem(
-      "businessOrders",
-      JSON.stringify(orders)
-    );
-  }, [orders]);
 
   const filteredOrders = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -119,35 +121,75 @@ function Orders() {
     );
   }, [orders]);
 
-  function updateStatus(orderId, newStatus) {
+    async function updateStatus(orderId, newStatus) {
+  try {
+    const order = orders.find(
+      (item) => item.id === orderId
+    );
+
+    if (!order?.firebaseId) {
+      return;
+    }
+
+    await updateDoc(
+      doc(db, "orders", order.firebaseId),
+      {
+        status: newStatus,
+      }
+    );
+
     setOrders((currentOrders) =>
-      currentOrders.map((order) =>
-        order.id === orderId
+      currentOrders.map((item) =>
+        item.id === orderId
           ? {
-              ...order,
+              ...item,
               status: newStatus,
             }
-          : order
+          : item
       )
     );
+
+  } catch (error) {
+    console.error(
+      "Could not update order status:",
+      error
+    );
+  }
+}
+
+  async function deleteOrder(orderId) {
+  const confirmed = window.confirm(
+    "Are you sure you want to delete this order?"
+  );
+
+  if (!confirmed) {
+    return;
   }
 
-  function deleteOrder(orderId) {
-    const confirmed = window.confirm(
-      "Are you sure you want to delete this order?"
+  try {
+    const order = orders.find(
+      (item) => item.id === orderId
     );
 
-    if (!confirmed) {
-      return;
+    if (order?.firebaseId) {
+      await deleteDoc(
+        doc(db, "orders", order.firebaseId)
+      );
     }
 
     setOrders((currentOrders) =>
       currentOrders.filter(
-        (order) => order.id !== orderId
+        (item) => item.id !== orderId
       )
     );
-  }
 
+  } catch (error) {
+    console.error(
+      "Could not delete order:",
+      error
+    );
+  }
+}
   function getCustomerName(order) {
     return order.customerName || order.fullName || "Customer";
   }

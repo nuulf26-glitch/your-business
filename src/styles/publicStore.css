@@ -510,3 +510,24 @@
     align-items: flex-start;
   }
 }
+.public-product-description {
+  color: #666;
+  font-size: 14px;
+  margin: 8px 0;
+}
+
+.public-product-price {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.public-product-stock {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.public-product-content button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}

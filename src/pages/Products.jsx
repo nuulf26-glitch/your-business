@@ -292,7 +292,6 @@ storeUrl: JSON.parse(
       category: form.category.trim(),
 
       stock,
-      storeUrl: localStorage.getItem("storeUrl") || "",
 
       description:
         form.description.trim(),
