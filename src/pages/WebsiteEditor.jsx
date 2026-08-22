@@ -792,73 +792,52 @@ backgroundColor
 
 
 {elements.map(element=>
-
-
 <div
-
 key={element.id}
-
 onMouseDown={(e)=>
 startDrag(
 e,
 element.id
 )
 }
-
-
 onClick={()=>
 setSelected(element.id)
 }
-
-
 style={{
-
 position:"absolute",
-
 left:element.x,
-
-top:element.y,
-
-fontFamily:
-element.style.fontFamily,
-
-fontSize:
-element.style.fontSize,
-
-color:
-element.style.color,
-
-fontWeight:
-element.style.fontWeight
-
+top:element.y
 }}
-
-
 >
-
-
 {
 element.type==="heading"
-
 &&
-
-<h1>
+<h1
+style={{
+fontFamily: element.style.fontFamily,
+fontSize: element.style.fontSize,
+color: element.style.color,
+fontWeight: element.style.fontWeight,
+margin: 0
+}}
+>
 {element.content}
 </h1>
-
 }
-
-
-
 {
 element.type==="text"
-
 &&
-
-<p>
+<p
+style={{
+fontFamily: element.style.fontFamily,
+fontSize: element.style.fontSize,
+color: element.style.color,
+fontWeight: element.style.fontWeight,
+margin: 0
+}}
+>
 {element.content}
 </p>
-
 }
 
 

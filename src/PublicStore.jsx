@@ -228,14 +228,34 @@ function addToCart(product) {
                   position: "absolute",
                   left: element.x,
                   top: element.y,
-                  fontFamily: element.style?.fontFamily,
-                  fontSize: element.style?.fontSize,
-                  color: element.style?.color,
-                  fontWeight: element.style?.fontWeight,
                 }}
               >
-                {element.type === "heading" && <h1>{element.content}</h1>}
-                {element.type === "text" && <p>{element.content}</p>}
+                {element.type === "heading" && (
+                  <h1
+                    style={{
+                      fontFamily: element.style?.fontFamily,
+                      fontSize: element.style?.fontSize,
+                      color: element.style?.color,
+                      fontWeight: element.style?.fontWeight,
+                      margin: 0,
+                    }}
+                  >
+                    {element.content}
+                  </h1>
+                )}
+                {element.type === "text" && (
+                  <p
+                    style={{
+                      fontFamily: element.style?.fontFamily,
+                      fontSize: element.style?.fontSize,
+                      color: element.style?.color,
+                      fontWeight: element.style?.fontWeight,
+                      margin: 0,
+                    }}
+                  >
+                    {element.content}
+                  </p>
+                )}
                 {element.type === "button" && (
                   <button style={{ backgroundColor: primaryColor, color: "white" }}>
                     {element.content}
