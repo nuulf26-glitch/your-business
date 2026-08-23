@@ -454,7 +454,7 @@ alert("Saved");
 const publishWebsite = async () => {
   try {
     const existingStore = await getStore();
-    const websiteData = {
+    await saveStore({
       ...existingStore,
       brandName,
       elements,
@@ -462,14 +462,7 @@ const publishWebsite = async () => {
       primaryColor,
       backgroundColor,
       published: true,
-    };
-
-    await saveStore(websiteData);
-
-    localStorage.setItem(
-      "websiteEditorData",
-      JSON.stringify(websiteData)
-    );
+    });
     alert("Website Published Successfully");
   } catch (error) {
 
