@@ -208,6 +208,23 @@ const [backgroundColor,setBackgroundColor] = useState("#ffffff");
 
 const [chatEmail,setChatEmail] = useState("");
 
+const [showProductPicker,setShowProductPicker] = useState(false);
+
+const productOptions = [
+{
+name:"Mug",
+price:"USD 56"
+},
+{
+name:"T-Shirt",
+price:"USD 30"
+},
+{
+name:"Coffee",
+price:"USD 12"
+}
+];
+
 
 
 
@@ -695,10 +712,29 @@ onClick={()=>addElement("image")}
 
 
 <button
-onClick={()=>addElement("product")}
+onClick={()=>setShowProductPicker(true)}
 >
 + Product
 </button>
+
+{showProductPicker && (
+<div>
+<h4>What product do you want to add?</h4>
+
+{productOptions.map((product)=>(
+<button
+key={product.name}
+onClick={()=>{
+addElement("product");
+setShowProductPicker(false);
+}}
+>
+{product.name} - {product.price}
+</button>
+))}
+
+</div>
+)}
 
 
 
