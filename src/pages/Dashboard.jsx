@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
-
+import { doc, getDoc } from "firebase/firestore";
 import {
   collection,
   getDocs,
@@ -36,12 +36,20 @@ function Dashboard() {
  const [orders, setOrders] = useState([]);
 const [customers, setCustomers] = useState([]);
 const [products, setProducts] = useState([]);
-
+const [userProfile, setUserProfile] = useState(null);
   useEffect(() => {
     async function loadDashboardData() {
       try {
         const user = auth.currentUser;
+if (user) {
+  const userSnapshot = await getDoc(
+    doc(db, "users", user.uid)
+  );
 
+  if (userSnapshot.exists()) {
+    setUserProfile(userSnapshot.data());
+  }
+}
         if (!user) {
           setOrders([]);
           setCustomers([]);
@@ -293,7 +301,36 @@ const [products, setProducts] = useState([]);
             </button>
           </div>
         </header>
+<section className="dashboard-payment-card">
 
+  {userProfile?.paid ? (
+    <>
+      <span>Account status</span>
+      <h2>Active account ✅</h2>
+      <p>
+        Your Business platform is unlocked.
+      </p>
+    </>
+  ) : (
+    <>
+      <span>Account inactive</span>
+      <h2>Activate your account</h2>
+      <p>
+        Complete your payment to unlock your website builder,
+        store, and dashboard features.
+      </p>
+
+      <button
+        type="button"
+        className="dashboard-primary-button"
+        onClick={() => navigate("/platform-payment")}
+      >
+        Pay Now
+      </button>
+    </>
+  )}
+
+</section>
         {/* Top Stat Summary Grid */}
         <section className="dashboard-stats-grid">
           <article className="dashboard-stat-card">
