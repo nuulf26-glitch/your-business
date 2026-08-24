@@ -8,8 +8,9 @@ function ProtectedRoute({ children }) {
   const [checkingUser, setCheckingUser] = useState(true);
 
   useEffect(() => {
-    const stopListening = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
+const stopListening = onAuthStateChanged(auth, (currentUser) => {
+  console.log("Firebase user:", currentUser);
+        setUser(currentUser);
       setCheckingUser(false);
     });
 

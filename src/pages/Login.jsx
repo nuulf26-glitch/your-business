@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../firebase";
+import { login } from "../services/authService";
+
 import "../styles/auth.css";
 
 function Login() {
@@ -26,7 +26,8 @@ function Login() {
     try {
       setLoading(true);
 
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+await login(email.trim(), password);
+
 
       navigate("/dashboard");
     } catch (loginError) {
