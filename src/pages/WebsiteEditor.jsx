@@ -8,6 +8,7 @@ import { templateData } from "../data/templateData";
 import ModernTemplate from "../templates/ModernTemplate";
 import DarkTemplate from "../templates/DarkTemplate";
 import { uploadProductImage } from "../services/imageService";
+import { getProducts } from "../services/productService";
 const editorTemplates = [
   {
     id: "modern",
@@ -209,21 +210,21 @@ const [backgroundColor,setBackgroundColor] = useState("#ffffff");
 const [chatEmail,setChatEmail] = useState("");
 
 const [showProductPicker,setShowProductPicker] = useState(false);
+const [productOptions,setProductOptions] = useState([]);
 
-const productOptions = [
-{
-name:"Mug",
-price:"USD 56"
-},
-{
-name:"T-Shirt",
-price:"USD 30"
-},
-{
-name:"Coffee",
-price:"USD 12"
-}
-];
+useEffect(()=>{
+  async function loadProducts(){
+    try{
+      const products = await getProducts();
+      setProductOptions(products);
+    }catch(error){
+      console.error("Could not load products for website editor:", error);
+      setProductOptions([]);
+    }
+  }
+
+  loadProducts();
+},[]);
 
 
 
@@ -256,8 +257,7 @@ setBackgroundColor(template.background);
 
 
 
-const addElement=(type)=>{
-
+const addElement=(type, selectedProduct=null)=>{
 
 const newElement={
 
@@ -268,7 +268,6 @@ type,
 x:100,
 
 y:100,
-
 
 content:
 type==="text"
@@ -285,13 +284,16 @@ type==="button"
 :
 type==="product"
 ?
-"Product Name"
+selectedProduct?.name || "Product Name"
 :
 "",
 
-
-image:null,
-
+image:
+type==="product"
+?
+selectedProduct?.imageUrl || null
+:
+null,
 
 style:{
 
@@ -305,27 +307,33 @@ fontWeight:"400"
 
 },
 
-
-product:{
-
+product:
+type==="product"
+?
+{
+id:selectedProduct?.id || null,
+name:selectedProduct?.name || "",
+price:selectedProduct?.sellingPrice ?? "",
+description:selectedProduct?.description || "",
+image:selectedProduct?.imageUrl || null,
+category:selectedProduct?.category || "",
+stock:selectedProduct?.stock ?? 0
+}
+:
+{
 price:"",
 description:"",
 image:null
-
 }
 
-
 };
-
 
 setElements([
 ...elements,
 newElement
 ]);
 
-
 setSelected(newElement.id);
-
 
 };
 const updateElement = (id, changes)=>{
@@ -721,17 +729,21 @@ onClick={()=>setShowProductPicker(true)}
 <div>
 <h4>What product do you want to add?</h4>
 
-{productOptions.map((product)=>(
+{productOptions.length === 0 ? (
+<p>No products added yet. Add a product from the Products page first.</p>
+) : (
+productOptions.map((product)=>(
 <button
-key={product.name}
+key={product.id}
 onClick={()=>{
-addElement("product");
+addElement("product", product);
 setShowProductPicker(false);
 }}
 >
-{product.name} - {product.price}
+{product.name} - AED {Number(product.sellingPrice || 0).toFixed(2)}
 </button>
-))}
+))
+)}
 
 </div>
 )}

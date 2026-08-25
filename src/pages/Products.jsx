@@ -23,6 +23,10 @@ const emptyForm = {
   description: "",
   imageUrl: "",
   imageName: "",
+  status: "active",
+  salePrice: "",
+  salePercent: "",
+  hiddenUntil: "",
 };
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -42,6 +46,7 @@ function Products() {
   const [categoryFilter, setCategoryFilter] =
     useState("All");
   const [imageError, setImageError] = useState("");
+  const [statusSavingId, setStatusSavingId] = useState(null);
 
   const fileInputRef = useRef(null);
 
@@ -124,6 +129,108 @@ function Products() {
       }
     );
   }, [products]);
+
+  function normalizeStatus(product) {
+    const hiddenUntil = product.hiddenUntil
+      ? new Date(product.hiddenUntil)
+      : null;
+
+    if (
+      product.status === "hidden" &&
+      hiddenUntil &&
+      hiddenUntil <= new Date()
+    ) {
+      return "active";
+    }
+
+    return product.status || "active";
+  }
+
+  async function handleStatusChange(product, nextStatus) {
+    let updates = {
+      status: nextStatus,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (nextStatus === "onSale") {
+      const salePriceInput = window.prompt(
+        "Enter the sale price. You can leave this blank if you only want to use a discount percentage.",
+        product.salePrice ?? ""
+      );
+
+      if (salePriceInput === null) return;
+
+      const salePrice =
+        salePriceInput.trim() === ""
+          ? ""
+          : Number(salePriceInput);
+
+      if (
+        salePrice !== "" &&
+        (!Number.isFinite(salePrice) || salePrice < 0)
+      ) {
+        alert("Please enter a valid sale price.");
+        return;
+      }
+
+      updates.salePrice = salePrice;
+    }
+
+    if (nextStatus === "hidden") {
+      const hiddenUntilInput = window.prompt(
+        "Hide this product until (YYYY-MM-DD):",
+        product.hiddenUntil
+          ? String(product.hiddenUntil).slice(0, 10)
+          : ""
+      );
+
+      if (hiddenUntilInput === null) return;
+
+      const parsedDate = new Date(
+        `${hiddenUntilInput}T23:59:59`
+      );
+
+      if (
+        !hiddenUntilInput ||
+        Number.isNaN(parsedDate.getTime()) ||
+        parsedDate <= new Date()
+      ) {
+        alert("Please enter a future date in YYYY-MM-DD format.");
+        return;
+      }
+
+      updates.hiddenUntil = parsedDate.toISOString();
+    }
+
+    if (nextStatus === "active") {
+      updates.hiddenUntil = "";
+    }
+
+    try {
+      setStatusSavingId(product.id);
+
+      await updateProduct(product.id, updates);
+
+      setProducts((current) =>
+        current.map((item) =>
+          item.id === product.id
+            ? { ...item, ...updates }
+            : item
+        )
+      );
+    } catch (error) {
+      console.error("Could not update product status:", error);
+
+      const reason =
+        error?.code ||
+        error?.message ||
+        "Unknown Firebase error";
+
+      alert(`Could not update product status: ${reason}`);
+    } finally {
+      setStatusSavingId(null);
+    }
+  }
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -703,6 +810,168 @@ setProducts(updatedProducts);
               )}
             </div>
 
+            <div className="product-form-grid">
+              <div className="product-field">
+                <label htmlFor="status">
+                  Product status
+                </label>
+
+                <select
+                  id="status"
+                  name="status"
+                  value={form.status}
+                  onChange={handleChange}
+                >
+                  <option value="active">
+                    Active
+                  </option>
+
+                  <option value="onSale">
+                    On Sale
+                  </option>
+
+                  <option value="hidden">
+                    Hidden
+                  </option>
+                </select>
+              </div>
+
+
+            </div>
+
+            {form.status === "onSale" && (
+              <>
+                <div className="product-field">
+                  <label htmlFor="salePrice">
+                    Sale price
+                  </label>
+
+                  <div className="product-money-field">
+                    <span>$</span>
+
+                    <input
+                      id="salePrice"
+                      name="salePrice"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={form.salePrice}
+                      onChange={handleChange}
+                      placeholder="Enter any sale price"
+                    />
+                  </div>
+
+                  <small>
+                    Optional. Enter any sale price you want.
+                  </small>
+                </div>
+
+                <div className="product-field">
+                  <label>
+                    Discount percentage
+                  </label>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "8px",
+                      marginTop: "8px",
+                    }}
+                  >
+                    {[10, 20, 30, 40, 50, 60, 70].map(
+                      (percent) => (
+                        <button
+                          key={percent}
+                          type="button"
+                          onClick={() =>
+                            setForm((current) => ({
+                              ...current,
+                              salePercent: String(percent),
+                            }))
+                          }
+                        >
+                          {percent}%
+                        </button>
+                      )
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForm((current) => ({
+                          ...current,
+                          salePercent: "other",
+                        }))
+                      }
+                    >
+                      Other
+                    </button>
+                  </div>
+
+                  {form.salePercent === "other" && (
+                    <input
+                      name="salePercent"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value=""
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          salePercent:
+                            event.target.value,
+                        }))
+                      }
+                      placeholder="Enter your percentage"
+                      style={{ marginTop: "10px" }}
+                    />
+                  )}
+
+                  {form.salePercent !== "" &&
+                    form.salePercent !== "other" && (
+                      <small
+                        style={{
+                          display: "block",
+                          marginTop: "8px",
+                        }}
+                      >
+                        Selected: {form.salePercent}%
+                      </small>
+                    )}
+
+                  <small
+                    style={{
+                      display: "block",
+                      marginTop: "8px",
+                    }}
+                  >
+                    Optional. You do not have to choose a percentage.
+                  </small>
+                </div>
+              </>
+            )}
+
+            {form.status === "hidden" && (
+              <div className="product-field">
+                <label htmlFor="hiddenUntil">
+                  Show product again on
+                </label>
+
+                <input
+                  id="hiddenUntil"
+                  name="hiddenUntil"
+                  type="date"
+                  value={form.hiddenUntil}
+                  onChange={handleChange}
+                  min={new Date()
+                    .toISOString()
+                    .slice(0, 10)}
+                />
+              </div>
+            )}
+
             <div className="product-field">
               <label htmlFor="description">
                 Description
@@ -844,12 +1113,70 @@ setProducts(updatedProducts);
                             <button
                               type="button"
                               onClick={() =>
-                                handleEdit(
-                                  product
-                                )
+                                handleEdit(product)
                               }
                             >
                               Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              className={
+                                normalizeStatus(product) === "active"
+                                  ? "active"
+                                  : ""
+                              }
+                              disabled={
+                                statusSavingId === product.id
+                              }
+                              onClick={() =>
+                                handleStatusChange(
+                                  product,
+                                  "active"
+                                )
+                              }
+                            >
+                              Active
+                            </button>
+
+                            <button
+                              type="button"
+                              className={
+                                normalizeStatus(product) === "onSale"
+                                  ? "active"
+                                  : ""
+                              }
+                              disabled={
+                                statusSavingId === product.id
+                              }
+                              onClick={() =>
+                                handleStatusChange(
+                                  product,
+                                  "onSale"
+                                )
+                              }
+                            >
+                              On Sale
+                            </button>
+
+                            <button
+                              type="button"
+                              className={
+                                normalizeStatus(product) === "hidden"
+                                  ? "active"
+                                  : ""
+                              }
+                              disabled={
+                                statusSavingId === product.id
+                              }
+                              onClick={() =>
+                                handleStatusChange(
+                                  product,
+                                  "hidden"
+                                )
+                              }
+                            >
+                              Hidden
                             </button>
 
                             <button
