@@ -32,6 +32,7 @@ export async function addProduct(product) {
 
 
 export async function getProducts() {
+  await auth.authStateReady();
   const user = auth.currentUser;
 
   if (!user) {

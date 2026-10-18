@@ -273,3 +273,4 @@ exports.capturePayPalOrder = onRequest(
     }
   }
 );
+Object.assign(exports, require("./appointments"));

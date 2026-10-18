@@ -223,6 +223,7 @@ if (user) {
           >
             Website Editor
           </button>
+          <button type="button" onClick={() => navigate("/appointments")}>Appointments</button>
 
           
 

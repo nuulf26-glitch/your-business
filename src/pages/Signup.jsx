@@ -84,8 +84,8 @@ console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (
           </h1>
 
           <p>
-            Create your store, customize your design, add products, and start
-            accepting orders from one simple platform.
+            Build your store, accept salon appointments, share your menu, or
+            showcase your portfolio from one simple platform.
           </p>
 
           <div className="auth-benefits">
