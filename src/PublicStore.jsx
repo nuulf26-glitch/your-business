@@ -1,9 +1,9 @@
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "./firebase";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import "./styles/publicStore.css";
+import AppointmentForm from "./components/AppointmentForm";
+import { usesCommerce } from "./data/websiteGoals";
 
 import { getStoreByUrl } from "./services/storeService";
 import { getProductsByStore } from "./services/productService";
@@ -13,12 +13,19 @@ function formatUsd(value) {
   return `$${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"}`;
 }
 
-function PublishedWebsite({ editorData, products, addToCart, navigate }) {
+function PublishedWebsite({ editorData, products, addToCart, navigate, storeUrl }) {
   const sections = editorData.sections || editorData.elements || [];
   const primaryColor = editorData.primaryColor || "#18243a";
   const backgroundColor = editorData.backgroundColor || "#f7f2eb";
   const brandName = editorData.brandName || "Your Business";
 
+  const commerce = usesCommerce(editorData.businessGoal);
+  function scrollToType(type) { const index = sections.findIndex((s) => s.type === type); document.getElementById(`published-${type}-${index}`)?.scrollIntoView({ behavior: "smooth" }); }
+  function primaryAction() {
+    const type = commerce ? "product" : ({ salon: "booking", restaurant: "menu", portfolio: "gallery", company: "services" }[editorData.businessGoal] || "footer");
+    if (type === "product" && !sections.some((s) => s.type === type)) document.getElementById("published-products")?.scrollIntoView({ behavior: "smooth" });
+    else scrollToType(type);
+  }
   function renderSection(section, index) {
     const style = {
       "--published-color": section.style?.color || "#171513",
@@ -28,10 +35,10 @@ function PublishedWebsite({ editorData, products, addToCart, navigate }) {
     const sectionId = `published-${section.type}-${index}`;
 
     if (section.type === "hero") {
-      return <section id={sectionId} className="published-section published-hero" style={style} key={section.id}><div><p className="published-eyebrow">Built for your next chapter</p><h1>{section.title}</h1><p>{section.body}</p><button type="button" onClick={() => document.getElementById("published-products")?.scrollIntoView({ behavior: "smooth" })} style={{ backgroundColor: primaryColor }}>{section.buttonText || "Get started"}</button></div><div className={`published-hero-media${section.image ? " has-image" : ""}`} style={section.image ? { backgroundImage: `url(${section.image})` } : undefined}>{!section.image && <span>{brandName}</span>}</div></section>;
+      return <section id={sectionId} className="published-section published-hero" style={style} key={section.id}><div><p className="published-eyebrow">Built for your next chapter</p><h1>{section.title}</h1><p>{section.body}</p><button type="button" onClick={primaryAction} style={{ backgroundColor: primaryColor }}>{section.buttonText || "Get started"}</button></div><div className={`published-hero-media${section.image ? " has-image" : ""}`} style={section.image ? { backgroundImage: `url(${section.image})` } : undefined}>{!section.image && <span>{brandName}</span>}</div></section>;
     }
     if (section.type === "about") {
-      return <section id={sectionId} className="published-section published-about" style={style} key={section.id}><div className={`published-about-media${section.image ? " has-image" : ""}`} style={section.image ? { backgroundImage: `url(${section.image})` } : undefined}>{!section.image && <span>Our story</span>}</div><div><p className="published-eyebrow">About us</p><h2>{section.title}</h2><p>{section.body}</p><button className="published-outline-button" type="button">{section.buttonText || "Learn more"}</button></div></section>;
+      return <section id={sectionId} className="published-section published-about" style={style} key={section.id}><div className={`published-about-media${section.image ? " has-image" : ""}`} style={section.image ? { backgroundImage: `url(${section.image})` } : undefined}>{!section.image && <span>Our story</span>}</div><div><p className="published-eyebrow">About us</p><h2>{section.title}</h2><p>{section.body}</p><button className="published-outline-button" type="button" onClick={() => document.getElementById("published-contact")?.scrollIntoView({ behavior: "smooth" })}>{section.buttonText || "Learn more"}</button></div></section>;
     }
     if (section.type === "services") {
       return <section id={sectionId} className="published-section published-standard" style={style} key={section.id}><p className="published-eyebrow">What we offer</p><h2>{section.title}</h2><p>{section.body}</p><div className="published-services">{(section.items || []).map((item, itemIndex) => <article key={`${item}-${itemIndex}`}><span>0{itemIndex + 1}</span><h3>{item}</h3><p>Made with care and tailored to you.</p></article>)}</div></section>;
@@ -40,21 +47,21 @@ function PublishedWebsite({ editorData, products, addToCart, navigate }) {
       return <section id={sectionId} className="published-section published-standard published-menu" style={style} key={section.id}><p className="published-eyebrow">Menu</p><h2>{section.title}</h2><p>{section.body}</p><div>{(section.items || []).map((item, itemIndex) => <p key={`${item.name}-${itemIndex}`}><span>{item.name}</span><b>{item.price}</b></p>)}</div></section>;
     }
     if (section.type === "booking") {
-      return <section id={sectionId} className="published-section published-booking" style={style} key={section.id}><div><p className="published-eyebrow">Appointments</p><h2>{section.title}</h2><p>{section.body}</p></div><div className="published-booking-card"><span>Choose a time</span><div><i>10:00</i><i>12:00</i><i>15:30</i></div><button type="button">{section.buttonText || "Book now"}</button></div></section>;
+      return <section id={sectionId} className="published-section published-booking" style={style} key={section.id}><div><p className="published-eyebrow">Appointments</p><h2>{section.title}</h2><p>{section.body}</p></div><AppointmentForm storeUrl={storeUrl} section={section} /></section>;
     }
     if (section.type === "gallery") {
-      return <section id={sectionId} className="published-section published-standard" style={style} key={section.id}><p className="published-eyebrow">Gallery</p><h2>{section.title}</h2><p>{section.body}</p><div className="published-gallery">{(section.images || ["", "", ""]).map((image, imageIndex) => <div key={`${image}-${imageIndex}`} className={image ? "has-image" : ""} style={image ? { backgroundImage: `url(${image})` } : undefined}>{!image && <span>Photo {imageIndex + 1}</span>}</div>)}</div></section>;
+      return <section id={sectionId} className="published-section published-standard" style={style} key={section.id}><p className="published-eyebrow">Gallery</p><h2>{section.title}</h2><p>{section.body}</p><div className="published-gallery">{(section.images || ["", "", ""]).map((image, imageIndex) => <div key={`${image}-${imageIndex}`} className={image ? "has-image" : ""} style={image ? { backgroundImage: `url(${image})` } : undefined}>{(!image || section.captions?.[imageIndex]) && <span>{section.captions?.[imageIndex] || `Photo ${imageIndex + 1}`}</span>}</div>)}</div></section>;
     }
     if (section.type === "faq") {
       return <section id={sectionId} className="published-section published-standard published-faq" style={style} key={section.id}><p className="published-eyebrow">FAQ</p><h2>{section.title}</h2><p>{section.body}</p><div>{(section.items || []).map((item, itemIndex) => <details key={`${item.question}-${itemIndex}`} open={itemIndex === 0}><summary>{item.question}<span>+</span></summary><p>{item.answer}</p></details>)}</div></section>;
     }
     if (section.type === "product") {
       const linkedProduct = products.find((product) => String(product.id) === String(section.productId));
-      return <section id={sectionId} className="published-section published-product" style={style} key={section.id}><div className={`published-product-image${section.image ? " has-image" : ""}`} style={section.image ? { backgroundImage: `url(${section.image})` } : undefined}>{!section.image && <span>Product</span>}</div><div><p className="published-eyebrow">Featured product</p><h2>{section.title}</h2><p>{section.body}</p><strong>{formatUsd(section.price)}</strong><button type="button" style={{ backgroundColor: primaryColor }} disabled={!linkedProduct} onClick={() => linkedProduct && addToCart(linkedProduct)}>Add to cart</button></div></section>;
+      return <section id={sectionId} className="published-section published-product" style={style} key={section.id}><div className={`published-product-image${section.image ? " has-image" : ""}`} style={section.image ? { backgroundImage: `url(${section.image})` } : undefined}>{!section.image && <span>Product</span>}</div><div><p className="published-eyebrow">Featured product</p><h2>{section.title}</h2><p>{section.body}</p><strong>{formatUsd(section.price)}</strong><button type="button" style={{ backgroundColor: primaryColor }} disabled={!linkedProduct || !commerce || Number(linkedProduct.stock) <= 0} onClick={() => linkedProduct && addToCart(linkedProduct)}>Add to cart</button></div></section>;
     }
     if (section.type === "heading") return <section id={sectionId} className="published-section published-simple" style={style} key={section.id}><h2>{section.title}</h2></section>;
     if (section.type === "text") return <section id={sectionId} className="published-section published-simple published-text" style={style} key={section.id}><p>{section.body}</p></section>;
-    if (section.type === "button") return <section id={sectionId} className="published-section published-simple published-button" style={style} key={section.id}><button type="button" style={{ backgroundColor: primaryColor }}>{section.buttonText || section.title}</button></section>;
+    if (section.type === "button") return <section id={sectionId} className="published-section published-simple published-button" style={style} key={section.id}><button type="button" style={{ backgroundColor: primaryColor }} onClick={primaryAction}>{section.buttonText || section.title}</button></section>;
     if (section.type === "photo") return <section id={sectionId} className={`published-section published-photo${section.image ? " has-image" : ""}`} style={section.image ? { ...style, backgroundImage: `url(${section.image})` } : style} key={section.id}>{!section.image && <><h2>{section.title}</h2><p>{section.body}</p></>}</section>;
     if (section.type === "chat") return <section id={sectionId} className="published-section published-chat" style={style} key={section.id}><span>✦</span><div><b>{section.title}</b><small>{section.body}</small></div><a href={`mailto:${section.email || "hello@example.com"}`}>Chat</a></section>;
     return <footer id={sectionId} className="published-section published-footer" style={style} key={section.id}><div><h2>{section.title}</h2><p>{section.body}</p></div><span>© {new Date().getFullYear()} {brandName}</span></footer>;
@@ -63,8 +70,8 @@ function PublishedWebsite({ editorData, products, addToCart, navigate }) {
   const hasProductSection = sections.some((section) => section.type === "product");
 
   return <div className="published-cyb-store" style={{ "--published-primary": primaryColor, "--published-background": backgroundColor }}>
-    <header className="published-navbar"><button type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>{brandName}</button><nav><button type="button" onClick={() => document.getElementById("published-products")?.scrollIntoView({ behavior: "smooth" })}>Shop</button><button type="button" onClick={() => document.getElementById("published-about")?.scrollIntoView({ behavior: "smooth" })}>About</button><button type="button" onClick={() => document.getElementById("published-contact")?.scrollIntoView({ behavior: "smooth" })}>Contact</button></nav><button type="button" className="published-cart" onClick={() => navigate("/cart")}>Cart</button></header>
-    <main>{sections.map(renderSection)}{!hasProductSection && products.length > 0 && <section id="published-products" className="published-section published-catalog"><p className="published-eyebrow">Our products</p><h2>Shop the collection</h2><div>{products.map((product) => <article key={product.id}><div className={product.imageUrl ? "has-image" : ""} style={product.imageUrl ? { backgroundImage: `url(${product.imageUrl})` } : undefined}>{!product.imageUrl && <span>{product.name?.slice(0, 1)}</span>}</div><h3>{product.name}</h3><p>{product.description}</p><strong>{formatUsd(product.sellingPrice)}</strong><button type="button" style={{ backgroundColor: primaryColor }} disabled={product.stock <= 0} onClick={() => addToCart(product)}>{product.stock > 0 ? "Add to cart" : "Out of stock"}</button></article>)}</div></section>}<section id="published-about" className="published-store-about"><p className="published-eyebrow">Our story</p><h2>{editorData.aboutTitle || "Made with purpose."}</h2><p>{editorData.description || "Tell customers what makes your business different."}</p></section><section id="published-contact" className="published-contact"><div><p className="published-eyebrow">Contact us</p><h2>Have a question?</h2><p>We would love to hear from you.</p></div><a href="mailto:hello@example.com" style={{ backgroundColor: primaryColor }}>Send a message</a></section></main>
+    <header className="published-navbar"><button type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>{brandName}</button><nav><button type="button" onClick={primaryAction}>{commerce ? "Shop" : ({ salon: "Book", restaurant: "Menu", portfolio: "Work", company: "Services" }[editorData.businessGoal] || "Home")}</button><button type="button" onClick={() => document.getElementById("published-about")?.scrollIntoView({ behavior: "smooth" })}>About</button><button type="button" onClick={() => document.getElementById("published-contact")?.scrollIntoView({ behavior: "smooth" })}>Contact</button></nav>{commerce ? <button type="button" className="published-cart" onClick={() => navigate(`/store/${storeUrl}/cart`)}>Cart</button> : <button type="button" className="published-cart" onClick={primaryAction}>Explore</button>}</header>
+    <main>{sections.map(renderSection)}{commerce && !hasProductSection && products.length > 0 && <section id="published-products" className="published-section published-catalog"><p className="published-eyebrow">Our products</p><h2>Shop the collection</h2><div>{products.map((product) => <article key={product.id}><div className={product.imageUrl ? "has-image" : ""} style={product.imageUrl ? { backgroundImage: `url(${product.imageUrl})` } : undefined}>{!product.imageUrl && <span>{product.name?.slice(0, 1)}</span>}</div><h3>{product.name}</h3><p>{product.description}</p><strong>{formatUsd(product.sellingPrice)}</strong><button type="button" style={{ backgroundColor: primaryColor }} disabled={product.stock <= 0} onClick={() => addToCart(product)}>{product.stock > 0 ? "Add to cart" : "Out of stock"}</button></article>)}</div></section>}<section id="published-about" className="published-store-about"><p className="published-eyebrow">Our story</p><h2>{editorData.aboutTitle || "Made with purpose."}</h2><p>{editorData.description || "Tell customers what makes your business different."}</p></section><section id="published-contact" className="published-contact"><div><p className="published-eyebrow">Contact us</p><h2>Have a question?</h2><p>We would love to hear from you.</p></div>{editorData.contactEmail ? <a href={`mailto:${editorData.contactEmail}`} style={{ backgroundColor: primaryColor }}>Send a message</a> : <p>Contact details coming soon.</p>}</section></main>
   </div>;
 }
 
@@ -87,7 +94,7 @@ function PublicStore() {
       
         if (store) {
   setWebsiteSetup(store);
-  setEditorData(store.editorData || store);
+  setEditorData({ ...(store.editorData || store), businessGoal: store.editorData?.businessGoal || store.businessGoal, contactEmail: store.editorData?.contactEmail || store.supportEmail || "" });
 }
 
         // Load products belonging to this store
@@ -213,6 +220,7 @@ function addToCart(product) {
         products={products}
         addToCart={addToCart}
         navigate={navigate}
+        storeUrl={storeUrl}
       />
     );
   }

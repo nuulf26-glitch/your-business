@@ -1,0 +1,9 @@
+/* New booking controls inherit the existing website palette and typography. */
+.cyb-appointment-form { min-width: 0; }
+.cyb-appointment-form label { display: grid; gap: 6px; margin-bottom: 12px; font: inherit; }
+.cyb-appointment-form input, .cyb-appointment-form select { box-sizing: border-box; width: 100%; min-width: 0; padding: 10px; border: 1px solid #d8d8d8; border-radius: 4px; background: #fff; color: #171513; font: inherit; }
+.cyb-appointment-form small { display: block; margin: 8px 0 14px; line-height: 1.5; }
+.cyb-appointment-form button:disabled { opacity: .55; cursor: not-allowed; }
+.cyb-appointments-list { display: grid; gap: 16px; }
+.cyb-appointments-list article { padding: 20px; background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; overflow-wrap: anywhere; }
+.cyb-appointments-list button { margin: 8px 8px 0 0; padding: 9px 14px; cursor: pointer; }

@@ -3,6 +3,9 @@ import { getStore, saveStore } from "../services/storeService";
 import { getProducts } from "../services/productService";
 import { uploadProductImage } from "../services/imageService";
 import "../styles/websiteEditor.css";
+import { auth } from "../firebase";
+import { WEBSITE_GOALS, getWebsiteGoal } from "../data/websiteGoals";
+import BookingFields, { validateBookingSections } from "../components/BookingFields";
 
 const FONTS = [
   "Arial",
@@ -85,7 +88,7 @@ function createSection(type, product = null) {
     },
     booking: {
       ...common, label: "Booking", title: "Book your time", body: "Let customers request an appointment, treatment, class, or consultation.",
-      buttonText: "Book now", style: { ...common.style, fontSize: 34, color: "#ffffff" },
+      buttonText: "Book now", booking: { timezone: "Asia/Dubai", openDays: [1, 2, 3, 4, 5, 6], openTime: "09:00", closeTime: "18:00", interval: 30, services: [] }, style: { ...common.style, fontSize: 34, color: "#ffffff" },
     },
     gallery: {
       ...common, label: "Gallery", title: "A closer look", body: "Use this space for your work, products, place, or portfolio.",
@@ -131,15 +134,20 @@ function createSection(type, product = null) {
   return sections[type] || sections.text;
 }
 
-function createDefaultModel() {
+function createDefaultModel(setup = {}) {
+  const goal = getWebsiteGoal(setup.businessGoal);
+  const sections = goal.sections.map((type) => createSection(type));
+  sections[0] = { ...sections[0], title: goal.headline, buttonText: goal.action, ...(setup.description ? { body: setup.description } : {}) };
   return {
     editorVersion: 2,
-    brandName: "Your Business",
+    brandName: setup.businessName || "Your Business",
+    businessGoal: goal.id,
+    contactEmail: setup.supportEmail || "",
     primaryColor: "#18243a",
     backgroundColor: "#f7f2eb",
     textColor: "#171513",
     recentColors: DEFAULT_RECENT_COLORS,
-    sections: [createSection("hero"), createSection("about"), createSection("services"), createSection("footer")],
+    sections,
   };
 }
 
@@ -147,10 +155,13 @@ function migrateLegacyEditor(raw) {
   const data = raw?.editorData || raw || {};
   const savedSections = data.sections || (data.editorVersion === 2 ? data.elements : null);
 
-  if (Array.isArray(savedSections) && savedSections.length) {
+  if (Array.isArray(savedSections)) {
     return {
       editorVersion: 2,
       brandName: data.brandName || "Your Business",
+      businessGoal: getWebsiteGoal(data.businessGoal || raw?.businessGoal).id,
+      contactEmail: data.contactEmail || raw?.supportEmail || "",
+      updatedAt: data.updatedAt,
       primaryColor: cleanColor(data.primaryColor, "#18243a"),
       backgroundColor: cleanColor(data.backgroundColor, "#f7f2eb"),
       textColor: cleanColor(data.textColor, "#171513"),
@@ -184,6 +195,9 @@ function migrateLegacyEditor(raw) {
   return {
     editorVersion: 2,
     brandName: data.brandName || "Your Business",
+      businessGoal: getWebsiteGoal(data.businessGoal || raw?.businessGoal).id,
+      contactEmail: data.contactEmail || raw?.supportEmail || "",
+      updatedAt: data.updatedAt,
     primaryColor: cleanColor(data.primaryColor, "#18243a"),
     backgroundColor: cleanColor(data.backgroundColor, "#f7f2eb"),
     textColor: "#171513",
@@ -197,14 +211,9 @@ function isImageFile(file) {
 }
 
 export default function WebsiteEditor() {
-  const [model, setModel] = useState(() => {
-    try {
-      const saved = localStorage.getItem("websiteEditorData");
-      return saved ? migrateLegacyEditor(JSON.parse(saved)) : createDefaultModel();
-    } catch {
-      return createDefaultModel();
-    }
-  });
+  const [model, setModel] = useState(() => createDefaultModel());
+  const [loaded, setLoaded] = useState(false);
+  const cacheKey = useRef(null);
   const [activeTab, setActiveTab] = useState("sections");
   const [selectedId, setSelectedId] = useState(null);
   const [device, setDevice] = useState("laptop");
@@ -228,28 +237,32 @@ export default function WebsiteEditor() {
     let active = true;
     async function loadEditor() {
       try {
-        const [store, productList] = await Promise.all([getStore(), getProducts()]);
+        await auth.authStateReady();
+        if (!auth.currentUser) { window.location.assign("/login"); return; }
+        cacheKey.current = `websiteEditorData:${auth.currentUser.uid}`;
+        const store = await getStore();
+        const productList = await getProducts().catch(() => []);
         if (!active) return;
-        if (store?.editorData || store?.sections || store?.elements) {
-          const next = migrateLegacyEditor(store);
-          setModel(next);
-          setSelectedId(next.sections[0]?.id || null);
-          localStorage.setItem("websiteEditorData", JSON.stringify(next));
-          setStatus("Saved");
-        } else {
-          setSelectedId((current) => current || model.sections[0]?.id || null);
-        }
+        let cached = null;
+        try { cached = JSON.parse(localStorage.getItem(cacheKey.current) || "null"); } catch { /* Invalid local draft: use cloud. */ }
+        const cloud = store?.draftEditorData || store?.editorData || (store?.sections || store?.elements ? store : null);
+        const source = cached && (!cloud || Date.parse(cached.updatedAt || 0) > Date.parse(cloud.updatedAt || 0)) ? cached : cloud;
+        const next = source ? migrateLegacyEditor({ ...store, editorData: source }) : createDefaultModel(store || {});
+        setModel(next);
+        setSelectedId(next.sections[0]?.id || null);
+        setLoaded(true);
+        setStatus(source === cached && cached ? "Draft on this device" : "Saved");
         setProducts(Array.isArray(productList) ? productList : []);
       } catch (error) {
         console.error("Could not load website editor data:", error);
-        if (active) setStatus("Saved on this device");
+        if (active) { setStatus("Load failed"); showToast("Could not load your website. Reload before editing."); }
       }
     }
     loadEditor();
     return () => { active = false; };
   }, []);
 
-  useEffect(() => { localStorage.setItem("websiteEditorData", JSON.stringify(model)); }, [model]);
+  useEffect(() => { if (loaded && cacheKey.current) localStorage.setItem(cacheKey.current, JSON.stringify(model)); }, [model, loaded]);
   useEffect(() => () => clearTimeout(toastTimer.current), []);
 
   function showToast(message) {
@@ -264,7 +277,8 @@ export default function WebsiteEditor() {
       setUndoStack((previous) => [...previous, clone(model)].slice(-60));
       setRedoStack([]);
     }
-    setModel(nextModel);
+    if (!loaded) return;
+    setModel({ ...nextModel, updatedAt: new Date().toISOString() });
     setStatus("Unsaved");
     if (message) showToast(message);
   }
@@ -352,12 +366,12 @@ export default function WebsiteEditor() {
   function undo() {
     if (!undoStack.length) return;
     const previous = undoStack[undoStack.length - 1];
-    setUndoStack((items) => items.slice(0, -1)); setRedoStack((items) => [clone(model), ...items].slice(0, 60)); setModel(previous);
+    setUndoStack((items) => items.slice(0, -1)); setRedoStack((items) => [clone(model), ...items].slice(0, 60)); setModel({ ...previous, updatedAt: new Date().toISOString() });
     setSelectedId(previous.sections[0]?.id || null); setStatus("Unsaved");
   }
   function redo() {
     if (!redoStack.length) return;
-    const next = redoStack[0]; setRedoStack((items) => items.slice(1)); setUndoStack((items) => [...items, clone(model)].slice(-60)); setModel(next);
+    const next = redoStack[0]; setRedoStack((items) => items.slice(1)); setUndoStack((items) => [...items, clone(model)].slice(-60)); setModel({ ...next, updatedAt: new Date().toISOString() });
     setSelectedId(next.sections[0]?.id || null); setStatus("Unsaved");
   }
   function editorPayload() {
@@ -366,19 +380,20 @@ export default function WebsiteEditor() {
   async function saveDraft() {
     setSaving(true); setStatus("Saving…");
     try {
-      const existingStore = await getStore(); const payload = editorPayload();
-      await saveStore({ ...(existingStore || {}), ...payload, editorData: payload });
-      localStorage.setItem("websiteEditorData", JSON.stringify(payload)); setStatus("Saved"); showToast("Draft saved");
+      const payload = editorPayload();
+      await saveStore({ draftEditorData: payload, businessGoal: payload.businessGoal });
+      localStorage.setItem(cacheKey.current, JSON.stringify(payload)); setStatus("Saved"); showToast("Draft saved");
     } catch (error) {
       console.error("Could not save website editor:", error); setStatus("Save failed"); showToast(error.message || "Could not save your draft");
     } finally { setSaving(false); }
   }
   async function publishWebsite() {
+    try { validateBookingSections(model.sections); } catch (error) { showToast(error.message); return; }
     setSaving(true); setStatus("Publishing…");
     try {
       const existingStore = await getStore(); const payload = editorPayload();
-      const nextStore = { ...(existingStore || {}), ...payload, editorData: payload, published: true, publishedAt: new Date().toISOString() };
-      await saveStore(nextStore); localStorage.setItem("websiteEditorData", JSON.stringify(payload)); localStorage.setItem("websitePublished", "true"); localStorage.setItem("publicStoreData", JSON.stringify(payload));
+      const nextStore = { ...(existingStore || {}), ...payload, editorData: payload, draftEditorData: payload, published: true, publishedAt: new Date().toISOString() };
+      await saveStore(nextStore); localStorage.setItem(cacheKey.current, JSON.stringify(payload)); localStorage.setItem("websitePublished", "true"); localStorage.setItem("publicStoreData", JSON.stringify(payload));
       setPublishUrl(nextStore.storeUrl ? `${window.location.origin}/store/${nextStore.storeUrl}` : ""); setStatus("Published"); setShowPublish(true);
     } catch (error) {
       console.error("Could not publish website:", error); setStatus("Publish failed"); showToast(error.message || "Could not publish your website");
@@ -403,8 +418,8 @@ export default function WebsiteEditor() {
     if (section.type === "about") return <section key={section.id} {...wrapperProps} className={`${wrapperProps.className} website-about`}>{dragHandle}<div className={`website-about-media${section.image ? " has-image" : ""}`} style={section.image ? { backgroundImage: `url(${section.image})` } : undefined}>{!section.image && <span>Your story, visually</span>}</div><div><p className="website-eyebrow">About us</p><h2>{section.title}</h2><p className="website-body">{section.body}</p><button className="website-outline-button" type="button">{section.buttonText || "Learn more"}</button></div></section>;
     if (section.type === "services") return <section key={section.id} {...wrapperProps} className={`${wrapperProps.className} website-standard-section`}>{dragHandle}<p className="website-eyebrow">What we offer</p><h2>{section.title}</h2><p className="website-body">{section.body}</p><div className="website-service-grid">{(section.items || []).map((item, index) => <article key={`${item}-${index}`}><span>0{index + 1}</span><h3>{item}</h3><p>Make this service feel clear and worth choosing.</p></article>)}</div></section>;
     if (section.type === "menu") return <section key={section.id} {...wrapperProps} className={`${wrapperProps.className} website-standard-section website-menu-section`}>{dragHandle}<p className="website-eyebrow">Menu</p><h2>{section.title}</h2><p className="website-body">{section.body}</p><div className="website-menu-list">{(section.items || []).map((item, index) => <div key={`${item.name}-${index}`}><span>{item.name}</span><b>{item.price}</b></div>)}</div></section>;
-    if (section.type === "booking") return <section key={section.id} {...wrapperProps} className={`${wrapperProps.className} website-booking-section`}>{dragHandle}<div><p className="website-eyebrow">Appointments</p><h2>{section.title}</h2><p className="website-body">{section.body}</p></div><div className="booking-card"><span>Choose a date</span><div className="booking-slots"><i>10:00</i><i>12:00</i><i>15:30</i></div><button type="button">{section.buttonText || "Book now"}</button></div></section>;
-    if (section.type === "gallery") return <section key={section.id} {...wrapperProps} className={`${wrapperProps.className} website-standard-section`}>{dragHandle}<p className="website-eyebrow">Gallery</p><h2>{section.title}</h2><p className="website-body">{section.body}</p><div className="website-gallery-grid">{(section.images || ["", "", ""]).map((image, index) => <div key={`${image}-${index}`} className={image ? "has-image" : ""} style={image ? { backgroundImage: `url(${image})` } : undefined}>{!image && <span>Photo {index + 1}</span>}</div>)}</div></section>;
+    if (section.type === "booking") return <section key={section.id} {...wrapperProps} className={`${wrapperProps.className} website-booking-section`}>{dragHandle}<div><p className="website-eyebrow">Appointments</p><h2>{section.title}</h2><p className="website-body">{section.body}</p></div><div className="booking-card"><span>{section.booking?.services?.length ? `${section.booking.services.length} services · ${section.booking.timezone}` : "Add services in Properties to enable booking"}</span><div className="booking-slots"><i>{section.booking?.openTime || "09:00"}</i><i>{section.booking?.closeTime || "18:00"}</i></div><button type="button">{section.buttonText || "Book now"}</button></div></section>;
+    if (section.type === "gallery") return <section key={section.id} {...wrapperProps} className={`${wrapperProps.className} website-standard-section`}>{dragHandle}<p className="website-eyebrow">Gallery</p><h2>{section.title}</h2><p className="website-body">{section.body}</p><div className="website-gallery-grid">{(section.images || ["", "", ""]).map((image, index) => <div key={`${image}-${index}`} className={image ? "has-image" : ""} style={image ? { backgroundImage: `url(${image})` } : undefined}>{(!image || section.captions?.[index]) && <span>{section.captions?.[index] || `Photo ${index + 1}`}</span>}</div>)}</div></section>;
     if (section.type === "faq") return <section key={section.id} {...wrapperProps} className={`${wrapperProps.className} website-standard-section website-faq-section`}>{dragHandle}<p className="website-eyebrow">FAQ</p><h2>{section.title}</h2><p className="website-body">{section.body}</p><div className="website-faq-list">{(section.items || []).map((item, index) => <details key={`${item.question}-${index}`} open={index === 0}><summary>{item.question}<span>+</span></summary><p>{item.answer}</p></details>)}</div></section>;
     if (section.type === "product") return <section key={section.id} {...wrapperProps} className={`${wrapperProps.className} website-product-section`}>{dragHandle}<div className={`website-product-image${section.image ? " has-image" : ""}`} style={section.image ? { backgroundImage: `url(${section.image})` } : undefined}>{!section.image && <span>Product photo</span>}</div><div><p className="website-eyebrow">Featured product</p><h2>{section.title}</h2><p className="website-body">{section.body}</p><strong>{money(section.price)}</strong><button type="button" style={{ backgroundColor: model.primaryColor }}>Add to cart</button></div></section>;
     if (section.type === "heading") return <section key={section.id} {...wrapperProps} className={`${wrapperProps.className} website-simple-section`}>{dragHandle}<h2>{section.title}</h2></section>;
@@ -431,6 +446,8 @@ export default function WebsiteEditor() {
       {selected.type === "chat" && <label className="property-field"><span>Business email</span><input type="email" value={selected.email || ""} onChange={(event) => updateSection({ email: event.target.value })} placeholder="hello@yourbusiness.com" /></label>}
       {supportsImage && <label className="property-field"><span>Image</span><span className="upload-file"><input type="file" accept="image/*" onChange={uploadImage} />Upload image</span>{selected.image && <button type="button" className="remove-image" onClick={() => updateSection({ image: "" })}>Remove image</button>}</label>}
       {supportsGallery && <div className="property-field"><span>Gallery photos</span><div className="gallery-upload-controls">{[0, 1, 2].map((index) => <label key={index} className="upload-file"><input type="file" accept="image/*" data-index={index} onChange={(event) => uploadImage(event, "gallery")} />Photo {index + 1}</label>)}</div></div>}
+      {selected.type === "booking" && <BookingFields value={selected.booking} onChange={(booking) => updateSection({ booking })} />}
+      {selected.type === "gallery" && <EditableSimpleItems items={selected.captions || ["", "", ""]} label="Project captions" onChange={(captions) => updateSection({ captions })} />}
       {selected.type === "services" && <EditableSimpleItems items={selected.items || []} label="Services" onChange={(items) => updateSection({ items })} />}
       {selected.type === "menu" && <EditableMenuItems items={selected.items || []} onChange={(items) => updateSection({ items })} />}
       {selected.type === "faq" && <EditableFaqItems items={selected.items || []} onChange={(items) => updateSection({ items })} />}
@@ -449,19 +466,19 @@ export default function WebsiteEditor() {
       <div className="topbar-spacer" />
       <div className="history-controls"><button type="button" onClick={undo} disabled={!undoStack.length} aria-label="Undo">↶</button><button type="button" onClick={redo} disabled={!redoStack.length} aria-label="Redo">↷</button></div>
       <div className="device-controls">{[["laptop", "▣", "Laptop"], ["ipad", "▤", "iPad"], ["phone", "▯", "Phone"]].map(([id, icon, label]) => <button type="button" key={id} className={device === id ? "active" : ""} onClick={() => setDevice(id)}>{icon}<span>{label}</span></button>)}</div>
-      <button className="topbar-action" type="button" onClick={saveDraft} disabled={saving}>Save draft</button><button className="topbar-action" type="button" onClick={() => setShowPreview(true)}>Preview</button><button className="topbar-action primary" type="button" onClick={publishWebsite} disabled={saving}>Publish</button>
+      <button className="topbar-action" type="button" onClick={saveDraft} disabled={saving || !loaded}>Save draft</button><button className="topbar-action" type="button" onClick={() => setShowPreview(true)}>Preview</button><button className="topbar-action primary" type="button" onClick={publishWebsite} disabled={saving || !loaded}>Publish</button>
     </header>
     <div className="getcyb-editor-workspace">
       <aside className="editor-left-panel">
         <nav className="editor-navigation" aria-label="Editor navigation">{[["sections", "Sections", "◫"], ["elements", "Elements", "＋"], ["products", "Products", "◈"], ["design", "Design", "◐"]].map(([id, label, icon]) => <button key={id} type="button" className={activeTab === id ? "active" : ""} onClick={() => setActiveTab(id)}><span>{icon}</span>{label}</button>)}</nav>
         <div className="editor-side-content">
-          {activeTab === "sections" && <><div className="side-heading"><span>Add section</span><p>Build a complete business website.</p></div><div className="section-library">{SECTION_LIBRARY.map((item) => <button type="button" key={item.type} onClick={() => addSection(item.type)}><span className="library-thumbnail"><i /><i /><b /></span><span><strong>{item.label}</strong><small>{item.description}</small></span><em>＋</em></button>)}</div></>}
+          {activeTab === "sections" && <><div className="side-heading"><span>Add section</span><p>Build a complete business website.</p></div><div className="section-library">{[...SECTION_LIBRARY].sort((a, b) => Number(getWebsiteGoal(model.businessGoal).sections.includes(b.type)) - Number(getWebsiteGoal(model.businessGoal).sections.includes(a.type))).map((item) => <button type="button" key={item.type} onClick={() => addSection(item.type)}><span className="library-thumbnail"><i /><i /><b /></span><span><strong>{item.label}</strong><small>{item.description}</small></span><em>＋</em></button>)}</div></>}
           {activeTab === "elements" && <><div className="side-heading"><span>Add element</span><p>Use these anywhere in your website.</p></div><div className="element-library">{ELEMENT_LIBRARY.map((item) => <button type="button" key={item.type} onClick={() => addSection(item.type)}><b>＋</b>{item.label}</button>)}</div></>}
           {activeTab === "products" && <><div className="side-heading"><span>Your products</span><p>Choose a real product to show on your website.</p></div><button type="button" className="add-real-product" onClick={() => setShowProductPicker(true)}>＋ Add product section</button><div className="side-product-list">{products.length ? products.map((product) => <button type="button" key={product.id} onClick={() => addProduct(product)}><span className="side-product-image" style={product.imageUrl || product.image ? { backgroundImage: `url(${product.imageUrl || product.image})` } : undefined} /><span><strong>{product.name}</strong><small>{money(product.sellingPrice)}</small></span><em>＋</em></button>) : <p className="empty-copy">No products yet. Add one from your Products page first.</p>}</div></>}
-          {activeTab === "design" && <><div className="side-heading"><span>Design</span><p>Set the base look of your website.</p></div><label className="design-field"><span>Primary colour</span><div className="colour-input"><input type="color" value={cleanColor(model.primaryColor)} onChange={(event) => updateGlobalColor("primaryColor", event.target.value)} /><input value={model.primaryColor} onChange={(event) => updateGlobalColor("primaryColor", event.target.value)} /></div></label><label className="design-field"><span>Background colour</span><div className="colour-input"><input type="color" value={cleanColor(model.backgroundColor, "#f7f2eb")} onChange={(event) => updateGlobalColor("backgroundColor", event.target.value)} /><input value={model.backgroundColor} onChange={(event) => updateGlobalColor("backgroundColor", event.target.value)} /></div></label><p className="recent-label">Recently used</p><div className="recent-colours">{model.recentColors.map((color) => <button key={color} type="button" aria-label={`Use ${color} as primary colour`} style={{ backgroundColor: color }} onClick={() => updateGlobalColor("primaryColor", color)} />)}</div><div className="design-note">Your app stays dark. These colours only change the website your customer sees.</div></>}
+          {activeTab === "design" && <><div className="side-heading"><span>Design</span><p>Set the base look of your website.</p></div><label className="property-field"><span>Website purpose</span><select value={model.businessGoal} onChange={(event) => updateModelField("businessGoal", event.target.value)}>{WEBSITE_GOALS.map((goal) => <option key={goal.id} value={goal.id}>{goal.title}</option>)}</select></label><p className="empty-copy">Changing your purpose keeps every existing section. Add any section you need.</p><label className="property-field"><span>Contact email</span><input type="email" value={model.contactEmail || ""} onChange={(event) => updateModelField("contactEmail", event.target.value)} /></label><label className="design-field"><span>Primary colour</span><div className="colour-input"><input type="color" value={cleanColor(model.primaryColor)} onChange={(event) => updateGlobalColor("primaryColor", event.target.value)} /><input value={model.primaryColor} onChange={(event) => updateGlobalColor("primaryColor", event.target.value)} /></div></label><label className="design-field"><span>Background colour</span><div className="colour-input"><input type="color" value={cleanColor(model.backgroundColor, "#f7f2eb")} onChange={(event) => updateGlobalColor("backgroundColor", event.target.value)} /><input value={model.backgroundColor} onChange={(event) => updateGlobalColor("backgroundColor", event.target.value)} /></div></label><p className="recent-label">Recently used</p><div className="recent-colours">{model.recentColors.map((color) => <button key={color} type="button" aria-label={`Use ${color} as primary colour`} style={{ backgroundColor: color }} onClick={() => updateGlobalColor("primaryColor", color)} />)}</div><div className="design-note">Your app stays dark. These colours only change the website your customer sees.</div></>}
         </div>
       </aside>
-      <main className="editor-canvas-wrap"><div className="canvas-meta"><span><b>Live preview</b> · click a section to edit it</span><span>{canvasSize}</span></div><div className={`website-canvas ${device}`} style={{ backgroundColor: model.backgroundColor, color: model.textColor }}><header className="website-navbar"><span>{model.brandName}</span><nav><button type="button">Home</button><button type="button">About</button><button type="button">Contact</button></nav><button type="button" style={{ backgroundColor: model.primaryColor }}>Get in touch</button></header>{model.sections.map((section) => renderSection(section))}</div><div className={`section-drop-zone${draggedId ? " active" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!draggedId) return; const moved = model.sections.find((section) => section.id === draggedId); if (!moved) return; const next = [...model.sections.filter((section) => section.id !== draggedId), moved]; commit({ ...model, sections: next }, { message: "Section moved to bottom" }); setDraggedId(null); }}>Drop a section here to move it to the bottom</div></main>
+      <main className="editor-canvas-wrap"><div className="canvas-meta"><span><b>{loaded ? "Live preview" : "Loading your website…"}</b> · click a section to edit it</span><span>{canvasSize}</span></div><div className={`website-canvas ${device}`} style={{ backgroundColor: model.backgroundColor, color: model.textColor }}><header className="website-navbar"><span>{model.brandName}</span><nav><button type="button">Home</button><button type="button">About</button><button type="button">Contact</button></nav><button type="button" style={{ backgroundColor: model.primaryColor }}>Get in touch</button></header>{model.sections.map((section) => renderSection(section))}</div><div className={`section-drop-zone${draggedId ? " active" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!draggedId) return; const moved = model.sections.find((section) => section.id === draggedId); if (!moved) return; const next = [...model.sections.filter((section) => section.id !== draggedId), moved]; commit({ ...model, sections: next }, { message: "Section moved to bottom" }); setDraggedId(null); }}>Drop a section here to move it to the bottom</div></main>
       <aside className="editor-properties-panel"><div className="properties-top"><span>Properties</span><small>{selected ? "Selected" : "Nothing selected"}</small></div>{propertiesPanel()}</aside>
     </div>
     {showProductPicker && <div className="editor-modal-backdrop" role="presentation" onMouseDown={() => setShowProductPicker(false)}><section className="editor-modal" role="dialog" aria-modal="true" aria-labelledby="product-picker-title" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" type="button" onClick={() => setShowProductPicker(false)} aria-label="Close">×</button><p className="modal-kicker">Your products</p><h2 id="product-picker-title">What product do you want to add?</h2><p>Select a product that already exists in your GetCyb Products page.</p><div className="picker-products">{products.length ? products.map((product) => <button type="button" key={product.id} onClick={() => addProduct(product)}><span className="picker-product-image" style={product.imageUrl || product.image ? { backgroundImage: `url(${product.imageUrl || product.image})` } : undefined} /><span><strong>{product.name}</strong><small>{product.description || "No description yet"}</small></span><b>{money(product.sellingPrice)}</b></button>) : <div className="empty-picker">No products yet. Add a product from the Products page, then come back here.</div>}</div></section></div>}

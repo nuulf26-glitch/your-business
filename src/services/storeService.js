@@ -14,10 +14,11 @@ export async function saveStore(data) {
     ...data,
     userId: user.uid,
     updatedAt: new Date().toISOString(),
-  });
+  }, { merge: true });
 }
 
 export async function getStore() {
+  await auth.authStateReady();
   const user = auth.currentUser;
 
   if (!user) {

@@ -36,7 +36,7 @@ export default function Hero() {
 
         {/* Description (Original Text) */}
         <p style={{ maxWidth: "650px", fontSize: "1.05rem", lineHeight: "1.6", color: "#555", margin: "0 0 40px 0", fontFamily: "'Mograp', sans-serif" }}>
-          Create a professional online store without coding. Choose a beautiful template, customize every detail, upload your products, manage orders, and track your business performance from one powerful platform.
+          Create a website for your store, salon, restaurant, portfolio or company. Sell products, accept appointments, share your menu or showcase your work — with one flexible editor and no coding.
         </p>
 
         {/* Buttons (Original) */}
@@ -69,9 +69,9 @@ export default function Hero() {
       <div style={{ maxWidth: "1100px", margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.85rem", color: "#666", borderTop: "1px solid #e5e5e0", paddingTop: "25px", flexWrap: "wrap", gap: "15px" }}>
         <span>No coding required</span>
         <span>•</span>
-        <span>Professional templates</span>
+        <span>Your own design</span>
         <span>•</span>
-        <span>Products and orders</span>
+        <span>Stores, bookings and portfolios</span>
         <span>•</span>
         <span>Business analytics</span>
       </div>

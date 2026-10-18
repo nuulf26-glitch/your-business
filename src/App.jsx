@@ -1,4 +1,5 @@
 import { Route, Routes } from "react-router-dom";
+import Appointments from "./pages/Appointments";
 import PlatformPayment from "./pages/PlatformPayment";
 import LandingPage from "./landing/LandingPage";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -37,7 +38,8 @@ function App() {
       <Route path="/create-website" element={<CreateWebsite />} />
       <Route path="/templates" element={<Templates />} />
       <Route path="/template-preview/:id" element={<TemplatePreview />} />
-      <Route path="/editor" element={<WebsiteEditor />} />
+      <Route path="/editor" element={<ProtectedRoute><WebsiteEditor /></ProtectedRoute>} />
+      <Route path="/appointments" element={<ProtectedRoute><Appointments /></ProtectedRoute>} />
 
       {/* Customer store */}
       <Route path="/store/:storeUrl" element={<PublicStore />} />

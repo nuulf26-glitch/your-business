@@ -3,15 +3,7 @@ import { useNavigate } from "react-router-dom";
 import "../styles/createWebsite.css";
 import { saveStore } from "../services/storeService";
 
-// Generic descriptions with no third-party platform names
-const businessGoals = [
-  { id: 'sell_online', title: 'Sell Online', description: 'Start a brand new online store from scratch.' },
-  { id: 'move_web', title: 'Move Existing Website', description: 'Migrate your current store from another e-commerce platform smoothly.' },
-  { id: 'sell_store', title: 'Sell in Store & Online', description: 'Connect your physical boutique or retail shop with your online store.' },
-  { id: 'showcase', title: 'Just Showcasing', description: 'Display your products beautifully as a portfolio without online checkout.' },
-  { id: 'social_seller', title: 'Social Media Seller', description: 'Transform your social media channel sales into a professional website.' },
-  { id: 'pre_order', title: 'Pre-order / Launching Soon', description: 'Build anticipation and collect customer emails before your big launch.' }
-];
+import { WEBSITE_GOALS as businessGoals } from "../data/websiteGoals";
 
 function CreateWebsite() {
   const navigate = useNavigate();
@@ -21,8 +13,9 @@ function CreateWebsite() {
   const [businessGoal, setBusinessGoal] = useState(""); 
   const [storeUrl, setStoreUrl] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  function handleFinish() {
+  async function handleFinish() {
     setError("");
 
     if (!businessName.trim()) {
@@ -49,10 +42,19 @@ function CreateWebsite() {
         .replace(/\s+/g, "-"),
     };
 
-localStorage.setItem("websiteSetup", JSON.stringify(websiteData));
-
-saveStore(websiteData);
-    navigate("/dashboard");
+if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(websiteData.storeUrl)) {
+      setError("Use letters, numbers and single hyphens for your website address.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await saveStore(websiteData);
+      localStorage.setItem("websiteSetup", JSON.stringify(websiteData));
+      localStorage.setItem("storeUrl", websiteData.storeUrl);
+      navigate("/editor");
+    } catch (error) {
+      setError(error.message || "Could not create your website. Please try again.");
+    } finally { setSaving(false); }
   }
 
   return (
@@ -101,7 +103,7 @@ saveStore(websiteData);
 
               {/* 3. The 6 Original Generic Options */}
               <div className="wizard-field" style={{ marginTop: "30px" }}>
-                <label>What is your current business goal?</label>
+                <label>What is your website for?</label>
                 <div className="template-choice-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "12px", marginTop: "10px" }}>
                   {businessGoals.map((item) => (
                     <button
@@ -138,8 +140,8 @@ saveStore(websiteData);
             {error && <p className="wizard-error">{error}</p>}
 
             <div className="wizard-actions" style={{ marginTop: "30px", justifyContent: "flex-end" }}>
-              <button type="button" className="wizard-next-button" onClick={handleFinish}>
-                Create Website
+              <button type="button" className="wizard-next-button" onClick={handleFinish} disabled={saving}>
+                {saving ? "Creating..." : "Create Website"}
               </button>
             </div>
 
