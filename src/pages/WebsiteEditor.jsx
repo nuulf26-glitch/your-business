@@ -384,18 +384,18 @@ export default function WebsiteEditor() {
     next.splice(targetIndex, 0, moved);
     commit({ ...model, sections: next }, { message: "Section moved" }); setDraggedId(null);
   }
-  async function uploadImage(event, slot = "image") {
+  async function uploadImage(event, slot = "image", sectionId = selected?.id) {
     const file = event.target.files?.[0];
     const galleryIndex = Number(event.target.dataset.index || 0);
     event.target.value = "";
-    if (!file || !selected) return;
+    if (!file || !sectionId) return;
     if (!isImageFile(file)) { showToast("Use an image smaller than 8 MB"); return; }
     setStatus("Uploading image…");
     try {
       const url = await uploadProductImage(file);
       if (slot === "gallery") {
         const images = [...(selected.images || ["", "", ""])]; images[galleryIndex] = url; updateSection({ images });
-      } else { updateSection({ image: url }); }
+      } else { commit({ ...model, sections: visibleSections.map(item => item.id === sectionId ? { ...item, image: url } : item) }); }
       setStatus("Unsaved"); showToast("Image updated");
     } catch (error) {
       console.error("Image upload failed:", error); setStatus("Image upload failed"); showToast("Image upload failed. Please try again.");
@@ -444,9 +444,18 @@ export default function WebsiteEditor() {
   }
   function renderSection(section) {
     const editable = !section.locked;
-    return <section key={section.id} id={section.anchor || section.id} className={`cyb-section editor-section ${selectedId === section.id ? 'selected' : ''}`} style={sectionStyle(section, device)} onClick={event => { if(event.target.closest("a")) event.preventDefault(); setSelectedId(section.id); }} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); moveDraggedSection(section.id); }}>
+    return <section key={section.id} id={section.anchor || section.id} className={`cyb-section editor-section ${selectedId === section.id ? 'selected' : ''}`} style={sectionStyle(section, device)} onClick={event => {
+      if (event.target.closest("a")) event.preventDefault();
+      setSelectedId(section.id);
+      if (section.locked || !["hero", "about", "photo"].includes(section.type)) return;
+      const heroImageArea = section.type === "hero" && event.target.closest(".cyb-hero") && !event.target.closest(".cyb-hero-copy");
+      const aboutImageArea = section.type === "about" && (event.target.closest(".cyb-about .cyb-image") || (event.target.classList?.contains("cyb-about") && event.nativeEvent.offsetX < event.currentTarget.clientWidth / 2));
+      const photoImageArea = section.type === "photo" && event.target.closest(".cyb-image");
+      if (heroImageArea || aboutImageArea || photoImageArea) event.currentTarget.querySelector('input[data-cyb-image-upload]')?.click();
+    }} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); moveDraggedSection(section.id); }}>
       <div className="editor-section-label"><span>{section.label} {section.locked ? '· Locked' : ''}</span>{editable && <button type="button" draggable aria-label={`Move ${section.label}`} onDragStart={() => setDraggedId(section.id)} onDragEnd={() => setDraggedId(null)}>⠿</button>}</div>
       <WebsiteSection section={section} model={{...model,renderDevice:device}} products={products} editText={editText} />
+      {["hero", "about", "photo"].includes(section.type) && !section.locked && <input data-cyb-image-upload type="file" accept="image/*" aria-label={`Upload image for ${section.label}`} style={{ display: "none" }} onChange={event => uploadImage(event, "image", section.id)} />}
     </section>;
   }
   function choosePage(page) { setActivePageId(page.id); setSelectedId(page.sections[0]?.id || null); }
