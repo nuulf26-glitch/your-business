@@ -3,15 +3,8 @@ import { useNavigate } from "react-router-dom";
 import "../styles/createWebsite.css";
 import { saveStore } from "../services/storeService";
 
-// Generic descriptions with no third-party platform names
-const businessGoals = [
-  { id: 'sell_online', title: 'Sell Online', description: 'Start a brand new online store from scratch.' },
-  { id: 'move_web', title: 'Move Existing Website', description: 'Migrate your current store from another e-commerce platform smoothly.' },
-  { id: 'sell_store', title: 'Sell in Store & Online', description: 'Connect your physical boutique or retail shop with your online store.' },
-  { id: 'showcase', title: 'Just Showcasing', description: 'Display your products beautifully as a portfolio without online checkout.' },
-  { id: 'social_seller', title: 'Social Media Seller', description: 'Transform your social media channel sales into a professional website.' },
-  { id: 'pre_order', title: 'Pre-order / Launching Soon', description: 'Build anticipation and collect customer emails before your big launch.' }
-];
+import { BUSINESS_CATEGORIES } from "../business/categories";
+const businessGoals = BUSINESS_CATEGORIES;
 
 function CreateWebsite() {
   const navigate = useNavigate();
@@ -22,7 +15,7 @@ function CreateWebsite() {
   const [storeUrl, setStoreUrl] = useState("");
   const [error, setError] = useState("");
 
-  function handleFinish() {
+  async function handleFinish() {
     setError("");
 
     if (!businessName.trim()) {
@@ -41,7 +34,8 @@ function CreateWebsite() {
     const websiteData = {
       businessName: businessName.trim(),
       description: description.trim(),
-      businessGoal: businessGoal, 
+      businessGoal: businessGoal,
+      businessCategory: businessGoal,
       template: "luxury", 
       storeUrl: storeUrl
         .trim()
@@ -51,8 +45,7 @@ function CreateWebsite() {
 
 localStorage.setItem("websiteSetup", JSON.stringify(websiteData));
 
-saveStore(websiteData);
-    navigate("/dashboard");
+try { await saveStore(websiteData); navigate("/dashboard"); } catch { setError("Could not save your website. Please try again."); }
   }
 
   return (
@@ -101,7 +94,7 @@ saveStore(websiteData);
 
               {/* 3. The 6 Original Generic Options */}
               <div className="wizard-field" style={{ marginTop: "30px" }}>
-                <label>What is your current business goal?</label>
+                <label>What type of business do you run?</label>
                 <div className="template-choice-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "12px", marginTop: "10px" }}>
                   {businessGoals.map((item) => (
                     <button

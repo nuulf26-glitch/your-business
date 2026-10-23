@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Test configuration only. Existing production rules must be reviewed before merging policies.
+    function owner(uid) { return request.auth != null && request.auth.uid == uid; }
+    match /businessPrivate/{uid}/{document=**} {
+      allow read: if owner(uid);
+      allow write: if false; // All mutations use authenticated server functions.
+    }
+    match /publishedWebsites/{slug} {
+      allow read: if resource.data.published == true;
+      allow write: if false;
+    }
+    match /businessCatalogs/{uid} {
+      allow read, write: if false; // Curated public read and validated writes use callable functions.
+    }
+    match /stores/{uid} {
+      allow read, write: if owner(uid);
+      match /websiteVersions/{id} { allow read, write: if owner(uid); }
+    }
+  }
+}

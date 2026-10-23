@@ -90,6 +90,8 @@ function DashboardLayout({ children }) {
   }
 
   const navigationItems = [
+    { label: "Business workspace", path: "/business" },
+    { label: "Website editor", path: "/editor" },
     {
       label: "Dashboard",
       path: "/dashboard",

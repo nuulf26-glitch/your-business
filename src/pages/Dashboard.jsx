@@ -1,3 +1,8 @@
+import { getStore } from "../services/storeService";
+import { getProducts } from "../services/productService";
+import { orderMetrics } from "../business/metrics";
+import { logout } from "../services/authService";
+import { Navigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
@@ -33,6 +38,7 @@ function readLocalStorageArray(key) {
 
 function Dashboard() {
   const navigate = useNavigate();
+  const [store, setStore] = useState(null);
  const [orders, setOrders] = useState([]);
 const [customers, setCustomers] = useState([]);
 const [products, setProducts] = useState([]);
@@ -56,12 +62,10 @@ if (user) {
           return;
         }
 
-        const storeUrl =
-          localStorage.getItem("storeUrl") ||
-          JSON.parse(
-            localStorage.getItem("websiteSetup")
-          )?.storeUrl ||
-          "";
+        const currentStore = await getStore();
+        setStore(currentStore);
+        setProducts(await getProducts());
+        const storeUrl = currentStore?.storeUrl || '';
 
         if (!storeUrl) {
           return;
@@ -109,53 +113,13 @@ if (user) {
 
     loadDashboardData();
   }, []);
-  // Load baseline configurations
-  const websiteSetup = useMemo(() => {
-    try {
-      const saved = localStorage.getItem("websiteSetup");
-      return saved ? JSON.parse(saved) : null;
-    } catch (error) {
-      console.error("Could not load website setup:", error);
-      return null;
-    }
-  }, []);
-
-  const editorData = useMemo(() => {
-    try {
-      const saved = localStorage.getItem("websiteEditorData");
-      return saved ? JSON.parse(saved) : null;
-    } catch (error) {
-      console.error("Could not load editor data:", error);
-      return null;
-    }
-  }, []);
-
-
-  const businessName =
-    editorData?.brandName ||
-    websiteSetup?.businessName ||
-    "Your Business";
-
-  const selectedTemplate =
-    editorData?.template ||
-    websiteSetup?.template ||
-    localStorage.getItem("selectedTemplate") ||
-    "minimal";
-
-  // Dynamic calculations based on storage values
-  const totalRevenue = useMemo(() => {
-    return orders.reduce(
-      (total, order) => total + (Number(order.total) || 0),
-      0
-    );
-  }, [orders]);
-
-  const averageOrder = useMemo(() => {
-    if (orders.length === 0) {
-      return 0;
-    }
-    return totalRevenue / orders.length;
-  }, [orders, totalRevenue]);
+  const websiteSetup = store;
+  const editorData = store?.draftEditorData || store?.editorData;
+  const businessName = editorData?.brandName || store?.businessName || store?.storeName || 'Your Business';
+  const selectedTemplate = editorData?.template || store?.template || 'minimal';
+  const metrics = useMemo(() => orderMetrics(orders), [orders]);
+  const totalRevenue = metrics.revenue;
+  const averageOrder = metrics.average;
 
   const lowStockProducts = useMemo(() => {
     return products.filter((product) => {
@@ -200,6 +164,8 @@ if (user) {
     };
     return templateNames[templateId] || templateId || "Not selected";
   }
+
+  if (store?.businessCategory && store.businessCategory !== 'store') return <Navigate to="/business" replace />;
 
   return (
     <div className="dashboard-page">
@@ -258,7 +224,7 @@ if (user) {
 
           <button
             type="button"
-            onClick={() => navigate("/")}
+            onClick={async () => { await logout(); navigate("/login"); }}
           >
             Log out
           </button>
@@ -331,6 +297,8 @@ if (user) {
   )}
 
 </section>
+        <button type="button" className="dashboard-secondary-button" onClick={() => navigate('/business')}>Business workspace ↗</button>
+        <section className="dashboard-stats-grid"><article className="dashboard-stat-card"><span>Net profit</span><strong>{metrics.profit == null ? 'Not available' : formatCurrency(metrics.profit)}</strong><p>{metrics.profit == null ? 'Add order cost of goods and expenses to calculate profit.' : 'Based on recorded order costs and expenses.'}</p></article><article className="dashboard-stat-card"><span>Profit margin</span><strong>{metrics.margin == null ? '—' : `${metrics.margin.toFixed(1)}%`}</strong></article></section>
         {/* Top Stat Summary Grid */}
         <section className="dashboard-stats-grid">
           <article className="dashboard-stat-card">
@@ -338,7 +306,7 @@ if (user) {
               <span>Total revenue</span>
               <strong>{formatCurrency(totalRevenue)}</strong>
             </div>
-            <p>Revenue from all orders</p>
+            <p>Paid, completed or delivered orders</p>
           </article>
 
           <article className="dashboard-stat-card">

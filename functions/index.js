@@ -273,3 +273,8 @@ exports.capturePayPalOrder = onRequest(
     }
   }
 );
+// Modular business APIs. Deployment remains a separate release action.
+Object.assign(exports, require('./business.cjs'));
+Object.assign(exports, require('./websites.cjs'));
+Object.assign(exports, require('./analytics.cjs'));
+Object.assign(exports, require('./publicProducts.cjs'));

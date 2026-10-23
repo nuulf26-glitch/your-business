@@ -1,3 +1,5 @@
+import { productPrice } from "../services/productPolicy";
+import { readCart, appendCart } from "../services/cartPolicy";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import "../styles/productPage.css";
@@ -41,42 +43,7 @@ function ProductPage() {
     if (!product) return;
 
     try {
-      const savedCart = localStorage.getItem("businessCart");
-      const currentCart = savedCart ? JSON.parse(savedCart) : [];
-
-      const safeCart = Array.isArray(currentCart) ? currentCart : [];
-
-      const existingProduct = safeCart.find(
-        (item) => item.productId === product.id
-      );
-
-      let updatedCart;
-
-      if (existingProduct) {
-        updatedCart = safeCart.map((item) =>
-          item.productId === product.id
-            ? {
-                ...item,
-quantity: Math.min(
-  Number(product.stock),
-  item.quantity + quantity
-),              }
-            : item
-        );
-      } else {
-        updatedCart = [
-          ...safeCart,
-          {
-            productId: product.id,
-            name: product.name,
-            price: Number(product.sellingPrice),
-            imageUrl: product.imageUrl || "",
-            category: product.category || "",
-            quantity,
-          },
-        ];
-      }
-
+      const updatedCart = appendCart(readCart(localStorage),{...product,price:productPrice(product)},quantity);
       localStorage.setItem("businessCart", JSON.stringify(updatedCart));
 
       setAdded(true);
@@ -85,7 +52,7 @@ quantity: Math.min(
         setAdded(false);
       }, 1800);
     } catch (error) {
-      console.error("Could not add product to cart:", error);
+      alert(error.message);
     }
   }
 
@@ -142,7 +109,7 @@ quantity: Math.min(
             <h1>{product.name}</h1>
 
             <p className="product-page-price">
-              USD {Number(product.sellingPrice).toFixed(2)}
+              USD {productPrice(product).toFixed(2)}
             </p>
 
             <div className="product-page-description">

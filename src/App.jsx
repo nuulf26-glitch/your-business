@@ -1,46 +1,52 @@
+const DesignPreview = lazy(() => import("./pages/DesignPreview"));
+import AppErrorBoundary from "./components/AppErrorBoundary";
+import { lazy, Suspense } from "react";
+const BusinessWorkspace = lazy(() => import("./business/BusinessWorkspace"));
 import { Route, Routes } from "react-router-dom";
-import PlatformPayment from "./pages/PlatformPayment";
-import LandingPage from "./landing/LandingPage";
+const PlatformPayment = lazy(() => import("./pages/PlatformPayment"));
+const LandingPage = lazy(() => import("./landing/LandingPage"));
 import ProtectedRoute from "./components/ProtectedRoute";
-import PrivacyPolicy from "./pages/PrivacyPolicy";
-import Login from "./pages/Login";
-import Signup from "./pages/Signup";
-import CreateWebsite from "./pages/CreateWebsite";
-import Templates from "./pages/Templates";
-import WebsiteEditor from "./pages/WebsiteEditor";
-import PublicStore from "./PublicStore";
-import ProductPage from "./pages/ProductPage";
-import Cart from "./pages/Cart";
-import Checkout from "./pages/Checkout";
-import Payment from "./pages/Payment";
-import OrderSuccess from "./pages/OrderSuccess";
-import Terms from "./pages/Terms";
-import Dashboard from "./pages/Dashboard";
-import Products from "./pages/Products";
-import Orders from "./pages/Orders";
-import OrderDetails from "./pages/OrderDetails";
-import Customers from "./pages/Customers";
-import StoreSetup from "./pages/StoreSetup";
-import StoreDesigner from "./pages/StoreDesigner";
-import Shipping from "./pages/Shipping";
-import Settings from "./pages/Settings";
-import TemplatePreview from "./pages/TemplatePreview";
-import ForgotPassword from "./pages/ForgotPassword";
+const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
+const Login = lazy(() => import("./pages/Login"));
+const Signup = lazy(() => import("./pages/Signup"));
+const CreateWebsite = lazy(() => import("./pages/CreateWebsite"));
+const Templates = lazy(() => import("./pages/Templates"));
+const WebsiteEditor = lazy(() => import("./pages/WebsiteEditor"));
+const PublicStore = lazy(() => import("./PublicStore"));
+const ProductPage = lazy(() => import("./pages/ProductPage"));
+const Cart = lazy(() => import("./pages/Cart"));
+const Checkout = lazy(() => import("./pages/Checkout"));
+const Payment = lazy(() => import("./pages/Payment"));
+const OrderSuccess = lazy(() => import("./pages/OrderSuccess"));
+const Terms = lazy(() => import("./pages/Terms"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Products = lazy(() => import("./pages/Products"));
+const Orders = lazy(() => import("./pages/Orders"));
+const OrderDetails = lazy(() => import("./pages/OrderDetails"));
+const Customers = lazy(() => import("./pages/Customers"));
+const StoreSetup = lazy(() => import("./pages/StoreSetup"));
+const StoreDesigner = lazy(() => import("./pages/StoreDesigner"));
+const Shipping = lazy(() => import("./pages/Shipping"));
+const Settings = lazy(() => import("./pages/Settings"));
+const TemplatePreview = lazy(() => import("./pages/TemplatePreview"));
+const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 function App() {
   return (
+    <AppErrorBoundary><Suspense fallback={<main role="status" style={{ padding: 40 }}>Loading GETCYB…</main>}>
     <Routes>
       {/* Main public pages */}
       <Route path="/" element={<LandingPage />} />
+      <Route path="/design-preview" element={<DesignPreview />} />
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/signup" element={<Signup />} />
-      <Route path="/create-website" element={<CreateWebsite />} />
+      <Route path="/create-website" element={<ProtectedRoute><CreateWebsite /></ProtectedRoute>} />
       <Route path="/templates" element={<Templates />} />
       <Route path="/template-preview/:id" element={<TemplatePreview />} />
-      <Route path="/editor" element={<WebsiteEditor />} />
+      <Route path="/editor" element={<ProtectedRoute><WebsiteEditor /></ProtectedRoute>} />
 
       {/* Customer store */}
-      <Route path="/store/:storeUrl" element={<PublicStore />} />
+      <Route path="/store/:storeUrl/*" element={<PublicStore />} />
       <Route path="/store/:storeUrl/cart" element={<Cart />} />
       <Route path="/product/:productId" element={<ProductPage />} />
       <Route path="/cart" element={<Cart />} />
@@ -48,6 +54,7 @@ function App() {
       <Route path="/payment" element={<Payment />} />
       <Route path="/platform-payment" element={<PlatformPayment />} />
       <Route path="/order-success" element={<OrderSuccess />} />
+      <Route path="/business" element={<ProtectedRoute><BusinessWorkspace /></ProtectedRoute>} />
       <Route
         path="/dashboard"
         element={
@@ -134,6 +141,7 @@ function App() {
       {/* Unknown pages return home */}
 <Route path="*" element={<h1>Page Not Found</h1>} />
     </Routes>
+    </Suspense></AppErrorBoundary>
 
   );
 }

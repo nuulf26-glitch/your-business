@@ -1,3 +1,4 @@
+import { readCart } from "../services/cartPolicy";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/cart.css";
@@ -5,20 +6,7 @@ import "../styles/cart.css";
 function Cart() {
   const navigate = useNavigate();
 
-  const [cart, setCart] = useState([]);
-
-  useEffect(() => {
-    try {
-      const savedCart = localStorage.getItem("businessCart");
-      const parsedCart = savedCart ? JSON.parse(savedCart) : [];
-
-      if (Array.isArray(parsedCart)) {
-        setCart(parsedCart);
-      }
-    } catch (error) {
-      console.error("Could not load cart:", error);
-    }
-  }, []);
+  const [cart, setCart] = useState(() => readCart(localStorage));
 
   useEffect(() => {
     localStorage.setItem("businessCart", JSON.stringify(cart));

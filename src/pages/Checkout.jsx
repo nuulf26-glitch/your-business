@@ -88,6 +88,8 @@ async function handleSubmit(event) {
       return;
     }
 
+    if (new Set(cart.map(item=>item.storeUrl)).size !== 1 || !cart[0]?.storeUrl) { setError('Please order from one store at a time.'); return; }
+
     if (!validateForm()) {
       return;
     }

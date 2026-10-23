@@ -1,3 +1,4 @@
+import { businessCall } from "../business/api";
 import {
   collection,
   addDoc,
@@ -53,36 +54,10 @@ export async function getProducts() {
 
 
 export async function getProductsByStore(storeUrl) {
-  const q = query(
-    productsCollection,
-    where("storeUrl", "==", storeUrl)
-  );
-
-  const snapshot = await getDocs(q);
-
-  return snapshot.docs.map((docItem) => ({
-    id: docItem.id,
-    ...docItem.data(),
-  }));
+  return businessCall('loadPublicProducts',{storeUrl});
 }
-
 export async function getProductById(id) {
-  const productDoc = doc(
-    db,
-    "products",
-    id
-  );
-
-  const snapshot = await getDoc(productDoc);
-
-  if (!snapshot.exists()) {
-    return null;
-  }
-
-  return {
-    id: snapshot.id,
-    ...snapshot.data(),
-  };
+  return businessCall('loadPublicProduct',{id});
 }
 
 export async function deleteProduct(id) {
