@@ -140,10 +140,15 @@ function addToCart(product) {
     );
   }
 
-  if (editorData?.editorVersion === 2) {
+  // Treat structured sections/pages as the new editor format even if an older
+  // publishing endpoint omitted editorVersion. Never show the legacy template
+  // in place of a real website design.
+  const structuredWebsite = Array.isArray(editorData?.sections) ||
+    (Array.isArray(editorData?.pages) && editorData.pages.some(page => Array.isArray(page.sections)));
+  if (editorData?.editorVersion === 2 || structuredWebsite) {
     return (
       <WebsiteRenderer
-        model={editorData}
+        model={{ ...editorData, editorVersion: 2 }}
         baseUrl={`/store/${storeUrl}`}
         slug={pageSlug}
         catalog={catalog}
