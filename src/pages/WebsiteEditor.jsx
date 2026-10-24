@@ -398,7 +398,7 @@ export default function WebsiteEditor() {
       } else { commit({ ...model, sections: visibleSections.map(item => item.id === sectionId ? { ...item, image: url } : item) }); }
       setStatus("Unsaved"); showToast("Image updated");
     } catch (error) {
-      console.error("Image upload failed:", error); setStatus("Image upload failed"); showToast("Image upload failed. Please try again.");
+      console.error("Image upload failed:", error); setStatus("Image upload failed"); showToast(error?.code === "storage/unauthorized" ? "Storage permission denied. Check Firebase Storage rules." : error?.code === "storage/object-not-found" ? "Storage bucket unavailable. Check Firebase Storage setup." : error?.code === "storage/quota-exceeded" ? "Firebase Storage quota exceeded." : `Image upload failed: ${error?.code || error?.message || "Unknown error"}`);
     }
   }
   function undo() {
