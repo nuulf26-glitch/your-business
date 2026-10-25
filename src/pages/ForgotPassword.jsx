@@ -26,12 +26,12 @@ function ForgotPassword() {
 
       await sendPasswordResetEmail(auth, email.trim());
 
-      setMessage("Password reset email sent. Check your inbox.");
+      setMessage("If an account uses this email, a reset link will arrive shortly. Check your inbox and spam folder.");
     } catch (resetError) {
       console.error(resetError);
 
       if (resetError.code === "auth/user-not-found") {
-        setError("No account found with this email.");
+        setMessage("If an account uses this email, a reset link will arrive shortly. Check your inbox and spam folder.");
       } else if (resetError.code === "auth/invalid-email") {
         setError("Please enter a valid email.");
       } else {

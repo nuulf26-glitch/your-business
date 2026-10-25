@@ -1,3 +1,4 @@
+import TrialBanner from "../components/TrialBanner";
 import { getStore } from "../services/storeService";
 import { getProducts } from "../services/productService";
 import { orderMetrics } from "../business/metrics";
@@ -267,36 +268,7 @@ if (user) {
             </button>
           </div>
         </header>
-<section className="dashboard-payment-card">
-
-  {userProfile?.paid ? (
-    <>
-      <span>Account status</span>
-      <h2>Active account ✅</h2>
-      <p>
-        Your Business platform is unlocked.
-      </p>
-    </>
-  ) : (
-    <>
-      <span>Account inactive</span>
-      <h2>Activate your account</h2>
-      <p>
-        Complete your payment to unlock your website builder,
-        store, and dashboard features.
-      </p>
-
-      <button
-        type="button"
-        className="dashboard-primary-button"
-        onClick={() => navigate("/platform-payment")}
-      >
-        Pay Now
-      </button>
-    </>
-  )}
-
-</section>
+<TrialBanner />
         <button type="button" className="dashboard-secondary-button" onClick={() => navigate('/business')}>Business workspace ↗</button>
         <section className="dashboard-stats-grid"><article className="dashboard-stat-card"><span>Net profit</span><strong>{metrics.profit == null ? 'Not available' : formatCurrency(metrics.profit)}</strong><p>{metrics.profit == null ? 'Add order cost of goods and expenses to calculate profit.' : 'Based on recorded order costs and expenses.'}</p></article><article className="dashboard-stat-card"><span>Profit margin</span><strong>{metrics.margin == null ? '—' : `${metrics.margin.toFixed(1)}%`}</strong></article></section>
         {/* Top Stat Summary Grid */}

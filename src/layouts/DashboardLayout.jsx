@@ -1,3 +1,4 @@
+import TrialBanner from "../components/TrialBanner";
 import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
@@ -169,6 +170,7 @@ function DashboardLayout({ children }) {
       </aside>
 
       <main style={styles.main}>
+        <TrialBanner />
         {children}
       </main>
     </div>

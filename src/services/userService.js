@@ -8,7 +8,7 @@ export async function saveUserProfile(userId, data) {
     ...data,
     userId,
     createdAt: new Date().toISOString(),
-  });
+  }, { merge: true });
 }
 
 export async function getUserProfile(userId) {

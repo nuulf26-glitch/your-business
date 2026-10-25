@@ -1,6 +1,5 @@
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import app from '../firebase';
-const functions = getFunctions(app);
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../firebase';
 export async function businessCall(name, data = {}) {
   try { return (await httpsCallable(functions, name)(data)).data; }
   catch(error) {

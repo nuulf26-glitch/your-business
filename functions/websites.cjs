@@ -1,6 +1,9 @@
 const {onCall,HttpsError}=require('firebase-functions/v2/https');
 const {getFirestore,FieldValue}=require('firebase-admin/firestore');
 const {validateModel,publicModel}=require('./websitePolicy.cjs');
+const {nextRevision}=require('./draftPolicy.cjs');
+const {requirePublishAccess}=require('./access.cjs');
+function revision(stored,expected){try{return nextRevision(stored,expected);}catch(error){throw new HttpsError('aborted',error.message);}}
 function owner(request){if(!request.auth)throw new HttpsError('unauthenticated','Please sign in.');return request.auth.uid;}
 function validated(data,publishing){try{return validateModel(data,publishing);}catch(error){throw new HttpsError('invalid-argument',error.message);}}
 exports.loadWebsiteDraft=onCall(async request=>{
@@ -10,15 +13,29 @@ exports.loadWebsiteDraft=onCall(async request=>{
  const store=await db.doc(`stores/${uid}`).get();const data=store.data();
  return data?.draftEditorData||data?.editorData||null;
 });
+exports.loadWebsiteWorkspace=onCall(async request=>{
+ const uid=owner(request),db=getFirestore();
+ const draft=await db.doc(`businessPrivate/${uid}/website/draft`).get();
+ if(draft.exists)return {model:draft.data().model,revision:draft.data().revision||0};
+ const store=await db.doc(`stores/${uid}`).get();
+ return {model:store.data()?.draftEditorData||store.data()?.editorData||null,revision:0};
+});
 exports.saveWebsiteDraft=onCall(async request=>{
- const uid=owner(request),model=validated(request.data?.model,false);
- await getFirestore().doc(`businessPrivate/${uid}/website/draft`).set({model,updatedAt:FieldValue.serverTimestamp()});
- return {saved:true};
+ const uid=owner(request),model=validated(request.data?.model,false),db=getFirestore();
+ const ref=db.doc(`businessPrivate/${uid}/website/draft`);
+ return db.runTransaction(async tx=>{
+  const current=await tx.get(ref),next=revision(current.data()?.revision,request.data?.expectedRevision);
+  tx.set(ref,{model,revision:next,updatedAt:FieldValue.serverTimestamp()});
+  return {saved:true,revision:next};
+ });
 });
 exports.publishWebsiteSnapshot=onCall(async request=>{
  const uid=owner(request),model=validated(request.data?.model,true),db=getFirestore();
+ await requirePublishAccess(uid);
  const snapshot=publicModel(model),storeRef=db.doc(`stores/${uid}`),version=db.collection(`businessPrivate/${uid}/versions`).doc();
  return db.runTransaction(async tx=>{
+  const draftRef=db.doc(`businessPrivate/${uid}/website/draft`);
+  const draft=await tx.get(draftRef),next=revision(draft.data()?.revision,request.data?.expectedRevision);
   const store=await tx.get(storeRef);const slug=store.data()?.storeUrl;
   if(!/^[a-z0-9-]{1,100}$/.test(slug||''))throw new HttpsError('failed-precondition','Choose a valid store address in Store Setup.');
   const publicRef=db.doc(`publishedWebsites/${slug}`);const existing=await tx.get(publicRef);
@@ -33,9 +50,9 @@ exports.publishWebsiteSnapshot=onCall(async request=>{
   // Previous public address must stop serving an outdated projection when the slug changes.
   if(previousRef&&previousSnapshot?.data()?.ownerId===uid)tx.set(previousRef,{published:false},{merge:true});
   tx.set(version,{model:snapshot,publishedAt});
-  tx.set(db.doc(`businessPrivate/${uid}/website/draft`),{model,updatedAt:FieldValue.serverTimestamp()});
+  tx.set(draftRef,{model,revision:next,updatedAt:FieldValue.serverTimestamp()});
   tx.set(storeRef,{published:true,publishedSlug:slug,publishedAt},{merge:true});
-  return {slug,versionId:version.id};
+  return {slug,versionId:version.id,revision:next};
  });
 });
 exports.loadPublishedWebsite=onCall(async request=>{

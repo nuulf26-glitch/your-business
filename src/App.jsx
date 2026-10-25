@@ -1,3 +1,4 @@
+const EditorTestWorkspace = import.meta.env.DEV ? lazy(() => import("./editor/EditorTestWorkspace")) : null;
 const DesignPreview = lazy(() => import("./pages/DesignPreview"));
 import AppErrorBoundary from "./components/AppErrorBoundary";
 import { lazy, Suspense } from "react";
@@ -34,6 +35,7 @@ function App() {
   return (
     <AppErrorBoundary><Suspense fallback={<main role="status" style={{ padding: 40 }}>Loading GETCYB…</main>}>
     <Routes>
+      {import.meta.env.DEV && <Route path="/__editor-test" element={<EditorTestWorkspace />} />}
       {/* Main public pages */}
       <Route path="/" element={<LandingPage />} />
       <Route path="/design-preview" element={<DesignPreview />} />

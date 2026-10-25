@@ -1,0 +1,17 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function owner(uid) { return request.auth != null && request.auth.uid == uid; }
+    // Website imagery is public. Listing and uploading require ownership.
+    match /businesses/{uid}/media/{filename} {
+      allow get: if true;
+      allow list: if owner(uid);
+      allow create: if owner(uid) && request.resource.size > 0 && request.resource.size <= 8 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|gif|avif)');
+      allow delete: if owner(uid);
+      allow update: if false;
+    }
+    // Preserve access to legacy published images. No new legacy-path writes.
+    match /products/{filename} { allow get: if true; }
+  }
+}

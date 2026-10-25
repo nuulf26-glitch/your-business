@@ -1,3 +1,4 @@
+import { businessCall } from "../business/api";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { auth } from "../firebase";
@@ -44,13 +45,15 @@ await saveUserProfile(userCredential.user.uid, {
   email: email.trim(),
   fullName: fullName.trim(),
   businessName: businessName.trim(),
-  marketingConsent: true,
+  marketingConsent: false,
 });
 } catch (error) {
   console.error("PROFILE SAVE ERROR:", error.code, error.message);
 }
 
-await sendEmailVerification(userCredential.user);
+// Trial dates are based on Auth creation time even if initialization is retried.
+await businessCall('getBusinessAccess').catch(() => {});
+await sendEmailVerification(userCredential.user).catch(() => {});
 navigate("/create-website");
     } catch (signupError) {
 console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (signupError.code === "auth/email-already-in-use") {

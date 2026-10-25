@@ -234,7 +234,8 @@ exports.capturePayPalOrder = onRequest(
         return;
       }
 
-      await db.collection("users").doc(decodedToken.uid).set(
+      const billingBatch = db.batch();
+      billingBatch.set(db.collection("users").doc(decodedToken.uid),
         {
           paid: true,
           plan: "Basic",
@@ -252,6 +253,12 @@ exports.capturePayPalOrder = onRequest(
           merge: true,
         }
       );
+
+      billingBatch.set(db.doc(`businessPrivate/${decodedToken.uid}/billing/entitlement`), {
+        status: "active", lifetime: true, provider: "paypal",
+        captureId: capture.id, updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      await billingBatch.commit();
 
       response.status(200).json({
         success: true,
@@ -278,3 +285,5 @@ Object.assign(exports, require('./business.cjs'));
 Object.assign(exports, require('./websites.cjs'));
 Object.assign(exports, require('./analytics.cjs'));
 Object.assign(exports, require('./publicProducts.cjs'));
+
+exports.getBusinessAccess = require('./access.cjs').getBusinessAccess;
