@@ -94,6 +94,7 @@ CREATE TABLE "Website" (
 -- CreateTable
 CREATE TABLE "WebsiteVersion" (
     "id" TEXT NOT NULL,
+    "legacyFirebaseId" TEXT,
     "websiteId" TEXT NOT NULL,
     "snapshot" JSONB NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -130,7 +131,7 @@ CREATE TABLE "Order" (
     "legacyFirebaseId" TEXT,
     "businessId" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'pending',
-    "amountCents" INTEGER NOT NULL DEFAULT 0,
+    "amountCents" INTEGER,
     "currency" TEXT NOT NULL DEFAULT 'USD',
     "data" JSONB NOT NULL DEFAULT '{}',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -146,7 +147,7 @@ CREATE TABLE "PaymentReference" (
     "providerOrderId" TEXT,
     "providerCaptureId" TEXT,
     "status" TEXT NOT NULL,
-    "amountCents" INTEGER NOT NULL,
+    "amountCents" INTEGER,
     "currency" TEXT NOT NULL,
     "userId" TEXT,
     "metadata" JSONB NOT NULL DEFAULT '{}',
@@ -207,6 +208,9 @@ CREATE INDEX "Business_ownerId_idx" ON "Business"("ownerId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Website_businessId_key" ON "Website"("businessId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "WebsiteVersion_legacyFirebaseId_key" ON "WebsiteVersion"("legacyFirebaseId");
 
 -- CreateIndex
 CREATE INDEX "WebsiteVersion_websiteId_createdAt_idx" ON "WebsiteVersion"("websiteId", "createdAt");

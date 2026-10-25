@@ -91,6 +91,7 @@ model Website {
 }
 model WebsiteVersion {
   id String @id @default(cuid())
+  legacyFirebaseId String? @unique
   websiteId String
   snapshot Json
   createdAt DateTime @default(now())
@@ -121,7 +122,7 @@ model Order {
   businessId String
   business Business @relation(fields:[businessId], references:[id], onDelete:Cascade)
   status String @default("pending")
-  amountCents Int @default(0)
+  amountCents Int?
   currency String @default("USD")
   data Json @default("{}")
   createdAt DateTime @default(now())
@@ -134,7 +135,7 @@ model PaymentReference {
   providerOrderId String? @unique
   providerCaptureId String? @unique
   status String
-  amountCents Int
+  amountCents Int?
   currency String
   userId String?
   user User? @relation(fields:[userId], references:[id], onDelete:SetNull)

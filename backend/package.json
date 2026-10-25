@@ -11,7 +11,8 @@
     "prisma:migrate": "prisma migrate deploy",
     "test": "jest --runInBand",
     "backup:firebase": "node scripts/export-firebase.mjs",
-    "verify:firebase-backup": "node scripts/verify-firebase-export.mjs"
+    "verify:firebase-backup": "node scripts/verify-firebase-export.mjs",
+    "import:firebase-staging": "node scripts/import-firebase-staging.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.879.0",

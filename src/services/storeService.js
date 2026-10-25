@@ -6,6 +6,8 @@ const customSessionEnabled = import.meta.env.VITE_ENABLE_CUSTOM_API_SESSION === 
 async function syncBusiness(data) {
   if(!customSessionEnabled||!data?.storeUrl)return;
   await customBackendRequest('/businesses/mine',{method:'PUT',body:JSON.stringify({name:data.businessName||data.storeName||'My Business',slug:data.storeUrl,category:data.businessCategory||data.businessGoal||'general',settings:data})});
+  const model=data.publishedEditorData||(data.published!==false?data.editorData:null);
+  if(model){const current=await customBackendRequest('/websites/draft');if(!current?.draft||!Object.keys(current.draft).length){await customBackendRequest('/websites/draft',{method:'PUT',body:JSON.stringify({model})});if(data.published!==false)await customBackendRequest('/websites/publish',{method:'POST',body:JSON.stringify({model})});}}
 }
 
 export async function saveStore(data) {

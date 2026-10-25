@@ -19,7 +19,7 @@ The baseline repository is preserved on `backup/main-before-custom-backend-2026-
 - NestJS/TypeScript API and Prisma/PostgreSQL schema for users, sessions, email tokens, 14-day trials, businesses, websites/versions, products, customers, orders and payment references.
 - Owner-scoped business/product/customer/order APIs, website draft/publish/public read, PayPal order/capture verification and S3-compatible upload signing.
 - Email verification/reset endpoints plus Firebase Admin token exchange for staged migration. Frontend auth can optionally establish the custom cookie after Firebase login when `VITE_ENABLE_CUSTOM_API_SESSION=true`; direct Firestore workflows remain the system of record.
-- Read-only encrypted Firebase export scripts: Auth users, recursively scanned Firestore documents, and Firebase Storage objects. AES-256-GCM protects export files; a verifier checks encrypted records and asset SHA-256 integrity. The export has not been run because Firebase Admin credentials are unavailable.
+- Read-only encrypted Firebase export and staging-import scripts: Auth users, recursive Firestore documents, and Storage object backups; an AES-256-GCM verifier checks document counts and asset SHA-256 integrity. The import is idempotent, target-host guarded, retains every source document by path, and maps core account/store/site/product/customer/order/payment records. The export/import have not been run because Firebase Admin and staging DB credentials are unavailable; S3 asset copying and URL rewrite remain outstanding.
 
 ### Migration safety and prerequisites
 
