@@ -23,13 +23,5 @@ services:
           name: getcyb-staging-db
           property: connectionString
 
-databases:
-  - name: getcyb-staging-db
-    databaseName: getcyb_staging_db
-    user: getcyb_staging_db_user
-    plan: free
-    region: frankfurt
-    postgresMajorVersion: "16"
-
 previews:
   generation: off
