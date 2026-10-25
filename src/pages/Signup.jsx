@@ -64,6 +64,8 @@ console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (
         setError("Please enter a valid email address.");
       } else if (signupError.code === "auth/weak-password") {
         setError("Please choose a stronger password.");
+      } else if (signupError.message?.includes("account was created, but the verification email")) {
+        setError(signupError.message);
       } else {
         setError("We could not create your account. Please try again.");
       }

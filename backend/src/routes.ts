@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 6735)
+Total output lines: 280
+
 import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { IsEmail, IsString, MinLength, MaxLength, IsObject, IsIn, IsInt, Max, IsOptional } from 'class-validator';
 import { Request, Response } from 'express';
@@ -70,16 +73,24 @@ export class AuthController {
     const email = dto.email.trim().toLowerCase();
     if (await this.db.user.findUnique({ where:{email} })) throw new ConflictException('Account already exists');
     const trialEndsAt = new Date(Date.now()+14*864e5);
-    const user = await this.db.user.create({ data:{ email, fullName:dto.fullName?.trim() || null, passwordHash:await argon2.hash(dto.password), role:'OWNER' } });
+    const businessName = dto.businessName?.trim() || '';
+    const slugBase = businessName.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,70) || 'business';
+    const user = await this.db.$transaction(async tx => {
+      const created = await tx.user.create({ data:{ email, fullName:dto.fullName?.trim() || null, passwordHash:await argon2.hash(dto.password), role:'OWNER' } });
+      await tx.subscription.create({data:{userId:created.id,trialEndsAt}});
+      await tx.business.create({data:{ownerId:created.id,name:businessName,slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
+      return created;
+    });
     try {
-      await this.db.subscription.create({data:{userId:user.id,trialEndsAt}});
-      const businessName = dto.businessName?.trim() || '';
-      const slugBase = businessName.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,70) || 'business';
-      await this.db.business.create({data:{ownerId:user.id,name:businessName,slug:`${slugBase}-${user.id.slice(-6)}`,website:{create:{}}}});
       await this.createEmailLink(user.id,email,'verify');
     } catch (error) {
-      await this.db.user.delete({where:{id:user.id}});
-      throw error;
+      const cause = error as { code?: string; command?: string; responseCode?: number };
+      this.logger.error(`Signup verification email failed (code=${cause?.code || 'unknown'}, command=${cause?.command || 'unknown'}, response=${cause?.responseCode || 'unknown'})`);
+      // Keep the account and its trial/business records. Deleting them made a
+      // transient SMTP failure look like signup failed and blocked retries.
+      if (process.env.NODE_ENV === 'production') {
+        throw new ServiceUnavailableException('Your account was created, but the verification email could not be sent. Try resending the verification email later.');
+      }
     }
     if(process.env.NODE_ENV!=='production') await this.issueSession(user.id, res);
     return { id:user.id, email:user.email, emailVerified:false, trialEndsAt:trialEndsAt.toISOString() };
@@ -154,35 +165,7 @@ export class BusinessController {
     const business=await this.db.business.findUnique({where:{slug},include:{website:true}});
     if(!business?.website?.published)throw new NotFoundException('Website not found');
     const settings=business.settings as Record<string,unknown>;
-    const safeKeys=['storeName','businessName','description','storeDescription','logoUrl','coverImageUrl','themeColor','primaryColor','backgroundColor','textColor','template','cardStyle','businessCategory','currency','language'];
-    const publicSettings=Object.fromEntries(safeKeys.filter(key=>typeof settings[key]==='string').map(key=>[key,settings[key]]));
-    return {id:business.id,name:business.name,slug:business.slug,category:business.category,settings:publicSettings};
-  }
-}
-
-@Controller('products')
-@UseGuards(SessionGuard)
-export class ProductController {
-  constructor(private db:DbService){}
-  private async business(userId:string){const b=await this.db.business.findFirst({where:{ownerId:userId}});if(!b)throw new NotFoundException('Create a business first');return b;}
-  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.business(req.user.id);return this.db.product.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'}});}
-  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const name=String(dto.data.name||'').trim();if(!name)throw new BadRequestException('Product name required');return this.db.product.create({data:{businessId:b.id,name,data:dto.data as any}});}
-  @Put(':id') async update(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const id=String(req.params['id']);const name=String(dto.data.name||'').trim();if(!name)throw new BadRequestException('Product name required');const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{name,data:dto.data as any}});if(!result.count)throw new NotFoundException('Product not found');return this.db.product.findUnique({where:{id}});}
-  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.business(req.user.id);const result=await this.db.product.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Product not found');return {deleted:true};}
-}
-
-@Controller('public/products')
-export class PublicProductController {
-  constructor(private db:DbService){}
-  @Get(':slug') async list(@Req() req:Request){
-    const slug=String(req.params['slug']||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Website not found');
-    const rows=await this.db.product.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:300});
-    return rows.filter(row=>(row.data as any)?.status!=='hidden').map(row=>{
-      const data=row.data as Record<string,unknown>;
-      return {id:row.id,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category};
-    });
-  }
-  @Get('item/:id') async one(@Req() req:Request){const id=String(req.params['id']||'');const row=await this.db.product.findUnique({where:{id},include:{business:{include:{website:true}}}});if(!row||!row.business.website?.published||(row.data as any)?.status==='hidden')throw new NotFoundException('Product not found');const data=row.data as Record<string,unknown>;return {id:row.id,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category};}
+    const safeKeys=['storeName','businessName','description','storeDescription','logoUrl','coverImageUrl','themeColor','primaryColor','backgroundColor','textColor','template','cardSt…735 tokens truncated…);if(!row||!row.business.website?.published||(row.data as any)?.status==='hidden')throw new NotFoundException('Product not found');const data=row.data as Record<string,unknown>;return {id:row.id,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category};}
 }
 
 @Controller('customers')
