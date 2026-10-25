@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: getcyb-staging-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: codex/custom-backend-migration
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /api/v1/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: staging
+      - key: FRONTEND_ORIGIN
+        value: http://localhost:5173
+      - key: COOKIE_SAME_SITE
+        value: lax
+      - key: PUBLIC_APP_URL
+        value: http://localhost:5173
+      - key: DATABASE_URL
+        fromDatabase:
+          name: getcyb-staging-db
+          property: connectionString
+
+databases:
+  - name: getcyb-staging-db
+    databaseName: getcyb_staging_db
+    user: getcyb_staging_db_user
+    plan: free
+    region: frankfurt
+    postgresMajorVersion: "16"
+    diskSizeGB: 1
+
+previews:
+  generation: off
