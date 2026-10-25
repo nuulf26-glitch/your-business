@@ -1,4 +1,4 @@
-import { OriginGuard, tokenHash } from '../src/session';
+import { OriginGuard, SessionGuard, tokenHash } from '../src/session';
 import { AuthController, HealthController, OrderController } from '../src/routes';
 import { publicWebsite, validateWebsite } from '../src/website-policy';
 import * as argon2 from 'argon2';
@@ -21,6 +21,17 @@ describe('opaque session token storage', () => {
     const context:any={switchToHttp:()=>({getRequest:()=>({method:'POST',headers:{origin:'https://attacker.example'}})})};
     expect(()=>new OriginGuard().canActivate(context)).toThrow('Request origin is not allowed');
     if(previous===undefined)delete process.env.FRONTEND_ORIGIN;else process.env.FRONTEND_ORIGIN=previous;
+  });
+
+  it('accepts a valid session even when the account email is unverified', async () => {
+    const session={expiresAt:new Date(Date.now()+60_000),user:{id:'u-1',emailVerifiedAt:null}};
+    const db:any={session:{findUnique:jest.fn().mockResolvedValue(session)}};
+    const req:any={cookies:{getcyb_session:'session-token'}};
+    const context:any={switchToHttp:()=>({getRequest:()=>req})};
+    const previous=process.env.NODE_ENV;process.env.NODE_ENV='production';
+    await expect(new SessionGuard(db).canActivate(context)).resolves.toBe(true);
+    if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
+    expect(req.user).toBe(session.user);
   });
 });
 

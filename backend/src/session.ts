@@ -12,7 +12,6 @@ export class SessionGuard implements CanActivate {
     if (!token) throw new UnauthorizedException('Sign in required');
     const session = await this.db.session.findUnique({ where: { tokenHash: tokenHash(token) }, include: { user: true } });
     if (!session || session.expiresAt <= new Date()) throw new UnauthorizedException('Session expired');
-    if (process.env.NODE_ENV === 'production' && !session.user.emailVerifiedAt) throw new UnauthorizedException('Verify your email before continuing');
     req.user = session.user;
     return true;
   }
