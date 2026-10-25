@@ -1,16 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import "../styles/customers.css";
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  updateDoc,
-  doc,
-  deleteDoc,
-} from "firebase/firestore";
-
-import { auth, db } from "../firebase";
+import { getCustomers, deleteCustomer as removeCustomer, updateCustomerStatus } from "../services/customerService";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -43,39 +33,7 @@ function Customers() {
   useEffect(() => {
   async function loadCustomers() {
     try {
-      const user = auth.currentUser;
-
-      if (!user) {
-        setCustomers([]);
-        return;
-      }
-
-      const storeUrl =
-        localStorage.getItem("storeUrl") ||
-        JSON.parse(
-          localStorage.getItem("websiteSetup")
-        )?.storeUrl ||
-        "";
-
-      if (!storeUrl) {
-        setCustomers([]);
-        return;
-      }
-
-      const q = query(
-        collection(db, "customers"),
-        where("storeUrl", "==", storeUrl)
-      );
-
-      const snapshot = await getDocs(q);
-
-      const firebaseCustomers =
-        snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-
-      setCustomers(firebaseCustomers);
+      setCustomers(await getCustomers());
 
     } catch (error) {
       console.error(
@@ -148,12 +106,7 @@ function Customers() {
 
   async function updateStatus(customerId, newStatus) {
   try {
-    await updateDoc(
-      doc(db, "customers", customerId),
-      {
-        status: newStatus,
-      }
-    );
+    await updateCustomerStatus(customerId, newStatus);
 
     setCustomers((currentCustomers) =>
       currentCustomers.map((customer) =>
@@ -183,9 +136,7 @@ function Customers() {
   }
 
   try {
-    await deleteDoc(
-      doc(db, "customers", customerId)
-    );
+    await removeCustomer(customerId);
 
     setCustomers((currentCustomers) =>
       currentCustomers.filter(

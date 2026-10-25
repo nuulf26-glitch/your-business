@@ -1,64 +1,36 @@
 import { doc, setDoc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "../firebase";
-import { customBackendRequest } from "./customBackendSession";
+import { customBackendRequest, isCustomBackendSessionEnabled } from "./customBackendSession";
 
-const customSessionEnabled = import.meta.env.VITE_ENABLE_CUSTOM_API_SESSION === 'true';
-async function syncBusiness(data) {
-  if(!customSessionEnabled||!data?.storeUrl)return;
-  await customBackendRequest('/businesses/mine',{method:'PUT',body:JSON.stringify({name:data.businessName||data.storeName||'My Business',slug:data.storeUrl,category:data.businessCategory||data.businessGoal||'general',settings:data})});
-  const model=data.publishedEditorData||(data.published!==false?data.editorData:null);
-  if(model){const current=await customBackendRequest('/websites/draft');if(!current?.draft||!Object.keys(current.draft).length){await customBackendRequest('/websites/draft',{method:'PUT',body:JSON.stringify({model})});if(data.published!==false)await customBackendRequest('/websites/publish',{method:'POST',body:JSON.stringify({model})});}}
+function fromBusiness(business) {
+  if (!business) return null;
+  const settings = business.settings && typeof business.settings === 'object' ? business.settings : {};
+  return { ...settings, id: business.id, userId: business.ownerId, storeUrl: business.slug, storeName: settings.storeName || business.name, businessName: settings.businessName || business.name, businessCategory: settings.businessCategory || business.category };
 }
 
 export async function saveStore(data) {
-  const user = auth.currentUser;
-
-  if (!user) {
-    throw new Error("User not logged in");
+  if (isCustomBackendSessionEnabled()) {
+    const result = await customBackendRequest('/businesses/mine', { method: 'PUT', body: JSON.stringify({ name: data.businessName || data.storeName || 'My Business', slug: data.storeUrl, category: data.businessCategory || data.businessGoal || 'general', settings: data }) });
+    return fromBusiness(result);
   }
-
-  const storeRef = doc(db, "stores", user.uid);
-
-  await setDoc(storeRef, {
-    ...data,
-    userId: user.uid,
-    updatedAt: new Date().toISOString(),
-  }, { merge: true });
-  await syncBusiness(data);
+  const user = auth.currentUser;
+  if (!user) throw new Error("User not logged in");
+  await setDoc(doc(db, "stores", user.uid), { ...data, userId: user.uid, updatedAt: new Date().toISOString() }, { merge: true });
 }
 
 export async function getStore() {
+  if (isCustomBackendSessionEnabled()) return fromBusiness(await customBackendRequest('/businesses/mine'));
   const user = auth.currentUser;
-
-  if (!user) {
-    return null;
-  }
-
-  const storeRef = doc(db, "stores", user.uid);
-  const storeSnapshot = await getDoc(storeRef);
-
-  if (!storeSnapshot.exists()) {
-    return null;
-  }
-
-  const data=storeSnapshot.data();
-  await syncBusiness(data);
-  return data;
+  if (!user) return null;
+  const storeSnapshot = await getDoc(doc(db, "stores", user.uid));
+  return storeSnapshot.exists() ? storeSnapshot.data() : null;
 }
 
 export async function getStoreByUrl(storeUrl) {
-  const storesRef = collection(db, "stores");
-
-  const q = query(
-    storesRef,
-    where("storeUrl", "==", storeUrl)
-  );
-
-  const snapshot = await getDocs(q);
-
-  if (snapshot.empty) {
-    return null;
+  if (isCustomBackendSessionEnabled()) {
+    try { return fromBusiness(await customBackendRequest(`/businesses/public/${encodeURIComponent(storeUrl)}`)); }
+    catch (error) { if (error.status === 404) return null; throw error; }
   }
-
-  return snapshot.docs[0].data();
+  const snapshot = await getDocs(query(collection(db, "stores"), where("storeUrl", "==", storeUrl)));
+  return snapshot.empty ? null : snapshot.docs[0].data();
 }

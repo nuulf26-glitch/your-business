@@ -1,16 +1,7 @@
 import { useEffect, useState } from "react";
-import {
-  collection,
-  doc,
-  getDocs,
-  query,
-  setDoc,
-  where,
-} from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth";
-
 import DashboardLayout from "../layouts/DashboardLayout";
-import { auth, db } from "../firebase";
+import { subscribeAppUser } from "../services/customBackendSession";
+import { getStore, saveStore } from "../services/storeService";
 import "../styles/settings.css";
 
 // قائمة شاملة لكل عملات العالم مع رموزها ومفاتيح الهاتف الخاصة بها
@@ -58,8 +49,7 @@ function Settings() {
   }
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(
-      auth,
+    const unsubscribe = subscribeAppUser(
       async (currentUser) => {
         if (!currentUser) {
           setUser(null);
@@ -71,18 +61,9 @@ function Settings() {
         setBusinessEmail(currentUser.email || "");
 
         try {
-          const storesQuery = query(
-            collection(db, "stores"),
-            where("userId", "==", currentUser.uid)
-          );
-
-          const snapshot = await getDocs(storesQuery);
-
-          if (!snapshot.empty) {
-            const storeDocument = snapshot.docs[0];
-            const data = storeDocument.data();
-
-            setStoreDocId(storeDocument.id);
+          const data = await getStore();
+          if (data) {
+            setStoreDocId(data.id || currentUser.uid);
             setBusinessName(
               data.businessName || data.storeName || ""
             );
@@ -133,27 +114,15 @@ function Settings() {
       setSaving(true);
       setMessage("");
 
-      const documentId = storeDocId || user.uid;
-      const storeReference = doc(db, "stores", documentId);
-
-      await setDoc(
-        storeReference,
-        {
-          userId: user.uid,
-          businessName: businessName.trim(),
-          businessEmail: businessEmail.trim(),
-          supportEmail: supportEmail.trim(),
-          phonePrefix: phonePrefix,
-          phone: phone.trim(),
-          currency: storeCurrency,
-          deliveryPolicy: deliveryPolicy.trim(),
-          returnPolicy: returnPolicy.trim(),
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-
-      setStoreDocId(documentId);
+      const existing = await getStore();
+      await saveStore({
+        ...(existing || {}),
+        storeUrl: existing?.storeUrl || `business-${String(user.uid).slice(-8)}`,
+        storeName: businessName.trim(), businessName: businessName.trim(),
+        businessEmail: businessEmail.trim(), supportEmail: supportEmail.trim(),
+        phonePrefix, phone: phone.trim(), currency: storeCurrency,
+        deliveryPolicy: deliveryPolicy.trim(), returnPolicy: returnPolicy.trim(),
+      });
       setMessage("Settings saved successfully.");
     } catch (error) {
       console.error("Error saving settings:", error);

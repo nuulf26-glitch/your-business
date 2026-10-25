@@ -1,3 +1,5 @@
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '../firebase';
 const enabled = import.meta.env.VITE_ENABLE_CUSTOM_API_SESSION === 'true';
 const baseUrl = (import.meta.env.VITE_CUSTOM_BACKEND_URL || '').replace(/\/$/, '');
 
@@ -24,4 +26,25 @@ export async function clearCustomBackendSession() {
   await customBackendRequest('/auth/logout', { method: 'POST' }).catch(() => {});
 }
 export const isCustomBackendSessionEnabled = () => enabled;
+
+export async function getAppUser() {
+  if (enabled) {
+    try { const account = await customBackendRequest('/auth/me'); return { ...account, uid: account.id }; }
+    catch { return null; }
+  }
+  return auth.currentUser;
+}
+
+export function subscribeAppUser(callback) {
+  if (!enabled) return onAuthStateChanged(auth, callback);
+  let active = true;
+  const refresh = () => getAppUser().then((user) => { if (active) callback(user); });
+  window.addEventListener('getcyb-auth-changed', refresh);
+  refresh();
+  return () => { active = false; window.removeEventListener('getcyb-auth-changed', refresh); };
+}
+
+export function notifyAppUserChanged() {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('getcyb-auth-changed'));
+}
 

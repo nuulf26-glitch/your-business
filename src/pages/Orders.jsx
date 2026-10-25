@@ -1,15 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import "../styles/orders.css";
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  updateDoc,
-  doc,
-  deleteDoc,
-} from "firebase/firestore";
-import { auth, db } from "../firebase";
+import { getOrders, updateOrderStatus as saveOrderStatus, deleteOrder as removeOrder } from "../services/orderService";
 const statuses = [
   "New",
   "Paid",
@@ -36,26 +27,7 @@ function Orders() {
   useEffect(() => {
   async function loadOrders() {
     try {
-      const user = auth.currentUser;
-
-      if (!user) {
-        setOrders([]);
-        return;
-      }
-
-      const q = query(
-        collection(db, "orders"),
-        where("userId", "==", user.uid)
-      );
-
-      const snapshot = await getDocs(q);
-
-      const firebaseOrders = snapshot.docs.map((doc) => ({
-        ...doc.data(),
-        firebaseId: doc.id,
-      }));
-
-      setOrders(firebaseOrders);
+      setOrders(await getOrders());
     } catch (error) {
       console.error("Could not load orders:", error);
       setOrders([]);
@@ -123,20 +95,7 @@ function Orders() {
 
     async function updateStatus(orderId, newStatus) {
   try {
-    const order = orders.find(
-      (item) => item.id === orderId
-    );
-
-    if (!order?.firebaseId) {
-      return;
-    }
-
-    await updateDoc(
-      doc(db, "orders", order.firebaseId),
-      {
-        status: newStatus,
-      }
-    );
+    await saveOrderStatus(orderId, newStatus);
 
     setOrders((currentOrders) =>
       currentOrders.map((item) =>
@@ -167,15 +126,7 @@ function Orders() {
   }
 
   try {
-    const order = orders.find(
-      (item) => item.id === orderId
-    );
-
-    if (order?.firebaseId) {
-      await deleteDoc(
-        doc(db, "orders", order.firebaseId)
-      );
-    }
+    await removeOrder(orderId);
 
     setOrders((currentOrders) =>
       currentOrders.filter(

@@ -1,17 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  collection,
-  doc,
-  getDocs,
-  query,
-  updateDoc,
-  where,
-} from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth";
-
 import DashboardLayout from "../layouts/DashboardLayout";
-import { auth, db } from "../firebase";
+import { subscribeAppUser } from "../services/customBackendSession";
+import { getStore, saveStore } from "../services/storeService";
 
 const templates = [
   {
@@ -75,7 +66,7 @@ function StoreDesigner() {
   const [successMessage, setSuccessMessage] = useState("");
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = subscribeAppUser((currentUser) => {
       setUser(currentUser);
 
       if (currentUser) {
@@ -94,22 +85,12 @@ function StoreDesigner() {
       setLoading(true);
       setError("");
 
-      const storeQuery = query(
-        collection(db, "stores"),
-        where("userId", "==", userId)
-      );
-
-      const snapshot = await getDocs(storeQuery);
-
-      if (snapshot.empty) {
+      const storeData = await getStore();
+      if (!storeData) {
         setError("Create your store before opening the Store Designer.");
         return;
       }
-
-      const storeDocument = snapshot.docs[0];
-      const storeData = storeDocument.data();
-
-      setStoreId(storeDocument.id);
+      setStoreId(storeData.id || userId);
 
       setStoreName(
         storeData.storeName ||
@@ -210,9 +191,8 @@ function StoreDesigner() {
       setError("");
       setSuccessMessage("");
 
-      const storeReference = doc(db, "stores", storeId);
-
-      await updateDoc(storeReference, {
+      const existing = await getStore();
+      await saveStore({ ...existing,
         storeName: storeName.trim(),
         businessName: storeName.trim(),
         name: storeName.trim(),

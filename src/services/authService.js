@@ -7,11 +7,14 @@ import {
 } from "firebase/auth";
 
 import { auth } from "../firebase";
-import { clearCustomBackendSession, customBackendRequest, establishCustomBackendSession, isCustomBackendSessionEnabled } from "./customBackendSession";
+import { clearCustomBackendSession, customBackendRequest, establishCustomBackendSession, isCustomBackendSessionEnabled, notifyAppUserChanged } from "./customBackendSession";
 
 export async function register(email, password, profile = {}) {
   if (isCustomBackendSessionEnabled()) {
-    return customBackendRequest('/auth/signup', { method: 'POST', body: JSON.stringify({ email, password, ...profile }) });
+    const result = await customBackendRequest('/auth/signup', { method: 'POST', body: JSON.stringify({ email, password, ...profile }) });
+    if (result.id) localStorage.setItem('getcyb_account_id', result.id);
+    notifyAppUserChanged();
+    return result;
   }
   await setPersistence(auth, browserLocalPersistence);
   return await createUserWithEmailAndPassword(auth, email, password);
@@ -21,7 +24,10 @@ export async function login(email, password) {
   await setPersistence(auth, browserLocalPersistence);
   if (isCustomBackendSessionEnabled()) {
     try {
-      return await customBackendRequest('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+      const result = await customBackendRequest('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+      if (result.id) localStorage.setItem('getcyb_account_id', result.id);
+      notifyAppUserChanged();
+      return result;
     } catch (customError) {
       // Existing Firebase accounts can still sign in and receive a backend session
       // through the verified-token bridge during the migration period.
@@ -37,5 +43,7 @@ export async function login(email, password) {
 
 export async function logout() {
   await clearCustomBackendSession();
+  localStorage.removeItem('getcyb_account_id');
+  notifyAppUserChanged();
   return await signOut(auth);
 }

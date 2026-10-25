@@ -214,7 +214,7 @@ function isImageFile(file) {
 }
 
 export default function WebsiteEditor() {
-  const cacheKey = `websiteEditorData:${auth.currentUser.uid}`;
+  const cacheKey = `websiteEditorData:${auth.currentUser?.uid || localStorage.getItem('getcyb_account_id') || 'custom'}`;
   const [mode, setMode] = useState(() => { try { return editorMode(localStorage.getItem(`${cacheKey}:mode`)); } catch { return 'advanced'; } });
   const [mobilePanel, setMobilePanel] = useState('canvas');
   function switchMode(value) { const next=editorMode(value);setMode(next);try {localStorage.setItem(`${cacheKey}:mode`,next);}catch {} if(next==='simple')setActiveTab('pages'); }
