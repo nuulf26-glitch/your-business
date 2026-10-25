@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PayPalButtons } from "@paypal/react-paypal-js";
 import { auth } from "../firebase";
+import { customBackendRequest, isCustomBackendSessionEnabled } from "../services/customBackendSession";
 import "../styles/platformPayment.css";
 
 const CREATE_ORDER_URL =
@@ -17,6 +18,7 @@ function PlatformPayment() {
   const [paymentComplete, setPaymentComplete] = useState(false);
 
   async function getUserToken() {
+    if (isCustomBackendSessionEnabled()) return null;
     const user = auth.currentUser;
 
     if (!user) {
@@ -29,6 +31,12 @@ function PlatformPayment() {
   async function createOrder() {
     try {
       setError("");
+
+      if (isCustomBackendSessionEnabled()) {
+        const result = await customBackendRequest('/payments/paypal/orders', { method: 'POST' });
+        if (!result?.orderId) throw new Error('Could not start the PayPal payment.');
+        return result.orderId;
+      }
 
       const token = await getUserToken();
 
@@ -64,6 +72,14 @@ function PlatformPayment() {
   async function captureOrder(data) {
     try {
       setError("");
+
+      if (isCustomBackendSessionEnabled()) {
+        const result = await customBackendRequest('/payments/paypal/capture', { method: 'POST', body: JSON.stringify({ orderId: data.orderID }) });
+        if (!result?.success) throw new Error('The payment could not be confirmed.');
+        setPaymentComplete(true);
+        window.setTimeout(() => navigate('/dashboard', { replace: true }), 1800);
+        return;
+      }
 
       const token = await getUserToken();
 
