@@ -1,5 +1,5 @@
 import { OriginGuard, tokenHash } from '../src/session';
-import { AuthController, OrderController } from '../src/routes';
+import { AuthController, HealthController, OrderController } from '../src/routes';
 import { publicWebsite, validateWebsite } from '../src/website-policy';
 
 describe('opaque session token storage', () => {
@@ -24,6 +24,16 @@ describe('opaque session token storage', () => {
 });
 
 describe('backend critical operations', () => {
+  it('reports readiness only after the database answers', async () => {
+    const health = new HealthController({ $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]) } as any);
+    await expect(health.readiness()).resolves.toEqual({ status: 'ok', database: 'ok' });
+  });
+
+  it('does not expose database errors in readiness failures', async () => {
+    const health = new HealthController({ $queryRaw: jest.fn().mockRejectedValue(new Error('secret connection string')) } as any);
+    await expect(health.readiness()).rejects.toThrow('Service Unavailable');
+  });
+
   it('creates a 14-day trial and sends only a one-time verification link at signup', async () => {
     const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:null};
     const db:any={user:{findUnique:jest.fn().mockResolvedValue(null),create:jest.fn().mockResolvedValue(user)},subscription:{create:jest.fn().mockResolvedValue({})},verificationToken:{deleteMany:jest.fn().mockResolvedValue({}),create:jest.fn().mockResolvedValue({})},session:{create:jest.fn().mockResolvedValue({})}};

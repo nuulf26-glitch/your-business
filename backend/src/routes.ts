@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Put, Patch, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, Patch, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { IsEmail, IsString, MinLength, MaxLength, IsObject, IsIn, IsInt, Max } from 'class-validator';
 import { Request, Response } from 'express';
 import * as argon2 from 'argon2';
@@ -12,6 +12,20 @@ import { SessionGuard, tokenHash } from './session';
 import { MailService } from './mail';
 import { FirebaseBridge } from './firebase-bridge';
 import { publicWebsite, validateWebsite } from './website-policy';
+
+@Controller('health')
+export class HealthController {
+  constructor(private db: DbService) {}
+  @Get()
+  async readiness() {
+    try {
+      await this.db.$queryRaw`SELECT 1`;
+      return { status: 'ok', database: 'ok' };
+    } catch {
+      throw new ServiceUnavailableException({ status: 'error', database: 'unavailable' });
+    }
+  }
+}
 
 class Credentials { @IsEmail() email!: string; @IsString() @MinLength(12) @MaxLength(200) password!: string; }
 class StoreInput { @IsString() @MaxLength(120) name!: string; @IsString() @MaxLength(100) slug!: string; @IsString() category!: string; @IsObject() settings!: object; }

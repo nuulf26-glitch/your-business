@@ -1,6 +1,6 @@
 # Custom backend migration — staged release record
 
-## Current phase: development foundation
+## Current phase: staging preparation (production cutover blocked)
 
 The baseline repository is preserved on `backup/main-before-custom-backend-2026-10-25`. Work is isolated on `codex/custom-backend-migration`. No production service, Firebase project, database, storage bucket, DNS, or payment configuration has been changed.
 
@@ -20,6 +20,7 @@ The baseline repository is preserved on `backup/main-before-custom-backend-2026-
 - Owner-scoped business/product/customer/order APIs, website draft/publish/public read, PayPal order/capture verification and S3-compatible upload signing.
 - Email verification/reset endpoints plus Firebase Admin token exchange for staged migration. Frontend auth can optionally establish the custom cookie after Firebase login when `VITE_ENABLE_CUSTOM_API_SESSION=true`; direct Firestore workflows remain the system of record.
 - Read-only encrypted Firebase export and staging-import scripts: Auth users, recursive Firestore documents, and Storage object backups; an AES-256-GCM verifier checks document counts and asset SHA-256 integrity. The import is idempotent, target-host guarded, retains every source document by path, and maps core account/store/site/product/customer/order/payment records. The export/import have not been run because Firebase Admin and staging DB credentials are unavailable; S3 asset copying and URL rewrite remain outstanding.
+- API readiness endpoint (`GET /api/v1/health`), production startup checks for core secret/configuration presence and HTTPS frontend origins, graceful shutdown hooks, and staging deployment/restore-drill instructions. Backend tests (8) and compile/build pass; Prisma schema validation/generation pass with a staging-shaped `DATABASE_URL`. No live database, email, storage, PayPal, or browser journey has been exercised.
 
 ### Migration safety and prerequisites
 
