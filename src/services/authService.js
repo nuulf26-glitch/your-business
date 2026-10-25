@@ -29,6 +29,8 @@ export async function login(email, password) {
       notifyAppUserChanged();
       return result;
     } catch (customError) {
+      // Preserve the actionable verification state for new custom-backend users.
+      if (customError.message === "Verify your email before signing in") throw customError;
       // Existing Firebase accounts can still sign in and receive a backend session
       // through the verified-token bridge during the migration period.
       const result = await signInWithEmailAndPassword(auth, email, password);

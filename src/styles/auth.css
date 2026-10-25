@@ -273,6 +273,28 @@
   line-height: 1.5;
 }
 
+.auth-notice {
+  margin: 0;
+  padding: 13px 15px;
+  border: 1px solid #d8d0bd;
+  border-radius: 10px;
+  background: #f8f5ee;
+  color: #514a3c;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.auth-resend-button {
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: #514a3c;
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .auth-submit-button {
   width: 100%;
   min-height: 54px;
