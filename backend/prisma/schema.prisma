@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id String @id @default(cuid())
+  legacyFirebaseUid String? @unique
+  email String @unique
+  passwordHash String?
+  emailVerifiedAt DateTime?
+  role String @default("OWNER")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sessions Session[]
+  businesses Business[]
+}
+model Session {
+  id String @id @default(cuid())
+  tokenHash String @unique
+  userId String
+  user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([userId, expiresAt])
+}
+model Business {
+  id String @id @default(cuid())
+  legacyFirebaseId String? @unique
+  ownerId String
+  owner User @relation(fields:[ownerId], references:[id], onDelete:Cascade)
+  name String @default("")
+  slug String @unique
+  category String @default("general")
+  settings Json @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  website Website?
+  products Product[]
+  customers Customer[]
+  orders Order[]
+  @@index([ownerId])
+}
+model Website {
+  id String @id @default(cuid())
+  businessId String @unique
+  business Business @relation(fields:[businessId], references:[id], onDelete:Cascade)
+  draft Json @default("{}")
+  published Json?
+  publishedAt DateTime?
+  revision Int @default(0)
+  updatedAt DateTime @updatedAt
+}
+model WebsiteVersion {
+  id String @id @default(cuid())
+  websiteId String
+  snapshot Json
+  createdAt DateTime @default(now())
+  @@index([websiteId, createdAt])
+}
+model Product {
+  id String @id @default(cuid())
+  legacyFirebaseId String? @unique
+  businessId String
+  business Business @relation(fields:[businessId], references:[id], onDelete:Cascade)
+  name String
+  data Json @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([businessId])
+}
+model Customer {
+  id String @id @default(cuid())
+  legacyFirebaseId String? @unique
+  businessId String
+  business Business @relation(fields:[businessId], references:[id], onDelete:Cascade)
+  data Json @default("{}")
+  @@index([businessId])
+}
+model Order {
+  id String @id @default(cuid())
+  legacyFirebaseId String? @unique
+  businessId String
+  business Business @relation(fields:[businessId], references:[id], onDelete:Cascade)
+  status String @default("pending")
+  amountCents Int @default(0)
+  currency String @default("USD")
+  data Json @default("{}")
+  createdAt DateTime @default(now())
+  @@index([businessId, createdAt])
+}
+model PaymentReference {
+  id String @id @default(cuid())
+  legacyFirebaseId String? @unique
+  provider String
+  providerOrderId String? @unique
+  providerCaptureId String? @unique
+  status String
+  amountCents Int
+  currency String
+  metadata Json @default("{}")
+  createdAt DateTime @default(now())
+}
