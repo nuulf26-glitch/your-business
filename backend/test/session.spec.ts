@@ -1,6 +1,7 @@
 import { OriginGuard, tokenHash } from '../src/session';
 import { AuthController, HealthController, OrderController } from '../src/routes';
 import { publicWebsite, validateWebsite } from '../src/website-policy';
+import * as argon2 from 'argon2';
 
 describe('opaque session token storage', () => {
   it('stores a deterministic digest instead of the bearer token', () => {
@@ -34,8 +35,8 @@ describe('backend critical operations', () => {
     await expect(health.readiness()).rejects.toThrow('Service Unavailable');
   });
 
-  it('creates a 14-day trial and sends only a one-time verification link at signup', async () => {
-    const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:null};
+  it('creates a 14-day trial and account without requiring email verification', async () => {
+    const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:new Date()};
     const tx:any={user:{create:jest.fn().mockResolvedValue(user)},subscription:{create:jest.fn().mockResolvedValue({})},business:{create:jest.fn().mockResolvedValue({})}};
     const db:any={user:{findUnique:jest.fn().mockResolvedValue(null)},$transaction:jest.fn(async callback=>callback(tx)),verificationToken:{deleteMany:jest.fn().mockResolvedValue({}),create:jest.fn().mockResolvedValue({})},session:{create:jest.fn().mockResolvedValue({})}};
     const mail:any={sendAccountLink:jest.fn().mockResolvedValue(undefined)};
@@ -45,9 +46,22 @@ describe('backend critical operations', () => {
     if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
     expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({email:'owner@example.com'})}));
     expect(tx.subscription.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({userId:'u-1'})}));
-    expect(mail.sendAccountLink).toHaveBeenCalledWith('owner@example.com',expect.any(String),'verify');
-    expect(result.emailVerified).toBe(false);
+    expect(mail.sendAccountLink).not.toHaveBeenCalled();
+    expect(tx.user.create.mock.calls[0][0].data.emailVerifiedAt).toBeInstanceOf(Date);
+    expect(result.emailVerified).toBe(true);
     expect(result.trialEndsAt).toBeTruthy();
+  });
+
+  it('allows a valid login when the account email is not verified', async () => {
+    const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:null,passwordHash:await argon2.hash('a-secure-password')};
+    const db:any={user:{findUnique:jest.fn().mockResolvedValue(user)},session:{create:jest.fn().mockResolvedValue({})}};
+    const res:any={cookie:jest.fn()};
+    const previous=process.env.NODE_ENV;process.env.NODE_ENV='production';
+    const result=await new AuthController(db,{} as any,{} as any).login({email:'owner@example.com',password:'a-secure-password'} as any,res);
+    if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
+    expect(result.emailVerified).toBe(false);
+    expect(db.session.create).toHaveBeenCalled();
+    expect(res.cookie).toHaveBeenCalled();
   });
 
   it('scopes order updates to the signed-in owner business', async () => {

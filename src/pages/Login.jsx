@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { login } from "../services/authService";
-import { customBackendRequest } from "../services/customBackendSession";
 
 import "../styles/auth.css";
 
@@ -14,14 +13,10 @@ function Login() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [verificationPending, setVerificationPending] = useState(false);
 
   async function handleLogin(event) {
     event.preventDefault();
     setError("");
-    setNotice("");
-    setVerificationPending(false);
 
     if (!email.trim() || !password) {
       setError("Please enter your email and password.");
@@ -38,10 +33,7 @@ await login(email.trim(), password);
     } catch (loginError) {
       console.error(loginError);
 
-      if (loginError.message === "Verify your email before signing in") {
-        setError("Please verify your email before signing in. Check your inbox and spam folder.");
-        setVerificationPending(true);
-      } else if (
+      if (
         loginError.code === "auth/invalid-credential" ||
         loginError.code === "auth/wrong-password" ||
         loginError.code === "auth/user-not-found"
@@ -56,20 +48,6 @@ await login(email.trim(), password);
       }
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function handleResendVerification() {
-    setError("");
-    setNotice("");
-    try {
-      await customBackendRequest("/auth/resend-verification", {
-        method: "POST",
-        body: JSON.stringify({ email: email.trim() }),
-      });
-      setNotice("If this account is awaiting verification, a new link has been sent. Check your inbox and spam folder.");
-    } catch {
-      setError("We could not resend the verification email. Please try again shortly.");
     }
   }
 
@@ -174,7 +152,6 @@ await login(email.trim(), password);
             </div>
 
             {error && <p className="auth-error">{error}</p>}
-            {notice && <p className="auth-notice">{notice}</p>}
 
             <button
               type="submit"
@@ -183,11 +160,6 @@ await login(email.trim(), password);
             >
               {loading ? "Logging in..." : "Log in"}
             </button>
-            {verificationPending && email.trim() && (
-              <button type="button" className="auth-resend-button" onClick={handleResendVerification}>
-                Resend verification email
-              </button>
-            )}
           </form>
 
           <p className="auth-switch-text">

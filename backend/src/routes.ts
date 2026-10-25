@@ -54,7 +54,7 @@ export class AuthController {
   @Throttle({default:{limit:10,ttl:60_000}})
   @Post('firebase-exchange') async firebaseExchange(@Body() dto:FirebaseTokenInput,@Res({passthrough:true}) res:Response){
     const claim=await this.firebase.verifyIdToken(dto.idToken);
-    const email=claim.email?.trim().toLowerCase();if(!email||!claim.email_verified)throw new BadRequestException('A verified email is required');
+    const email=claim.email?.trim().toLowerCase();if(!email)throw new BadRequestException('An email address is required');
     let user=await this.db.user.findUnique({where:{legacyFirebaseUid:claim.uid}});
     if(!user){
       const existing=await this.db.user.findUnique({where:{email}});
@@ -73,30 +73,18 @@ export class AuthController {
     const businessName = dto.businessName?.trim() || '';
     const slugBase = businessName.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,70) || 'business';
     const user = await this.db.$transaction(async tx => {
-      const created = await tx.user.create({ data:{ email, fullName:dto.fullName?.trim() || null, passwordHash:await argon2.hash(dto.password), role:'OWNER' } });
+      const created = await tx.user.create({ data:{ email, fullName:dto.fullName?.trim() || null, passwordHash:await argon2.hash(dto.password), role:'OWNER', emailVerifiedAt:new Date() } });
       await tx.subscription.create({data:{userId:created.id,trialEndsAt}});
       await tx.business.create({data:{ownerId:created.id,name:businessName,slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
       return created;
     });
-    try {
-      await this.createEmailLink(user.id,email,'verify');
-    } catch (error) {
-      const cause = error as { code?: string; command?: string; responseCode?: number };
-      this.logger.error(`Signup verification email failed (code=${cause?.code || 'unknown'}, command=${cause?.command || 'unknown'}, response=${cause?.responseCode || 'unknown'})`);
-      // Keep the account and its trial/business records. Deleting them made a
-      // transient SMTP failure look like signup failed and blocked retries.
-      if (process.env.NODE_ENV === 'production') {
-        throw new ServiceUnavailableException('Your account was created, but the verification email could not be sent. Try resending the verification email later.');
-      }
-    }
     if(process.env.NODE_ENV!=='production') await this.issueSession(user.id, res);
-    return { id:user.id, email:user.email, emailVerified:false, trialEndsAt:trialEndsAt.toISOString() };
+    return { id:user.id, email:user.email, emailVerified:true, trialEndsAt:trialEndsAt.toISOString() };
   }
   @Throttle({default:{limit:8,ttl:60_000}})
   @Post('login') async login(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
     const user = await this.db.user.findUnique({ where:{ email:dto.email.trim().toLowerCase() } });
     if (!user?.passwordHash || !(await argon2.verify(user.passwordHash,dto.password))) throw new BadRequestException('Invalid email or password');
-    if (process.env.NODE_ENV==='production'&&!user.emailVerifiedAt) throw new BadRequestException('Verify your email before signing in');
     await this.issueSession(user.id,res); return { id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt };
   }
   @Throttle({default:{limit:6,ttl:60_000}})
