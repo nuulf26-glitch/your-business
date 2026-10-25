@@ -13,4 +13,4 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/prisma ./prisma
 EXPOSE 3001
-CMD ["node", "dist/main.js"]
+CMD ["npm", "run", "start:prod"]
