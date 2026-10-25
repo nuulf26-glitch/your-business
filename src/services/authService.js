@@ -9,9 +9,9 @@ import {
 import { auth } from "../firebase";
 import { clearCustomBackendSession, customBackendRequest, establishCustomBackendSession, isCustomBackendSessionEnabled } from "./customBackendSession";
 
-export async function register(email, password) {
+export async function register(email, password, profile = {}) {
   if (isCustomBackendSessionEnabled()) {
-    return customBackendRequest('/auth/signup', { method: 'POST', body: JSON.stringify({ email, password }) });
+    return customBackendRequest('/auth/signup', { method: 'POST', body: JSON.stringify({ email, password, ...profile }) });
   }
   await setPersistence(auth, browserLocalPersistence);
   return await createUserWithEmailAndPassword(auth, email, password);

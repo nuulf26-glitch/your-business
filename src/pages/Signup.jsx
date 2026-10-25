@@ -38,7 +38,7 @@ async function handleSignup(event) {
       setLoading(true);
 
       if (isCustomBackendSessionEnabled()) {
-        await register(email.trim(), password);
+        await register(email.trim(), password, { fullName: fullName.trim(), businessName: businessName.trim() });
         setSuccess("Your account was created. Check your inbox for a verification link, then log in.");
         return;
       }

@@ -36,7 +36,7 @@ describe('backend critical operations', () => {
 
   it('creates a 14-day trial and sends only a one-time verification link at signup', async () => {
     const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:null};
-    const db:any={user:{findUnique:jest.fn().mockResolvedValue(null),create:jest.fn().mockResolvedValue(user)},subscription:{create:jest.fn().mockResolvedValue({})},verificationToken:{deleteMany:jest.fn().mockResolvedValue({}),create:jest.fn().mockResolvedValue({})},session:{create:jest.fn().mockResolvedValue({})}};
+    const db:any={user:{findUnique:jest.fn().mockResolvedValue(null),create:jest.fn().mockResolvedValue(user),delete:jest.fn().mockResolvedValue(user)},subscription:{create:jest.fn().mockResolvedValue({})},business:{create:jest.fn().mockResolvedValue({})},verificationToken:{deleteMany:jest.fn().mockResolvedValue({}),create:jest.fn().mockResolvedValue({})},session:{create:jest.fn().mockResolvedValue({})}};
     const mail:any={sendAccountLink:jest.fn().mockResolvedValue(undefined)};
     const res:any={cookie:jest.fn()};
     const previous=process.env.NODE_ENV;process.env.NODE_ENV='test';

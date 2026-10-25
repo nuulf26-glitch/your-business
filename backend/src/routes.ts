@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Put, Patch, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { IsEmail, IsString, MinLength, MaxLength, IsObject, IsIn, IsInt, Max } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsObject, IsIn, IsInt, Max, IsOptional } from 'class-validator';
 import { Request, Response } from 'express';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'node:crypto';
@@ -27,7 +27,12 @@ export class HealthController {
   }
 }
 
-class Credentials { @IsEmail() email!: string; @IsString() @MinLength(12) @MaxLength(200) password!: string; }
+class Credentials {
+  @IsEmail() email!: string;
+  @IsString() @MinLength(12) @MaxLength(200) password!: string;
+  @IsOptional() @IsString() @MaxLength(120) fullName?: string;
+  @IsOptional() @IsString() @MaxLength(120) businessName?: string;
+}
 class StoreInput { @IsString() @MaxLength(120) name!: string; @IsString() @MaxLength(100) slug!: string; @IsString() category!: string; @IsObject() settings!: object; }
 class JsonInput { @IsObject() data!: Record<string, unknown>; }
 class WebsiteInput { @IsObject() model!: Record<string, unknown>; }
@@ -62,11 +67,20 @@ export class AuthController {
   @Post('signup') async signup(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
     const email = dto.email.trim().toLowerCase();
     if (await this.db.user.findUnique({ where:{email} })) throw new ConflictException('Account already exists');
-    const user = await this.db.user.create({ data:{ email, passwordHash:await argon2.hash(dto.password), role:'OWNER' } });
-    await this.db.subscription.create({data:{userId:user.id,trialEndsAt:new Date(Date.now()+14*864e5)}});
-    await this.createEmailLink(user.id,email,'verify');
+    const trialEndsAt = new Date(Date.now()+14*864e5);
+    const user = await this.db.user.create({ data:{ email, fullName:dto.fullName?.trim() || null, passwordHash:await argon2.hash(dto.password), role:'OWNER' } });
+    try {
+      await this.db.subscription.create({data:{userId:user.id,trialEndsAt}});
+      const businessName = dto.businessName?.trim() || '';
+      const slugBase = businessName.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,70) || 'business';
+      await this.db.business.create({data:{ownerId:user.id,name:businessName,slug:`${slugBase}-${user.id.slice(-6)}`,website:{create:{}}}});
+      await this.createEmailLink(user.id,email,'verify');
+    } catch (error) {
+      await this.db.user.delete({where:{id:user.id}});
+      throw error;
+    }
     if(process.env.NODE_ENV!=='production') await this.issueSession(user.id, res);
-    return { id:user.id, email:user.email, emailVerified:false, trialEndsAt:new Date(Date.now()+14*864e5).toISOString() };
+    return { id:user.id, email:user.email, emailVerified:false, trialEndsAt:trialEndsAt.toISOString() };
   }
   @Throttle({default:{limit:8,ttl:60_000}})
   @Post('login') async login(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
