@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../firebase";
+import { customBackendRequest, isCustomBackendSessionEnabled } from "../services/customBackendSession";
 import "../styles/auth.css";
 
 function ForgotPassword() {
@@ -24,7 +25,11 @@ function ForgotPassword() {
     try {
       setLoading(true);
 
-      await sendPasswordResetEmail(auth, email.trim());
+      if (isCustomBackendSessionEnabled()) {
+        await customBackendRequest('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email: email.trim() }) });
+      } else {
+        await sendPasswordResetEmail(auth, email.trim());
+      }
 
       setMessage("Password reset email sent. Check your inbox.");
     } catch (resetError) {
