@@ -17,12 +17,10 @@ function Signup() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
 async function handleSignup(event) {   
    event.preventDefault();
     setError("");
-    setSuccess("");
 
     if (!businessName.trim() || !fullName.trim() || !email.trim() || !password) {
       setError("Please complete all fields.");
@@ -39,7 +37,7 @@ async function handleSignup(event) {
 
       if (isCustomBackendSessionEnabled()) {
         await register(email.trim(), password, { fullName: fullName.trim(), businessName: businessName.trim() });
-        setSuccess("Your account was created. Check your inbox for a verification link, then log in.");
+        navigate("/login");
         return;
       }
       const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
@@ -208,7 +206,6 @@ console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (
             </label>
 
             {error && <p className="auth-error">{error}</p>}
-            {success && <p className="auth-success">{success}</p>}
 
             <button
               type="submit"
