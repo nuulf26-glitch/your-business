@@ -16,6 +16,43 @@ CREATE TABLE "User" (
 );
 
 -- CreateTable
+CREATE TABLE "VerificationToken" (
+    "id" TEXT NOT NULL,
+    "tokenHash" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "VerificationToken_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PasswordResetToken" (
+    "id" TEXT NOT NULL,
+    "tokenHash" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PasswordResetToken_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Subscription" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "plan" TEXT NOT NULL DEFAULT 'BASIC',
+    "status" TEXT NOT NULL DEFAULT 'TRIALING',
+    "billingType" TEXT NOT NULL DEFAULT 'TRIAL',
+    "trialEndsAt" TIMESTAMP(3) NOT NULL,
+    "currentPeriodEndsAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Subscription_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Session" (
     "id" TEXT NOT NULL,
     "tokenHash" TEXT NOT NULL,
@@ -111,10 +148,22 @@ CREATE TABLE "PaymentReference" (
     "status" TEXT NOT NULL,
     "amountCents" INTEGER NOT NULL,
     "currency" TEXT NOT NULL,
+    "userId" TEXT,
     "metadata" JSONB NOT NULL DEFAULT '{}',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "PaymentReference_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "LegacyDocument" (
+    "sourcePath" TEXT NOT NULL,
+    "collectionPath" TEXT NOT NULL,
+    "sourceId" TEXT NOT NULL,
+    "data" JSONB NOT NULL,
+    "importedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "LegacyDocument_pkey" PRIMARY KEY ("sourcePath")
 );
 
 -- CreateIndex
@@ -122,6 +171,24 @@ CREATE UNIQUE INDEX "User_legacyFirebaseUid_key" ON "User"("legacyFirebaseUid");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "VerificationToken_tokenHash_key" ON "VerificationToken"("tokenHash");
+
+-- CreateIndex
+CREATE INDEX "VerificationToken_userId_expiresAt_idx" ON "VerificationToken"("userId", "expiresAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PasswordResetToken_tokenHash_key" ON "PasswordResetToken"("tokenHash");
+
+-- CreateIndex
+CREATE INDEX "PasswordResetToken_userId_expiresAt_idx" ON "PasswordResetToken"("userId", "expiresAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Subscription_userId_key" ON "Subscription"("userId");
+
+-- CreateIndex
+CREATE INDEX "Subscription_userId_status_idx" ON "Subscription"("userId", "status");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Session_tokenHash_key" ON "Session"("tokenHash");
@@ -171,6 +238,18 @@ CREATE UNIQUE INDEX "PaymentReference_providerOrderId_key" ON "PaymentReference"
 -- CreateIndex
 CREATE UNIQUE INDEX "PaymentReference_providerCaptureId_key" ON "PaymentReference"("providerCaptureId");
 
+-- CreateIndex
+CREATE INDEX "LegacyDocument_collectionPath_sourceId_idx" ON "LegacyDocument"("collectionPath", "sourceId");
+
+-- AddForeignKey
+ALTER TABLE "VerificationToken" ADD CONSTRAINT "VerificationToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PasswordResetToken" ADD CONSTRAINT "PasswordResetToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Subscription" ADD CONSTRAINT "Subscription_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
 -- AddForeignKey
 ALTER TABLE "Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
@@ -188,4 +267,7 @@ ALTER TABLE "Customer" ADD CONSTRAINT "Customer_businessId_fkey" FOREIGN KEY ("b
 
 -- AddForeignKey
 ALTER TABLE "Order" ADD CONSTRAINT "Order_businessId_fkey" FOREIGN KEY ("businessId") REFERENCES "Business"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PaymentReference" ADD CONSTRAINT "PaymentReference_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 

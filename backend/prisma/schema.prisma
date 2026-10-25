@@ -17,6 +17,41 @@ model User {
   updatedAt DateTime @updatedAt
   sessions Session[]
   businesses Business[]
+  verificationTokens VerificationToken[]
+  passwordResetTokens PasswordResetToken[]
+  subscriptions Subscription[]
+  payments PaymentReference[]
+}
+model VerificationToken {
+  id String @id @default(cuid())
+  tokenHash String @unique
+  userId String
+  user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([userId, expiresAt])
+}
+model PasswordResetToken {
+  id String @id @default(cuid())
+  tokenHash String @unique
+  userId String
+  user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([userId, expiresAt])
+}
+model Subscription {
+  id String @id @default(cuid())
+  userId String @unique
+  user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  plan String @default("BASIC")
+  status String @default("TRIALING")
+  billingType String @default("TRIAL")
+  trialEndsAt DateTime
+  currentPeriodEndsAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId, status])
 }
 model Session {
   id String @id @default(cuid())
@@ -101,6 +136,16 @@ model PaymentReference {
   status String
   amountCents Int
   currency String
+  userId String?
+  user User? @relation(fields:[userId], references:[id], onDelete:SetNull)
   metadata Json @default("{}")
   createdAt DateTime @default(now())
+}
+model LegacyDocument {
+  sourcePath String @id
+  collectionPath String
+  sourceId String
+  data Json
+  importedAt DateTime @default(now())
+  @@index([collectionPath, sourceId])
 }

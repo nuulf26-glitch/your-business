@@ -16,9 +16,10 @@ The baseline repository is preserved on `backup/main-before-custom-backend-2026-
 
 ### Work added
 
-- NestJS/TypeScript API foundation and Prisma/PostgreSQL schema for users, opaque sessions, businesses, sites, versions, products, customers, orders and payment references.
-- Initial owner-scoped signup/login/logout/session, business, product, editor draft/publish/public-read, and S3-compatible presigned image-upload endpoints.
-- Local Postgres/Redis/MinIO compose setup and environment template. Firebase remains the active frontend backend; frontend cutover is intentionally not enabled.
+- NestJS/TypeScript API and Prisma/PostgreSQL schema for users, sessions, email tokens, 14-day trials, businesses, websites/versions, products, customers, orders and payment references.
+- Owner-scoped business/product/customer/order APIs, website draft/publish/public read, PayPal order/capture verification and S3-compatible upload signing.
+- Email verification/reset endpoints plus Firebase Admin token exchange for staged migration. Frontend auth can optionally establish the custom cookie after Firebase login when `VITE_ENABLE_CUSTOM_API_SESSION=true`; direct Firestore workflows remain the system of record.
+- Read-only encrypted Firebase export scripts: Auth users, recursively scanned Firestore documents, and Firebase Storage objects. AES-256-GCM protects export files; a verifier checks encrypted records and asset SHA-256 integrity. The export has not been run because Firebase Admin credentials are unavailable.
 
 ### Migration safety and prerequisites
 
@@ -29,8 +30,8 @@ Rollback: keep the prior Hosting release and Firebase services unchanged; switch
 ### Still required before production
 
 - Firebase-admin-backed read-only export and idempotent import scripts; a real backup cannot be produced from this environment because Firebase service-account/admin credentials are not available.
-- Implement verification and password reset email delivery; determine whether Firebase password hash export is enabled and supported for the project. Users without a compatible imported hash will need a verified password-reset flow; plaintext passwords cannot be recovered.
-- Finish domain modules and parity mapping, especially cart checkout/order totals, bookings/industry workflows, subscriptions/trials and PayPal webhook verification.
+- Configure SMTP and test email link delivery and one-time expiration. Determine whether Firebase password hash export is enabled and supported for the project. Users without a compatible imported hash will need a verified password-reset flow; plaintext passwords cannot be recovered.
+- Finish domain modules and parity mapping, especially server-authoritative cart checkout/order totals, bookings/industry workflows, subscriptions and PayPal webhook verification.
 - Complete client migration domain-by-domain (avoid a partial auth cutover because current UI consumers depend on Firebase `auth.currentUser` and Firestore SDK).
 - Add migration fixtures, tenant isolation/security tests, email/S3/PayPal sandbox journeys, backup restore test, and staged deployment/monitoring configuration.
 - Configure staging and production managed PostgreSQL, S3-compatible storage, Redis if deployed rate-limit/session needs require it, secrets, TLS, CI/CD, logs/alerts and scheduled database backups.

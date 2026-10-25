@@ -1,5 +1,12 @@
 import { doc, setDoc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import { customBackendRequest } from "./customBackendSession";
+
+const customSessionEnabled = import.meta.env.VITE_ENABLE_CUSTOM_API_SESSION === 'true';
+async function syncBusiness(data) {
+  if(!customSessionEnabled||!data?.storeUrl)return;
+  await customBackendRequest('/businesses/mine',{method:'PUT',body:JSON.stringify({name:data.businessName||data.storeName||'My Business',slug:data.storeUrl,category:data.businessCategory||data.businessGoal||'general',settings:data})});
+}
 
 export async function saveStore(data) {
   const user = auth.currentUser;
@@ -15,6 +22,7 @@ export async function saveStore(data) {
     userId: user.uid,
     updatedAt: new Date().toISOString(),
   }, { merge: true });
+  await syncBusiness(data);
 }
 
 export async function getStore() {
@@ -31,7 +39,9 @@ export async function getStore() {
     return null;
   }
 
-  return storeSnapshot.data();
+  const data=storeSnapshot.data();
+  await syncBusiness(data);
+  return data;
 }
 
 export async function getStoreByUrl(storeUrl) {

@@ -7,6 +7,7 @@ import {
 } from "firebase/auth";
 
 import { auth } from "../firebase";
+import { clearCustomBackendSession, establishCustomBackendSession } from "./customBackendSession";
 
 export async function register(email, password) {
   await setPersistence(auth, browserLocalPersistence);
@@ -15,9 +16,12 @@ export async function register(email, password) {
 
 export async function login(email, password) {
   await setPersistence(auth, browserLocalPersistence);
-  return await signInWithEmailAndPassword(auth, email, password);
+  const result = await signInWithEmailAndPassword(auth, email, password);
+  await establishCustomBackendSession(result.user);
+  return result;
 }
 
 export async function logout() {
+  await clearCustomBackendSession();
   return await signOut(auth);
 }
