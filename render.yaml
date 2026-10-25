@@ -30,7 +30,6 @@ databases:
     plan: free
     region: frankfurt
     postgresMajorVersion: "16"
-    diskSizeGB: 1
 
 previews:
   generation: off
