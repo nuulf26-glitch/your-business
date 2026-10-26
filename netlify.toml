@@ -1,5 +1,5 @@
 [build]
-  command = "npm --prefix backend ci --no-audit --no-fund && DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/getcyb npm --prefix backend run prisma:generate && npm run build && npm --prefix backend run build"
+  command = "npm install --no-audit --no-fund && npm --prefix backend ci --no-audit --no-fund && DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/getcyb npm --prefix backend run prisma:generate && npm run build && npm --prefix backend run build"
   publish = "dist"
 
 [build.environment]
@@ -8,8 +8,8 @@
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
-  external_node_modules = ["@prisma/client", "argon2"]
-  included_files = ["backend/dist/**", "backend/node_modules/.prisma/**", "backend/node_modules/@prisma/client/**", "backend/node_modules/argon2/**"]
+  external_node_modules = ["@netlify/database", "@prisma/client", "argon2"]
+  included_files = ["backend/dist/**", "backend/node_modules/.prisma/**", "backend/node_modules/@prisma/client/**", "backend/node_modules/argon2/**", "node_modules/@netlify/database/**"]
 
 [[redirects]]
   from = "/api/*"
