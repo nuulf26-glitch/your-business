@@ -45,7 +45,10 @@ class CustomerStatusInput { @IsString() @MaxLength(30) status!: string; }
 class IdInput { @IsString() @MaxLength(120) id!: string; }
 class FirebaseTokenInput { @IsString() @MinLength(100) @MaxLength(10_000) idToken!: string; }
 class UploadInput { @IsIn(['image/jpeg','image/png','image/webp','image/gif']) contentType!: string; @IsInt() @Max(10*1024*1024) fileSize!: number; }
-const cookieOptions = (expires: Date) => {const sameSite=(process.env.COOKIE_SAME_SITE||'lax') as 'lax'|'strict'|'none';return {httpOnly:true,secure:process.env.NODE_ENV==='production'||sameSite==='none',sameSite,expires,domain:process.env.COOKIE_DOMAIN||undefined,path:'/'};};
+// Keep the session cookie host-only on the API origin. A configured parent
+// domain (for example getcyb.fit) causes browsers to reject it on Render's
+// staging hostname and can also be unnecessary when the API is a subdomain.
+const cookieOptions = (expires: Date) => {const sameSite=(process.env.COOKIE_SAME_SITE||'lax') as 'lax'|'strict'|'none';return {httpOnly:true,secure:process.env.NODE_ENV==='production'||sameSite==='none',sameSite,expires,path:'/'};};
 
 @Controller('auth')
 export class AuthController {

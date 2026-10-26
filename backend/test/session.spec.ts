@@ -73,6 +73,7 @@ describe('backend critical operations', () => {
     expect(result.emailVerified).toBe(false);
     expect(db.session.create).toHaveBeenCalled();
     expect(res.cookie).toHaveBeenCalled();
+    expect(res.cookie.mock.calls[0][2]).not.toHaveProperty('domain');
   });
 
   it('scopes order updates to the signed-in owner business', async () => {
