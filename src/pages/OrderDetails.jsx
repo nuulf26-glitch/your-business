@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import DashboardLayout from "../layouts/DashboardLayout";
 import { db } from "../firebase";
+import { customBackendRequest, isCustomBackendSessionEnabled } from "../services/customBackendSession";
 
 function OrderDetails() {
   const { orderId } = useParams();
@@ -25,18 +26,14 @@ function OrderDetails() {
         setLoading(true);
         setError("");
 
-        const orderReference = doc(db, "orders", orderId);
-        const orderSnapshot = await getDoc(orderReference);
-
-        if (!orderSnapshot.exists()) {
-          setError("Order not found.");
-          return;
+        let orderData;
+        if (isCustomBackendSessionEnabled()) orderData = await customBackendRequest(`/orders/${encodeURIComponent(orderId)}`);
+        else {
+          const orderReference = doc(db, "orders", orderId);
+          const orderSnapshot = await getDoc(orderReference);
+          if (!orderSnapshot.exists()) { setError("Order not found."); return; }
+          orderData = { id: orderSnapshot.id, ...orderSnapshot.data() };
         }
-
-        const orderData = {
-          id: orderSnapshot.id,
-          ...orderSnapshot.data(),
-        };
 
         setOrder(orderData);
         setShippingCompany(orderData.shippingCompany || "");
@@ -100,11 +97,8 @@ function OrderDetails() {
       setError("");
       setSuccessMessage("");
 
-      const orderReference = doc(db, "orders", orderId);
-
-      await updateDoc(orderReference, {
-        status: newStatus,
-      });
+      if (isCustomBackendSessionEnabled()) await customBackendRequest(`/orders/${encodeURIComponent(orderId)}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus.toLowerCase() }) });
+      else await updateDoc(doc(db, "orders", orderId), { status: newStatus });
 
       setOrder((currentOrder) => ({
         ...currentOrder,
@@ -141,9 +135,8 @@ function OrderDetails() {
         shippingUpdatedAt: new Date().toISOString(),
       };
 
-      const orderReference = doc(db, "orders", orderId);
-
-      await updateDoc(orderReference, trackingData);
+      if (isCustomBackendSessionEnabled()) await customBackendRequest(`/orders/${encodeURIComponent(orderId)}`, { method: 'PATCH', body: JSON.stringify({ data: trackingData }) });
+      else await updateDoc(doc(db, "orders", orderId), trackingData);
 
       setOrder((currentOrder) => ({
         ...currentOrder,
