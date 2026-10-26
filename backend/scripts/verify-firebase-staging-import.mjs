@@ -17,17 +17,18 @@ const dbUrl=process.env.DATABASE_URL||'';let host='';try{host=new URL(dbUrl).hos
 if(!['localhost','127.0.0.1','::1'].includes(host)&&process.env.IMPORT_STAGING_DB_HOST!==host)throw new Error('Set IMPORT_STAGING_DB_HOST to the exact verified staging database hostname.');
 const prisma=new PrismaClient();
 try{
+ const countIn=async(delegate,field,values)=>{let total=0;for(let i=0;i<values.length;i+=1000)total+=await delegate.count({where:{[field]:{in:values.slice(i,i+1000)}}});return total;};
  const checks=[
-  ['users',prisma.user.count({where:{legacyFirebaseUid:{in:authIds}}}),authIds.length],
-  ['businesses',prisma.business.count({where:{legacyFirebaseId:{in:storeIds}}}),storeIds.length],
-  ['products',prisma.product.count({where:{legacyFirebaseId:{in:products}}}),products.length],
-  ['customers',prisma.customer.count({where:{legacyFirebaseId:{in:customers}}}),customers.length],
-  ['orders',prisma.order.count({where:{legacyFirebaseId:{in:orders}}}),orders.length],
+  ['users',countIn(prisma.user,'legacyFirebaseUid',authIds),authIds.length],
+  ['businesses',countIn(prisma.business,'legacyFirebaseId',storeIds),storeIds.length],
+  ['products',countIn(prisma.product,'legacyFirebaseId',products),products.length],
+  ['customers',countIn(prisma.customer,'legacyFirebaseId',customers),customers.length],
+  ['orders',countIn(prisma.order,'legacyFirebaseId',orders),orders.length],
   ['websites',prisma.website.count({where:{business:{legacyFirebaseId:{in:storeIds}}}}),storeIds.length],
-  ['website versions',prisma.websiteVersion.count({where:{legacyFirebaseId:{in:versions}}}),versions.length],
-  ['payment references',prisma.paymentReference.count({where:{legacyFirebaseId:{in:payments}}}),payments.length],
-  ['business records',prisma.businessRecord.count({where:{legacyFirebasePath:{in:records}}}),records.length],
-  ['legacy archive documents',prisma.legacyDocument.count({where:{sourcePath:{in:docs.map(row=>row.path)}}}),docs.length],
+  ['website versions',countIn(prisma.websiteVersion,'legacyFirebaseId',versions),versions.length],
+  ['payment references',countIn(prisma.paymentReference,'legacyFirebaseId',payments),payments.length],
+  ['business records',countIn(prisma.businessRecord,'legacyFirebasePath',records),records.length],
+  ['legacy archive documents',countIn(prisma.legacyDocument,'sourcePath',docs.map(row=>row.path)),docs.length],
  ];
  const results=[];for(const [name,promise,expected] of checks){const found=await promise;results.push({name,expected,found,ok:found===expected});}
  if(summary.storageFiles){const mapping=JSON.parse(await fs.readFile(path.join(root,'storage-url-mapping.json'),'utf8'));results.push({name:'storage URL mappings',expected:summary.storageFiles,found:Object.keys(mapping).length,ok:Object.keys(mapping).length===summary.storageFiles});}
