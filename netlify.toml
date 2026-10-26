@@ -1,5 +1,5 @@
 [build]
-  command = "npm --prefix backend ci --no-audit --no-fund && DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/getcyb npm --prefix backend run prisma:generate && npm run build && npm --prefix backend run build && DATABASE_URL=$NETLIFY_DB_URL npm --prefix backend run prisma:migrate"
+  command = "npm --prefix backend ci --no-audit --no-fund && DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/getcyb npm --prefix backend run prisma:generate && npm run build && npm --prefix backend run build"
   publish = "dist"
 
 [build.environment]
