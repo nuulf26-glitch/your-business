@@ -67,13 +67,26 @@ describe('backend critical operations', () => {
     const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:null,passwordHash:await argon2.hash('a-secure-password')};
     const db:any={user:{findUnique:jest.fn().mockResolvedValue(user)},session:{create:jest.fn().mockResolvedValue({})}};
     const res:any={cookie:jest.fn()};
-    const previous=process.env.NODE_ENV;process.env.NODE_ENV='production';
+    const previous=process.env.NODE_ENV, previousBearer=process.env.AUTH_BEARER_ENABLED;process.env.NODE_ENV='production';process.env.AUTH_BEARER_ENABLED='true';
     const result=await new AuthController(db,{} as any,{} as any).login({email:'owner@example.com',password:'a-secure-password'} as any,res);
     if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
+    if(previousBearer===undefined)delete process.env.AUTH_BEARER_ENABLED;else process.env.AUTH_BEARER_ENABLED=previousBearer;
     expect(result.emailVerified).toBe(false);
+    expect(result.accessToken).toEqual(expect.any(String));
     expect(db.session.create).toHaveBeenCalled();
     expect(res.cookie).toHaveBeenCalled();
     expect(res.cookie.mock.calls[0][2]).not.toHaveProperty('domain');
+  });
+
+  it('accepts bearer session tokens only when explicitly enabled', async () => {
+    const session={expiresAt:new Date(Date.now()+60_000),user:{id:'u-1'}};
+    const db:any={session:{findUnique:jest.fn().mockResolvedValue(session)}};
+    const req:any={headers:{authorization:'Bearer test-token'}};
+    const context:any={switchToHttp:()=>({getRequest:()=>req})};
+    const prev=process.env.AUTH_BEARER_ENABLED;process.env.AUTH_BEARER_ENABLED='true';
+    await expect(new SessionGuard(db).canActivate(context)).resolves.toBe(true);
+    if(prev===undefined)delete process.env.AUTH_BEARER_ENABLED;else process.env.AUTH_BEARER_ENABLED=prev;
+    expect(req.sessionToken).toBe('test-token');
   });
 
   it('scopes order updates to the signed-in owner business', async () => {

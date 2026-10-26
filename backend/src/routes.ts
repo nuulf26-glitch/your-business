@@ -65,8 +65,8 @@ export class AuthController {
       user=existing?await this.db.user.update({where:{id:existing.id},data:{legacyFirebaseUid:claim.uid,emailVerifiedAt:existing.emailVerifiedAt||new Date()}}):await this.db.user.create({data:{email,legacyFirebaseUid:claim.uid,emailVerifiedAt:new Date(),passwordHash:null,role:'OWNER'}});
       if(!existing)await this.db.subscription.create({data:{userId:user.id,trialEndsAt:new Date(Date.now()+14*864e5)}});
     }
-    await this.issueSession(user.id,res);
-    return {id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt};
+    const sessionToken=await this.issueSession(user.id,res);
+    return {id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt,...(process.env.AUTH_BEARER_ENABLED==='true'?{accessToken:sessionToken}:{})};
   }
   @Throttle({default:{limit:5,ttl:60_000}})
   @Post('signup') async signup(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
@@ -81,14 +81,14 @@ export class AuthController {
       await tx.business.create({data:{ownerId:created.id,name:businessName,slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
       return created;
     });
-    if(process.env.NODE_ENV!=='production') await this.issueSession(user.id, res);
-    return { id:user.id, email:user.email, emailVerified:true, trialEndsAt:trialEndsAt.toISOString() };
+    const sessionToken=process.env.NODE_ENV!=='production'?await this.issueSession(user.id,res):undefined;
+    return { id:user.id, email:user.email, emailVerified:true, trialEndsAt:trialEndsAt.toISOString(), ...(process.env.AUTH_BEARER_ENABLED==='true'&&sessionToken?{accessToken:sessionToken}:{}) };
   }
   @Throttle({default:{limit:8,ttl:60_000}})
   @Post('login') async login(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
     const user = await this.db.user.findUnique({ where:{ email:dto.email.trim().toLowerCase() } });
     if (!user?.passwordHash || !(await argon2.verify(user.passwordHash,dto.password))) throw new BadRequestException('Invalid email or password');
-    await this.issueSession(user.id,res); return { id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt };
+    const sessionToken=await this.issueSession(user.id,res); return { id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt,...(process.env.AUTH_BEARER_ENABLED==='true'?{accessToken:sessionToken}:{}) };
   }
   @Throttle({default:{limit:6,ttl:60_000}})
   @Post('verify-email') async verifyEmail(@Body() dto:TokenInput) {
@@ -129,11 +129,11 @@ export class AuthController {
   }
   private async issueSession(userId:string,res:Response) {
     const token=randomBytes(32).toString('base64url'), expires=new Date(Date.now()+14*864e5);
-    await this.db.session.create({ data:{ userId, tokenHash:tokenHash(token), expiresAt:expires } }); res.cookie('getcyb_session',token,cookieOptions(expires));
+    await this.db.session.create({ data:{ userId, tokenHash:tokenHash(token), expiresAt:expires } }); res.cookie('getcyb_session',token,cookieOptions(expires)); return token;
   }
   @UseGuards(SessionGuard) @Get('me') me(@Req() req:Request & {user:any}) { return {id:req.user.id,email:req.user.email,emailVerified:!!req.user.emailVerifiedAt,role:req.user.role}; }
-  @UseGuards(SessionGuard) @Post('logout') async logout(@Req() req:Request & {user:any},@Res({passthrough:true}) res:Response) {
-    const token=req.cookies?.getcyb_session; if(token) await this.db.session.deleteMany({where:{tokenHash:tokenHash(token)}}); res.clearCookie('getcyb_session',{...cookieOptions(new Date(0))}); return {ok:true};
+  @UseGuards(SessionGuard) @Post('logout') async logout(@Req() req:Request & {user:any;sessionToken?:string},@Res({passthrough:true}) res:Response) {
+    const token=req.sessionToken; if(token) await this.db.session.deleteMany({where:{tokenHash:tokenHash(token)}}); res.clearCookie('getcyb_session',{...cookieOptions(new Date(0))}); return {ok:true};
   }
 }
 

@@ -25,6 +25,7 @@ export async function login(email, password) {
   if (isCustomBackendSessionEnabled()) {
     try {
       const result = await customBackendRequest('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+      if (result.accessToken) sessionStorage.setItem('getcyb_session_token', result.accessToken);
       if (result.id) localStorage.setItem('getcyb_account_id', result.id);
       notifyAppUserChanged();
       return result;

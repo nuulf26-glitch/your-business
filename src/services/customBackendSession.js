@@ -5,10 +5,11 @@ const baseUrl = (import.meta.env.VITE_CUSTOM_BACKEND_URL || '').replace(/\/$/, '
 
 export async function customBackendRequest(path, options = {}) {
   if (!baseUrl) throw new Error('Custom backend URL is not configured.');
+  const sessionToken = sessionStorage.getItem('getcyb_session_token');
   const response = await fetch(`${baseUrl}/api/v1${path}`, {
     ...options,
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers: { 'Content-Type': 'application/json', ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}), ...(options.headers || {}) },
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) { const error=new Error(result.message || 'The request could not be completed.');error.status=response.status;throw error; }
@@ -18,12 +19,15 @@ export async function customBackendRequest(path, options = {}) {
 export async function establishCustomBackendSession(firebaseUser) {
   if (!enabled) return;
   const idToken = await firebaseUser.getIdToken(true);
-  return customBackendRequest('/auth/firebase-exchange', { method: 'POST', body: JSON.stringify({ idToken }) });
+  const result = await customBackendRequest('/auth/firebase-exchange', { method: 'POST', body: JSON.stringify({ idToken }) });
+  if (result.accessToken) sessionStorage.setItem('getcyb_session_token', result.accessToken);
+  return result;
 }
 
 export async function clearCustomBackendSession() {
   if (!enabled || !baseUrl) return;
   await customBackendRequest('/auth/logout', { method: 'POST' }).catch(() => {});
+  sessionStorage.removeItem('getcyb_session_token');
 }
 export const isCustomBackendSessionEnabled = () => enabled;
 
