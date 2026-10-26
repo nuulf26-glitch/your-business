@@ -13,6 +13,7 @@
     "test": "jest --runInBand",
     "backup:firebase": "node scripts/export-firebase.mjs",
     "verify:firebase-backup": "node scripts/verify-firebase-export.mjs",
+    "migrate:firebase-storage-staging": "node scripts/migrate-storage-staging.mjs",
     "import:firebase-staging": "node scripts/import-firebase-staging.mjs"
   },
   "dependencies": {
