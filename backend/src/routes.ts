@@ -62,9 +62,10 @@ export class AuthController {
     if(!user){
       const existing=await this.db.user.findUnique({where:{email}});
       if(existing?.legacyFirebaseUid&&existing.legacyFirebaseUid!==claim.uid)throw new ConflictException('This email is linked to another account');
-      user=existing?await this.db.user.update({where:{id:existing.id},data:{legacyFirebaseUid:claim.uid,emailVerifiedAt:existing.emailVerifiedAt||new Date()}}):await this.db.user.create({data:{email,legacyFirebaseUid:claim.uid,emailVerifiedAt:new Date(),passwordHash:null,role:'OWNER'}});
+      user=existing?await this.db.user.update({where:{id:existing.id},data:{legacyFirebaseUid:claim.uid,emailVerifiedAt:existing.emailVerifiedAt||(claim.email_verified?new Date():null)}}):await this.db.user.create({data:{email,legacyFirebaseUid:claim.uid,emailVerifiedAt:claim.email_verified?new Date():null,passwordHash:null,role:'OWNER'}});
       if(!existing)await this.db.subscription.create({data:{userId:user.id,trialEndsAt:new Date(Date.now()+14*864e5)}});
     }
+    await this.db.subscription.upsert({where:{userId:user.id},create:{userId:user.id,trialEndsAt:new Date(Date.now()+14*864e5)},update:{}});
     const sessionToken=await this.issueSession(user.id,res);
     return {id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt,...(process.env.AUTH_BEARER_ENABLED==='true'?{accessToken:sessionToken}:{})};
   }
