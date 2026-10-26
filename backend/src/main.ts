@@ -55,4 +55,4 @@ function validateRuntimeEnvironment() {
   if (missing.length) throw new Error(`Missing or invalid production configuration: ${missing.join(', ')}`);
 }
 
-void bootstrap();
+if (require.main === module) void bootstrap();
