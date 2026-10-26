@@ -6,11 +6,20 @@ const baseUrl = (import.meta.env.VITE_CUSTOM_BACKEND_URL || '').replace(/\/$/, '
 export async function customBackendRequest(path, options = {}) {
   if (!baseUrl) throw new Error('Custom backend URL is not configured.');
   const sessionToken = sessionStorage.getItem('getcyb_session_token');
-  const response = await fetch(`${baseUrl}/api/v1${path}`, {
-    ...options,
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}), ...(options.headers || {}) },
-  });
+  let response;
+  try {
+    response = await fetch(`${baseUrl}/api/v1${path}`, {
+      ...options,
+      credentials: 'include',
+      signal: options.signal || AbortSignal.timeout(15000),
+      headers: { 'Content-Type': 'application/json', ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}), ...(options.headers || {}) },
+    });
+  } catch (error) {
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+      throw new Error('The custom backend took too long to respond. Check your connection and try again.');
+    }
+    throw error;
+  }
   const result = await response.json().catch(() => ({}));
   if (!response.ok) { const error=new Error(result.message || 'The request could not be completed.');error.status=response.status;throw error; }
   return result;
