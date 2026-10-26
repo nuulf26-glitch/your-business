@@ -1,5 +1,5 @@
 [build]
-  command = "npm --prefix backend install --no-package-lock --no-audit --no-fund && npm run build && npm --prefix backend run build && DATABASE_URL=$NETLIFY_DB_URL npm --prefix backend run prisma:migrate"
+  command = "npm --prefix backend ci --no-audit --no-fund && npm run build && npm --prefix backend run build && DATABASE_URL=$NETLIFY_DB_URL npm --prefix backend run prisma:migrate"
   publish = "dist"
 
 [build.environment]
