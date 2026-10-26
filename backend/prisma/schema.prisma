@@ -132,6 +132,7 @@ model Order {
 }
 model BusinessRecord {
   id String @id @default(cuid())
+  legacyFirebasePath String? @unique
   businessId String
   business Business @relation(fields:[businessId], references:[id], onDelete:Cascade)
   type String
