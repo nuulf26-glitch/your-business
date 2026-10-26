@@ -36,6 +36,14 @@ describe('opaque session token storage', () => {
 });
 
 describe('backend critical operations', () => {
+  it('reports an active free trial to the dashboard session', async () => {
+    const trialEndsAt=new Date(Date.now()+24*60*60_000);
+    const db:any={subscription:{findUnique:jest.fn().mockResolvedValue({status:'TRIALING',trialEndsAt})}};
+    const result=await new AuthController(db,{} as any,{} as any).me({user:{id:'owner-1',email:'owner@example.com',emailVerifiedAt:new Date(),role:'OWNER'}} as any);
+    expect(db.subscription.findUnique).toHaveBeenCalledWith({where:{userId:'owner-1'}});
+    expect(result).toEqual(expect.objectContaining({paid:false,trialActive:true,trialEndsAt:trialEndsAt.toISOString()}));
+  });
+
   it('loads business records only for the signed-in owner and requested type', async () => {
     const createdAt=new Date('2026-10-26T00:00:00Z');
     const db:any={business:{findFirst:jest.fn().mockResolvedValue({id:'owned-business'})},businessRecord:{findMany:jest.fn().mockResolvedValue([{id:'booking-1',type:'bookings',status:'confirmed',read:false,data:{name:'Customer'},createdAt}])}};
