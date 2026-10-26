@@ -23,6 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 .env
+backend/private-backups/
 
 # Local Netlify folder
 .netlify

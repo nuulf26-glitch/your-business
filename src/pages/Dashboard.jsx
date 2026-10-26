@@ -6,14 +6,9 @@ import { Navigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
-import { doc, getDoc } from "firebase/firestore";
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-} from "firebase/firestore";
-import { auth, db } from "../firebase";
+import { getOrders } from "../services/orderService";
+import { getCustomers } from "../services/customerService";
+import { getAppUser } from "../services/customBackendSession";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -46,16 +41,8 @@ const [userProfile, setUserProfile] = useState(null);
   useEffect(() => {
     async function loadDashboardData() {
       try {
-        const user = auth.currentUser;
-if (user) {
-  const userSnapshot = await getDoc(
-    doc(db, "users", user.uid)
-  );
-
-  if (userSnapshot.exists()) {
-    setUserProfile(userSnapshot.data());
-  }
-}
+        const user = await getAppUser();
+        setUserProfile(user || null);
         if (!user) {
           setOrders([]);
           setCustomers([]);
@@ -65,43 +52,9 @@ if (user) {
         const currentStore = await getStore();
         setStore(currentStore);
         setProducts(await getProducts());
-        const storeUrl = currentStore?.storeUrl || '';
-
-        if (!storeUrl) {
-          return;
-        }
-
-        const ordersQuery = query(
-          collection(db, "orders"),
-          where("storeUrl", "==", storeUrl)
-        );
-
-        const customersQuery = query(
-          collection(db, "customers"),
-          where("storeUrl", "==", storeUrl)
-        );
-
-        const ordersSnapshot = await getDocs(
-          ordersQuery
-        );
-
-        const customersSnapshot = await getDocs(
-          customersQuery
-        );
-
-        setOrders(
-          ordersSnapshot.docs.map((item) => ({
-            id: item.id,
-            ...item.data(),
-          }))
-        );
-
-        setCustomers(
-          customersSnapshot.docs.map((item) => ({
-            id: item.id,
-            ...item.data(),
-          }))
-        );
+        const [ordersData, customersData] = await Promise.all([getOrders(), getCustomers()]);
+        setOrders(ordersData);
+        setCustomers(customersData);
 
       } catch (error) {
         console.error(
@@ -275,6 +228,14 @@ if (user) {
       <h2>Active account ✅</h2>
       <p>
         Your Business platform is unlocked.
+      </p>
+    </>
+  ) : userProfile?.trialActive ? (
+    <>
+      <span>Account status</span>
+      <h2>14-day free trial active ✅</h2>
+      <p>
+        Your GETCYB account is active until {new Date(userProfile.trialEndsAt).toLocaleDateString()}.
       </p>
     </>
   ) : (

@@ -1,15 +1,7 @@
 import { useEffect, useState } from "react";
-import {
-  collection,
-  getDocs,
-  doc,
-  updateDoc,
-  query,
-  where,
-} from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth";
 import DashboardLayout from "../layouts/DashboardLayout";
-import { auth, db } from "../firebase";
+import { subscribeAppUser } from "../services/customBackendSession";
+import { getOrders, updateOrderStatus } from "../services/orderService";
 
 export default function Shipping() {
   const [user, setUser] = useState(null);
@@ -21,10 +13,7 @@ export default function Shipping() {
   const fetchDeliveries = async (currentUser) => {
     try {
       setLoading(true);
-      const q = query(collection(db, "orders"), where("userId", "==", currentUser.uid));
-      const snapshot = await getDocs(q);
-      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setDeliveries(list);
+      setDeliveries(await getOrders());
     } catch (error) {
       console.error("Error fetching deliveries:", error);
     } finally {
@@ -33,7 +22,7 @@ export default function Shipping() {
   };
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = subscribeAppUser((currentUser) => {
       if (currentUser) {
         setUser(currentUser);
         fetchDeliveries(currentUser);
@@ -47,9 +36,8 @@ export default function Shipping() {
 
   const updateStatus = async (orderId, newStatus) => {
     try {
-      const orderRef = doc(db, "orders", orderId);
-      await updateDoc(orderRef, { shippingStatus: newStatus });
-      setDeliveries(deliveries.map(item => item.id === orderId ? { ...item, shippingStatus: newStatus } : item));
+      await updateOrderStatus(orderId, newStatus);
+      setDeliveries(deliveries.map(item => item.id === orderId ? { ...item, shippingStatus: newStatus, status: newStatus } : item));
       setMessage("Shipping status updated successfully!");
       setTimeout(() => setMessage(""), 3000);
     } catch (error) {

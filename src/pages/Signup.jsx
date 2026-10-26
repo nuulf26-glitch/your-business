@@ -4,6 +4,8 @@ import { auth } from "../firebase";
 import { saveUserProfile } from "../services/userService";
 import "../styles/auth.css";
 import { createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
+import { register } from "../services/authService";
+import { isCustomBackendSessionEnabled } from "../services/customBackendSession";
 function Signup() {
   const navigate = useNavigate();
 
@@ -25,19 +27,20 @@ async function handleSignup(event) {
       return;
     }
 
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    if (password.length < (isCustomBackendSessionEnabled() ? 12 : 6)) {
+      setError(`Password must be at least ${isCustomBackendSessionEnabled() ? 12 : 6} characters.`);
       return;
     }
 
     try {
       setLoading(true);
 
-      const userCredential = await createUserWithEmailAndPassword(
-  auth,
-  email.trim(),
-  password
-);
+      if (isCustomBackendSessionEnabled()) {
+        await register(email.trim(), password, { fullName: fullName.trim(), businessName: businessName.trim() });
+        navigate("/login");
+        return;
+      }
+      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
 try {
 
 await saveUserProfile(userCredential.user.uid, {
@@ -59,6 +62,8 @@ console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (
         setError("Please enter a valid email address.");
       } else if (signupError.code === "auth/weak-password") {
         setError("Please choose a stronger password.");
+      } else if (signupError.message?.includes("account was created, but the verification email")) {
+        setError(signupError.message);
       } else {
         setError("We could not create your account. Please try again.");
       }

@@ -30,6 +30,8 @@ const Shipping = lazy(() => import("./pages/Shipping"));
 const Settings = lazy(() => import("./pages/Settings"));
 const TemplatePreview = lazy(() => import("./pages/TemplatePreview"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
+const ResetCustomPassword = lazy(() => import("./pages/ResetCustomPassword"));
 function App() {
   return (
     <AppErrorBoundary><Suspense fallback={<main role="status" style={{ padding: 40 }}>Loading GETCYB…</main>}>
@@ -39,6 +41,8 @@ function App() {
       <Route path="/design-preview" element={<DesignPreview />} />
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/reset-password" element={<ResetCustomPassword />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/create-website" element={<ProtectedRoute><CreateWebsite /></ProtectedRoute>} />
       <Route path="/templates" element={<Templates />} />

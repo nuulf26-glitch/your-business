@@ -1,20 +1,14 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "../firebase";
+import { subscribeAppUser } from "../services/customBackendSession";
 
 function ProtectedRoute({ children }) {
   const [user, setUser] = useState(null);
   const [checkingUser, setCheckingUser] = useState(true);
 
   useEffect(() => {
-const stopListening = onAuthStateChanged(auth, (currentUser) => {
-
-        setUser(currentUser);
-      setCheckingUser(false);
-    });
-
-    return () => stopListening();
+    const unsubscribe = subscribeAppUser((currentUser) => { setUser(currentUser); setCheckingUser(false); });
+    return unsubscribe;
   }, []);
 
   if (checkingUser) {

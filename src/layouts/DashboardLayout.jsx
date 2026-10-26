@@ -1,15 +1,8 @@
 import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-} from "firebase/firestore";
-import { onAuthStateChanged } from "firebase/auth";
-
 import { logout } from "../services/authService";
-import { auth, db } from "../firebase";
+import { subscribeAppUser } from "../services/customBackendSession";
+import { getStore } from "../services/storeService";
 
 function DashboardLayout({ children }) {
   const navigate = useNavigate();
@@ -18,8 +11,7 @@ function DashboardLayout({ children }) {
   const [loadingStore, setLoadingStore] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(
-      auth,
+    const unsubscribe = subscribeAppUser(
       async (currentUser) => {
         if (!currentUser) {
           setStoreUrl("");
@@ -30,21 +22,8 @@ function DashboardLayout({ children }) {
         try {
           setLoadingStore(true);
 
-          const storeQuery = query(
-            collection(db, "stores"),
-            where("userId", "==", currentUser.uid)
-          );
-
-          const storeSnapshot = await getDocs(storeQuery);
-
-          if (!storeSnapshot.empty) {
-            const storeData =
-              storeSnapshot.docs[0].data();
-
-            setStoreUrl(storeData.storeUrl || "");
-          } else {
-            setStoreUrl("");
-          }
+          const storeData = await getStore();
+          setStoreUrl(storeData?.storeUrl || "");
         } catch (error) {
           console.error(
             "Error loading store URL:",

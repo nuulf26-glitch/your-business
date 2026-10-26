@@ -14,7 +14,25 @@ export default function BusinessWorkspace(){
   const [staffFilter,setStaffFilter]=useState('');
   const [pickupOrders,setPickupOrders]=useState([]);
   const [storeUrl,setStoreUrl]=useState('');
-  async function load(){setBusy(true);setError('');try{const [config,bookings,messages,alerts,store,pickups]=await Promise.all([businessCall('businessCatalog'),businessCall('businessRecords',{type:'bookings'}),businessCall('businessRecords',{type:'inquiries'}),businessCall('businessRecords',{type:'notifications'}),getStore(),businessCall("businessRecords",{type:"pickupOrders"})]);setPickupOrders(pickups);setStoreUrl(store?.storeUrl||'');setCatalog(config||{...structuredClone(emptyCatalog),businessCategory:store?.businessCategory||'general'});setRecords(bookings);setInquiries(messages);setNotifications(alerts);}catch(e){setError(e.message);}finally{setBusy(false);}}
+  async function load(){
+    setBusy(true);setError('');
+    const results=await Promise.allSettled([
+      businessCall('businessCatalog'),
+      businessCall('businessRecords',{type:'bookings'}),
+      businessCall('businessRecords',{type:'inquiries'}),
+      businessCall('businessRecords',{type:'notifications'}),
+      getStore(),
+      businessCall('businessRecords',{type:'pickupOrders'}),
+    ]);
+    const value=(index,fallback)=>results[index].status==='fulfilled'?(results[index].value??fallback):fallback;
+    const failures=results.filter(result=>result.status==='rejected');
+    const store=value(4,null);
+    setPickupOrders(value(5,[]));setStoreUrl(store?.storeUrl||'');
+    setCatalog(value(0,null)||{...structuredClone(emptyCatalog),businessCategory:store?.businessCategory||'general'});
+    setRecords(value(1,[]));setInquiries(value(2,[]));setNotifications(value(3,[]));
+    if(failures.length)setError(failures[0].reason?.message||'Some business data could not be loaded. Refresh to try again.');
+    setBusy(false);
+  }
   useEffect(()=>{load();},[]);
   const category=categoryFor(catalog);
   function update(patch){setCatalog({...catalog,...patch});setDirty(true);}
