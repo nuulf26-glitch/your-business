@@ -4,7 +4,6 @@ import { publishSnapshot, websiteVersions, loadWebsiteDraft, saveWebsiteDraft, u
 import WebsiteRenderer, { WebsiteSection, sectionStyle } from "../editor/WebsiteRenderer";
 import { websitePages, changePageSections, addWebsitePage, pageSlug, reorderPage } from "../editor/pages";
 import { DESIGN_COLLECTIONS, collectionSections, collectionWebsite } from "../editor/collections";
-import { auth } from "../firebase";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getStore } from "../services/storeService";
@@ -214,7 +213,7 @@ function isImageFile(file) {
 }
 
 export default function WebsiteEditor() {
-  const cacheKey = `websiteEditorData:${auth.currentUser?.uid || localStorage.getItem('getcyb_account_id') || 'custom'}`;
+  const cacheKey = `websiteEditorData:${localStorage.getItem('getcyb_account_id') || 'custom'}`;
   const [mode, setMode] = useState(() => { try { return editorMode(localStorage.getItem(`${cacheKey}:mode`)); } catch { return 'advanced'; } });
   const [mobilePanel, setMobilePanel] = useState('canvas');
   function switchMode(value) { const next=editorMode(value);setMode(next);try {localStorage.setItem(`${cacheKey}:mode`,next);}catch {} if(next==='simple')setActiveTab('pages'); }

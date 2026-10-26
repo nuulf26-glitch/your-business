@@ -1,0 +1,23 @@
+[build]
+  command = "npm --prefix backend ci && npm run build && npm --prefix backend run build && DATABASE_URL=$NETLIFY_DB_URL npm --prefix backend run prisma:migrate"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = ["@prisma/client", "argon2"]
+  included_files = ["backend/dist/**", "backend/node_modules/.prisma/**", "backend/node_modules/@prisma/client/**", "backend/node_modules/argon2/**"]
+
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

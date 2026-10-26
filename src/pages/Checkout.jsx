@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/checkout.css";
-import { auth } from "../firebase";
-import { isCustomBackendSessionEnabled, customBackendRequest } from "../services/customBackendSession";
-import { addOrder } from "../services/orderService";
+import { customBackendRequest } from "../services/customBackendSession";
 
 const initialForm = {
   fullName: "",
@@ -96,7 +94,7 @@ const storeUrl = cart[0]?.storeUrl || "";
      
   const newOrder = {
   id: orderId,
-  userId: auth.currentUser?.uid || "",
+  userId: "",
   storeUrl,
   customerName: form.fullName.trim(),
         email: form.email.trim(),
@@ -112,13 +110,8 @@ const storeUrl = cart[0]?.storeUrl || "";
         paymentStatus: "Pending",
         date: new Date().toISOString(),
       };
-if (isCustomBackendSessionEnabled()) {
-  const saved = await customBackendRequest('/public/orders', { method: 'POST', body: JSON.stringify({ data: newOrder }) });
-  Object.assign(newOrder, saved, { id: saved.id, backendId: saved.id });
-} else {
-  const savedId = await addOrder(newOrder);
-  newOrder.firebaseId = typeof savedId === 'string' ? savedId : savedId.id;
-}
+const saved = await customBackendRequest('/public/orders', { method: 'POST', body: JSON.stringify({ data: newOrder }) });
+Object.assign(newOrder, saved, { id: saved.id, backendId: saved.id });
 
      
 

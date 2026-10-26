@@ -1,57 +1,26 @@
-# GETCYB custom backend migration
+# GETCYB custom backend
 
-## Current state
+## Goal
 
-Development is isolated on `codex/custom-backend-migration`. Production `getcyb.fit`, Firebase Hosting, Firebase Auth, Firestore, Storage, and Functions have not been changed. The staging API and frontend are on Render; the latest backend changes are still being deployed and must pass staging checks before any production switch.
+GETCYB's API, account handling, tenant rules, database schema, and business workflows are project code owned by this repository. The public API is served by a Netlify Function. PostgreSQL is used as the database engine through the project's Netlify Database, and Netlify Blobs stores uploaded images. These are infrastructure services; they do not supply GETCYB's application logic or user model.
 
-### Repository integrations found
+## Current implementation
 
-- React/Vite frontend with Firebase Auth, Firestore, Storage, and callable Functions.
-- Firestore collections: `stores`, `products`, `orders`, `customers`, `users`, and private business collections for bookings, inquiries, notifications, pickup orders, websites, versions, and analytics.
-- Cloud Functions for PayPal subscription create/capture, website publishing, business catalogs, bookings, pickup orders, inquiries, analytics, and public products.
-- Firebase Storage uploads from the website editor and product workflow.
+- NestJS API with PostgreSQL/Prisma models for accounts, businesses, websites, products, customers, orders, bookings, inquiries, analytics, subscriptions, sessions, and payment references.
+- Argon2id passwords, hashed session tokens, owner-scoped data access, request validation, origin checks, and rate limiting.
+- Netlify Function adapter exposes the API under `/api/v1`; the frontend uses same-origin requests and HTTP-only session cookies.
+- Netlify Database provides a separate production branch and isolated deploy-preview branches. Prisma migrations run during deploy.
+- Netlify Blobs stores user-uploaded images with owner-specific, unguessable keys. Public sites only receive image URLs, not storage credentials.
+- Production `getcyb.fit` and Firebase have not been switched over. The custom backend must be deployed to a preview and checked before any production cutover.
 
-### Implemented in the custom backend
+## Not ready for public launch yet
 
-- NestJS/TypeScript modular API, PostgreSQL/Prisma models and migrations, hashed session tokens, Argon2id passwords, rate limiting, origin checks, validation, and tenant-scoped business/product/customer/order operations.
-- Custom signup/login/logout, reset/verification endpoints, 14-day trials, and a verified Firebase-token bridge for existing Firebase accounts during migration.
-- Website draft save, publish/unpublish, versions, public rendering, public products, and owner-scoped editor data.
-- Public checkout writes orders and customers to PostgreSQL. The server recalculates item prices from stored products; the browser cannot set the amount. Owners can list and manage orders and tracking details.
-- Business catalog, appointments/reservations with availability checks and transaction locks, inquiries, pickup orders, notifications, client notes, and visit analytics endpoints.
-- PayPal REST order creation and capture verification for platform subscriptions. The shop checkout's PayPal payment flow is still not complete; it currently supports cash on delivery only.
-- S3-compatible presigned image uploads. Staging object-storage credentials and CORS must be configured before upload tests can pass.
-- Firebase export with AES-256-GCM encryption; archive verification with SHA-256 asset checks; guarded/idempotent staging import; Firebase Storage-to-S3 copy; and staging import count/path validation scripts. Import maps old IDs, business catalogs, account subscriptions, website versions, products, customers, orders, payment references, bookings, inquiries, notifications, pickup orders, and client notes. Storage URLs are rewritten from the S3 mapping.
+- The Netlify Function adapter and Netlify Database wiring still need a successful preview deployment and health check.
+- Email delivery is not configured, so verification and password-reset messages need SMTP setup.
+- Platform PayPal payment requires its own credentials and a sandbox capture check. Store-owner PayPal checkout is still separate work.
+- A Firebase export/import is not required for an empty launch. If existing data is to be preserved, use the encrypted export/import workflow only after deciding which existing records are needed.
+- Free hosting has usage caps; if a quota is reached, requests can pause until the quota resets. Monitor Netlify's credit usage before inviting real stores.
 
-### Validation run
+## Deploy
 
-- Frontend production build passes.
-- Backend NestJS build passes.
-- Backend automated tests: 16 passed across 3 suites.
-- Prisma schema validates when `DATABASE_URL` is provided.
-- Migration scripts pass Node syntax checks.
-- Staging API health has returned `{"status":"ok","database":"ok"}`. The newest backend deploy has not yet completed, so its routes still need post-deploy verification.
-- No Firebase backup/export or data import has run; no real email, object upload, PayPal payment, or full browser journey has been exercised.
-
-## Required access and configuration
-
-To run a real migration, provide Firebase Admin credentials with Auth user export, Firestore read, and Storage read permissions; the Firebase Storage bucket name; a private backup destination and a separately stored 32-byte backup-encryption key; and S3-compatible bucket credentials plus public HTTPS asset base URL. Staging SMTP credentials are needed to verify password-reset email delivery. Production needs its own managed PostgreSQL, object storage, email provider, secrets, monitoring, and backup plan.
-
-The staging Render PostgreSQL instance is on a free plan with an expiry date. It is for testing only and must be replaced by a durable managed database before production use. Do not point staging or migration scripts at the live Firebase project for writes.
-
-## Migration commands
-
-1. Set Firebase Admin credentials, bucket name, `BACKUP_ENCRYPTION_KEY`, and a new empty private `EXPORT_DIR`; run `npm run backup:firebase`.
-2. Run `npm run verify:firebase-backup -- /absolute/path/to/export`.
-3. Set staging S3 credentials and `IMPORT_TARGET=staging`, `ALLOW_STAGING_IMPORT=YES`; run `npm run migrate:firebase-storage-staging -- /absolute/path/to/export --apply`.
-4. Dry-run `npm run import:firebase-staging -- /absolute/path/to/export`; review all counts, then apply only with `--apply` and the exact verified staging database hostname in `IMPORT_STAGING_DB_HOST`.
-5. Run `npm run verify:firebase-staging-import -- /absolute/path/to/export` and test representative accounts, stores, published sites, images, products, customers, orders, bookings, and payment records.
-
-Firebase records are never deleted by these scripts. Firebase stays available through the rollback window. Rollback means routing the frontend back to Firebase and keeping the Postgres copy and source Firebase data intact; reconcile any test writes before trying another cutover.
-
-## Still required before public launch
-
-- Finish and verify every frontend Firebase call path; keep the legacy bridge until accounts have signed in or reset passwords on the custom backend.
-- Receive the required Firebase and object-storage credentials, create and verify the encrypted archive, copy assets, import to staging, and validate relationships and public pages.
-- Run browser journeys on staging for registration/login, dashboard, products, image upload, editor save/publish/render, orders, appointments, and subscription status. Complete a PayPal sandbox test; implement seller-directed shop payments if required.
-- Configure durable production PostgreSQL, object storage, SMTP, backups/restore drill, logs/alerts, secrets, CI/CD, and a production domain/API origin.
-- Review tenant isolation and payment/security behavior, then request final approval before any production cutover.
+Netlify builds the frontend, backend, Prisma client, and applies migrations using the database URL for the current deploy context. The API health URL is `https://getcyb.fit/api/v1/health` after production deployment. A branch deploy should be used first and verified before merging any change into production.

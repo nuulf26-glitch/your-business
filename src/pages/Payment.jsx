@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/payment.css";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../firebase";
-import { customBackendRequest, isCustomBackendSessionEnabled } from "../services/customBackendSession";
+import { customBackendRequest } from "../services/customBackendSession";
 function Payment() {
   const navigate = useNavigate();
 
@@ -46,11 +44,11 @@ async function completeOrder(paymentStatus, orderStatus) {
       status: orderStatus,
       completedAt: new Date().toISOString(),
     };
-if (isCustomBackendSessionEnabled() && order.backendId) {
+if (order.backendId) {
   if (paymentMethod === 'cash') await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/cash-on-delivery`, { method: 'POST', body: JSON.stringify({ data: { completedAt: new Date().toISOString() } }) });
   else await customBackendRequest(`/orders/${encodeURIComponent(order.backendId)}`, { method: 'PATCH', body: JSON.stringify({ data: { paymentMethod, paymentStatus, completedAt: new Date().toISOString() } }) });
-} else if (order.firebaseId) {
-  await updateDoc(doc(db, "orders", order.firebaseId), { paymentMethod, paymentStatus, status: orderStatus, completedAt: new Date() });
+} else {
+  throw new Error('This order is not connected to the custom backend.');
 }
 
     localStorage.setItem(
@@ -75,17 +73,7 @@ if (isCustomBackendSessionEnabled() && order.backendId) {
     try {
       setLoading(true);
 
-      if (paymentMethod === "paypal") {
-        await new Promise((resolve) => {
-          window.setTimeout(resolve, 1000);
-        });
-
-        setError(
-          "PayPal is not connected yet. Complete the Firebase and PayPal setup first."
-        );
-
-        return;
-      }
+      if (paymentMethod === "paypal") { setError("PayPal checkout for store orders is not configured yet."); return; }
 
      if (paymentMethod === "cash") {
   await completeOrder("Cash on delivery", "New");

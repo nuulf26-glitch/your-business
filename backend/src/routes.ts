@@ -1,16 +1,14 @@
-import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { IsEmail, IsString, MinLength, MaxLength, IsObject, IsIn, IsInt, Max, IsOptional } from 'class-validator';
+import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, Logger, ServiceUnavailableException, Headers } from '@nestjs/common';
+import { IsEmail, IsString, MinLength, MaxLength, IsObject, IsOptional } from 'class-validator';
 import { Request, Response } from 'express';
 import * as argon2 from 'argon2';
 import { randomBytes, createHash } from 'node:crypto';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { getStore } from '@netlify/blobs';
 import { Throttle } from '@nestjs/throttler';
 import { DbService } from './database';
 import { Prisma } from '@prisma/client';
 import { SessionGuard, tokenHash } from './session';
 import { MailService } from './mail';
-import { FirebaseBridge } from './firebase-bridge';
 import { publicWebsite, validateWebsite } from './website-policy';
 import { allocate, localParts } from './availability';
 
@@ -44,8 +42,6 @@ class PayPalCaptureInput { @IsString() @MaxLength(100) orderId!: string; }
 class OrderStatusInput { @IsString() @MaxLength(30) status!: string; }
 class CustomerStatusInput { @IsString() @MaxLength(30) status!: string; }
 class IdInput { @IsString() @MaxLength(120) id!: string; }
-class FirebaseTokenInput { @IsString() @MinLength(100) @MaxLength(10_000) idToken!: string; }
-class UploadInput { @IsIn(['image/jpeg','image/png','image/webp','image/gif']) contentType!: string; @IsInt() @Max(10*1024*1024) fileSize!: number; }
 // Keep the session cookie host-only on the API origin. A configured parent
 // domain (for example getcyb.fit) causes browsers to reject it on Render's
 // staging hostname and can also be unnecessary when the API is a subdomain.
@@ -54,22 +50,7 @@ const cookieOptions = (expires: Date) => {const sameSite=(process.env.COOKIE_SAM
 @Controller('auth')
 export class AuthController {
   private logger=new Logger(AuthController.name);
-  constructor(private db: DbService, private mail:MailService, private firebase:FirebaseBridge) {}
-  @Throttle({default:{limit:10,ttl:60_000}})
-  @Post('firebase-exchange') async firebaseExchange(@Body() dto:FirebaseTokenInput,@Res({passthrough:true}) res:Response){
-    const claim=await this.firebase.verifyIdToken(dto.idToken);
-    const email=claim.email?.trim().toLowerCase();if(!email)throw new BadRequestException('An email address is required');
-    let user=await this.db.user.findUnique({where:{legacyFirebaseUid:claim.uid}});
-    if(!user){
-      const existing=await this.db.user.findUnique({where:{email}});
-      if(existing?.legacyFirebaseUid&&existing.legacyFirebaseUid!==claim.uid)throw new ConflictException('This email is linked to another account');
-      user=existing?await this.db.user.update({where:{id:existing.id},data:{legacyFirebaseUid:claim.uid,emailVerifiedAt:existing.emailVerifiedAt||(claim.email_verified?new Date():null)}}):await this.db.user.create({data:{email,legacyFirebaseUid:claim.uid,emailVerifiedAt:claim.email_verified?new Date():null,passwordHash:null,role:'OWNER'}});
-      if(!existing)await this.db.subscription.create({data:{userId:user.id,trialEndsAt:new Date(Date.now()+14*864e5)}});
-    }
-    await this.db.subscription.upsert({where:{userId:user.id},create:{userId:user.id,trialEndsAt:new Date(Date.now()+14*864e5)},update:{}});
-    const sessionToken=await this.issueSession(user.id,res);
-    return {id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt,...(process.env.AUTH_BEARER_ENABLED==='true'?{accessToken:sessionToken}:{})};
-  }
+  constructor(private db: DbService, private mail:MailService) {}
   @Throttle({default:{limit:5,ttl:60_000}})
   @Post('signup') async signup(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
     const email = dto.email.trim().toLowerCase();
@@ -83,7 +64,7 @@ export class AuthController {
       await tx.business.create({data:{ownerId:created.id,name:businessName,slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
       return created;
     });
-    const sessionToken=process.env.NODE_ENV!=='production'?await this.issueSession(user.id,res):undefined;
+    const sessionToken=await this.issueSession(user.id,res);
     return { id:user.id, email:user.email, emailVerified:true, trialEndsAt:trialEndsAt.toISOString(), ...(process.env.AUTH_BEARER_ENABLED==='true'&&sessionToken?{accessToken:sessionToken}:{}) };
   }
   @Throttle({default:{limit:8,ttl:60_000}})
@@ -322,15 +303,29 @@ export class WebsiteController {
 }
 
 @Controller('uploads')
-@UseGuards(SessionGuard)
 export class UploadController {
-  private s3=new S3Client({region:process.env.S3_REGION||'auto',endpoint:process.env.S3_ENDPOINT,forcePathStyle:!!process.env.S3_ENDPOINT,credentials:{accessKeyId:process.env.S3_ACCESS_KEY_ID||'',secretAccessKey:process.env.S3_SECRET_ACCESS_KEY||''}});
-  @Post('presign') async presign(@Req() req:Request & {user:any},@Body() input:UploadInput) {
-    const allowed=['image/jpeg','image/png','image/webp','image/gif'];if(!allowed.includes(input.contentType))throw new BadRequestException('Unsupported image type');
-    if(input.fileSize<1||input.fileSize>10*1024*1024)throw new BadRequestException('Images must be 10 MB or smaller');
+  @UseGuards(SessionGuard)
+  @Post() async upload(@Req() req:Request & {user:any},@Headers('content-type') contentType:string,@Req() request:Request,@Res() response:Response) {
+    const allowed=['image/jpeg','image/png','image/webp','image/gif'];
+    if(!allowed.includes(contentType))throw new BadRequestException('Unsupported image type');
+    const bytes=Buffer.isBuffer(request.body)?request.body:Buffer.alloc(0);
+    if(bytes.length<1||bytes.length>5*1024*1024)throw new BadRequestException('Images must be 5 MB or smaller');
     const key=`businesses/${req.user.id}/${randomBytes(18).toString('hex')}`;
-    const cmd=new PutObjectCommand({Bucket:process.env.S3_BUCKET,Key:key,ContentType:input.contentType,ContentLength:input.fileSize,Metadata:{owner:req.user.id}});
-    return {url:await getSignedUrl(this.s3,cmd,{expiresIn:300}),key,publicUrl:`${process.env.S3_PUBLIC_BASE_URL}/${key}`};
+    const store=getStore('getcyb-assets');
+    const image=new ArrayBuffer(bytes.length);new Uint8Array(image).set(bytes);
+    await store.set(key,image,{metadata:{owner:req.user.id,contentType}});
+    return response.status(201).json({key,publicUrl:`/api/v1/uploads/${key}`});
+  }
+  @Get(':owner/:name') async read(@Req() req:Request,@Res() response:Response) {
+    const owner=String(req.params['owner']||''),name=String(req.params['name']||'');
+    if(!/^[a-zA-Z0-9_-]{1,120}$/.test(owner)||!/^[a-f0-9]{36}$/.test(name))throw new NotFoundException('Image not found');
+    const key=`businesses/${owner}/${name}`,store=getStore('getcyb-assets');
+    const metadata=await store.getMetadata(key);
+    if(!metadata)throw new NotFoundException('Image not found');
+    const image=await store.get(key,{type:'arrayBuffer'});
+    response.setHeader('Content-Type',String(metadata.metadata.contentType||'application/octet-stream'));
+    response.setHeader('Cache-Control','public, max-age=31536000, immutable');
+    return response.status(200).send(Buffer.from(image));
   }
 }
 

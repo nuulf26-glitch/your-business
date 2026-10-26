@@ -1,15 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PayPalButtons } from "@paypal/react-paypal-js";
-import { auth } from "../firebase";
-import { customBackendRequest, isCustomBackendSessionEnabled } from "../services/customBackendSession";
+import { customBackendRequest } from "../services/customBackendSession";
 import "../styles/platformPayment.css";
-
-const CREATE_ORDER_URL =
-  "https://us-central1-your-business-47e44.cloudfunctions.net/createPayPalOrder";
-
-const CAPTURE_ORDER_URL =
-  "https://us-central1-your-business-47e44.cloudfunctions.net/capturePayPalOrder";
 
 function PlatformPayment() {
   const navigate = useNavigate();
@@ -17,46 +10,13 @@ function PlatformPayment() {
   const [error, setError] = useState("");
   const [paymentComplete, setPaymentComplete] = useState(false);
 
-  async function getUserToken() {
-    if (isCustomBackendSessionEnabled()) return null;
-    const user = auth.currentUser;
-
-    if (!user) {
-      throw new Error("Please sign in before paying.");
-    }
-
-    return user.getIdToken();
-  }
-
   async function createOrder() {
     try {
       setError("");
 
-      if (isCustomBackendSessionEnabled()) {
-        const result = await customBackendRequest('/payments/paypal/orders', { method: 'POST' });
-        if (!result?.orderId) throw new Error('Could not start the PayPal payment.');
-        return result.orderId;
-      }
-
-      const token = await getUserToken();
-
-      const response = await fetch(CREATE_ORDER_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.orderId) {
-        throw new Error(
-          data.message || "Could not start the PayPal payment."
-        );
-      }
-
-      return data.orderId;
+      const result = await customBackendRequest('/payments/paypal/orders', { method: 'POST' });
+      if (!result?.orderId) throw new Error('Could not start the PayPal payment.');
+      return result.orderId;
     } catch (paymentError) {
       console.error("Create PayPal order error:", paymentError);
 
@@ -73,35 +33,8 @@ function PlatformPayment() {
     try {
       setError("");
 
-      if (isCustomBackendSessionEnabled()) {
-        const result = await customBackendRequest('/payments/paypal/capture', { method: 'POST', body: JSON.stringify({ orderId: data.orderID }) });
-        if (!result?.success) throw new Error('The payment could not be confirmed.');
-        setPaymentComplete(true);
-        window.setTimeout(() => navigate('/dashboard', { replace: true }), 1800);
-        return;
-      }
-
-      const token = await getUserToken();
-
-      const response = await fetch(CAPTURE_ORDER_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          orderId: data.orderID,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        throw new Error(
-          result.message || "The payment could not be confirmed."
-        );
-      }
-
+      const result = await customBackendRequest('/payments/paypal/capture', { method: 'POST', body: JSON.stringify({ orderId: data.orderID }) });
+      if (!result?.success) throw new Error('The payment could not be confirmed.');
       setPaymentComplete(true);
 
       window.setTimeout(() => {
