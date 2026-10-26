@@ -141,6 +141,53 @@ export class AuthController {
 export class BusinessController {
   constructor(private db:DbService){}
   @UseGuards(SessionGuard) @Get('mine') async mine(@Req() req:Request & {user:any}) { return this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}}); }
+  @UseGuards(SessionGuard) @Get('mine/catalog') async catalog(@Req() req:Request & {user:any}) {
+    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const settings=(business?.settings||{}) as Record<string,unknown>;
+    return settings.businessCatalog||settings.catalog||null;
+  }
+  @UseGuards(SessionGuard) @Put('mine/catalog') async saveCatalog(@Req() req:Request & {user:any},@Body() dto:JsonInput) {
+    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    if(!business)throw new NotFoundException('Business not found');
+    const catalog=dto.data as Record<string,any>;
+    if(!['salon','restaurant','store','services','portfolio','general'].includes(String(catalog.businessCategory)))throw new BadRequestException('Choose a business category');
+    try { new Intl.DateTimeFormat('en-US',{timeZone:String(catalog.timeZone)}); } catch { throw new BadRequestException('Choose a valid timezone'); }
+    const settings={...(business.settings as Record<string,unknown>),businessCatalog:catalog};
+    return this.db.business.update({where:{id:business.id},data:{settings:settings as any}});
+  }
+  @UseGuards(SessionGuard) @Get('mine/records') async records(@Req() req:Request & {user:any}) {
+    const type=String(req.query.type||'');
+    if(!['bookings','inquiries','notifications','pickupOrders'].includes(type))throw new BadRequestException('Invalid business record type');
+    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    if(!business)return [];
+    const rows=await this.db.businessRecord.findMany({where:{businessId:business.id,type},orderBy:{createdAt:'desc'},take:300});
+    return rows.map(row=>({...(row.data as Record<string,unknown>),id:row.id,type:row.type,status:row.status,read:row.read,createdAt:row.createdAt.toISOString()}));
+  }
+  @UseGuards(SessionGuard) @Post('mine/records/bookings') async createOwnerBooking(@Req() req:Request & {user:any},@Body() dto:JsonInput) {
+    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    if(!business)throw new NotFoundException('Business not found');
+    const data=dto.data as Record<string,unknown>;
+    if(data.storeUrl&&data.storeUrl!==business.slug)throw new NotFoundException('Business not found');
+    const name=String(data.name||'').trim(),email=String(data.email||'').trim().toLowerCase(),start=String(data.start||'');
+    if(!name||!/^\S+@\S+\.\S+$/.test(email)||!Number.isFinite(Date.parse(start)))throw new BadRequestException('Enter a customer, valid email, and booking time');
+    const record=await this.db.businessRecord.create({data:{businessId:business.id,type:'bookings',status:'confirmed',data:{...data,name,email,start,kind:data.kind==='reservation'?'reservation':'appointment'} as any}});
+    return {id:record.id,start,status:record.status};
+  }
+  @UseGuards(SessionGuard) @Patch('mine/records/:id') async updateRecord(@Req() req:Request & {user:any},@Body() dto:OrderStatusInput) {
+    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    if(!business)throw new NotFoundException('Business not found');
+    const type=String(req.query.type||'');
+    if(type==='notifications'){
+      const result=await this.db.businessRecord.updateMany({where:{id:String(req.params['id']),businessId:business.id,type},data:{read:true}});
+      if(!result.count)throw new NotFoundException('Notification not found');
+      return {success:true};
+    }
+    const allowed=type==='bookings'?['confirmed','completed','cancelled']:type==='pickupOrders'?['new','accepted','preparing','ready','completed','cancelled']:[];
+    if(!allowed.includes(dto.status))throw new BadRequestException('Invalid status');
+    const result=await this.db.businessRecord.updateMany({where:{id:String(req.params['id']),businessId:business.id,type},data:{status:dto.status}});
+    if(!result.count)throw new NotFoundException('Business record not found');
+    return {success:true};
+  }
   @UseGuards(SessionGuard) @Put('mine') async save(@Req() req:Request & {user:any},@Body() dto:StoreInput) {
     if(!/^[a-z0-9-]{1,100}$/.test(dto.slug)) throw new BadRequestException('Slug must use lowercase letters, numbers, and hyphens');
     const existing=await this.db.business.findUnique({where:{slug:dto.slug}}); if(existing&&existing.ownerId!==req.user.id) throw new ConflictException('Website address is already taken');

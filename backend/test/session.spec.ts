@@ -1,5 +1,5 @@
 import { OriginGuard, SessionGuard, tokenHash } from '../src/session';
-import { AuthController, HealthController, OrderController } from '../src/routes';
+import { AuthController, BusinessController, HealthController, OrderController } from '../src/routes';
 import { publicWebsite, validateWebsite } from '../src/website-policy';
 import * as argon2 from 'argon2';
 
@@ -36,6 +36,14 @@ describe('opaque session token storage', () => {
 });
 
 describe('backend critical operations', () => {
+  it('loads business records only for the signed-in owner and requested type', async () => {
+    const createdAt=new Date('2026-10-26T00:00:00Z');
+    const db:any={business:{findFirst:jest.fn().mockResolvedValue({id:'owned-business'})},businessRecord:{findMany:jest.fn().mockResolvedValue([{id:'booking-1',type:'bookings',status:'confirmed',read:false,data:{name:'Customer'},createdAt}])}};
+    const result=await new BusinessController(db).records({user:{id:'owner-1'},query:{type:'bookings'}} as any);
+    expect(db.businessRecord.findMany).toHaveBeenCalledWith({where:{businessId:'owned-business',type:'bookings'},orderBy:{createdAt:'desc'},take:300});
+    expect(result).toEqual([{name:'Customer',id:'booking-1',type:'bookings',status:'confirmed',read:false,createdAt:createdAt.toISOString()}]);
+  });
+
   it('reports readiness only after the database answers', async () => {
     const health = new HealthController({ $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]) } as any);
     await expect(health.readiness()).resolves.toEqual({ status: 'ok', database: 'ok' });

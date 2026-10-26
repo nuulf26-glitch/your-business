@@ -19,9 +19,17 @@ export async function businessCall(name, data = {}) {
     if(name==='loadPublicProducts')return customBackendRequest(`/public/products/${encodeURIComponent(data.storeUrl)}`);
     if(name==='loadPublicProduct')return customBackendRequest(`/public/products/item/${encodeURIComponent(data.id)}`);
     if(name==='businessCatalog'){
-      const path=data.storeUrl?`/businesses/public/${encodeURIComponent(data.storeUrl)}`:'/businesses/mine';
-      return customBackendRequest(path).then(business=>business?.settings?.catalog||business?.settings?.businessCatalog||null);
+      if(data.storeUrl){
+        const business=await customBackendRequest(`/businesses/public/${encodeURIComponent(data.storeUrl)}`);
+        return business?.settings?.catalog||business?.settings?.businessCatalog||null;
+      }
+      return customBackendRequest('/businesses/mine/catalog');
     }
+    if(name==='saveBusinessCatalog')return customBackendRequest('/businesses/mine/catalog',{method:'PUT',body:JSON.stringify({data})});
+    if(name==='businessRecords')return customBackendRequest(`/businesses/mine/records?type=${encodeURIComponent(data.type||'')}`);
+    if(name==='updateBooking'||name==='updatePickupOrder')return customBackendRequest(`/businesses/mine/records/${encodeURIComponent(data.id)}?type=${name==='updateBooking'?'bookings':'pickupOrders'}`,{method:'PATCH',body:JSON.stringify({status:data.status})});
+    if(name==='markNotificationRead')return customBackendRequest(`/businesses/mine/records/${encodeURIComponent(data.id)}?type=notifications`,{method:'PATCH',body:JSON.stringify({status:'read'})});
+    if(name==='createOwnerBooking')return customBackendRequest('/businesses/mine/records/bookings',{method:'POST',body:JSON.stringify({data})});
     throw new Error(`The ${name} feature is not connected to the custom backend yet.`);
   }
   try { return (await httpsCallable(functions, name)(data)).data; }

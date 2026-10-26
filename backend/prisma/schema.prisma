@@ -78,6 +78,7 @@ model Business {
   products Product[]
   customers Customer[]
   orders Order[]
+  businessRecords BusinessRecord[]
   @@index([ownerId])
 }
 model Website {
@@ -128,6 +129,18 @@ model Order {
   data Json @default("{}")
   createdAt DateTime @default(now())
   @@index([businessId, createdAt])
+}
+model BusinessRecord {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields:[businessId], references:[id], onDelete:Cascade)
+  type String
+  status String @default("new")
+  read Boolean @default(false)
+  data Json @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([businessId, type, createdAt])
 }
 model PaymentReference {
   id String @id @default(cuid())
