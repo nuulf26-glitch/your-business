@@ -7,7 +7,7 @@ import {
 } from "firebase/auth";
 
 import { auth } from "../firebase";
-import { clearCustomBackendSession, customBackendRequest, establishCustomBackendSession, isCustomBackendSessionEnabled, notifyAppUserChanged } from "./customBackendSession";
+import { cacheAppUser, clearCustomBackendSession, customBackendRequest, establishCustomBackendSession, isCustomBackendSessionEnabled, notifyAppUserChanged } from "./customBackendSession";
 
 export async function register(email, password, profile = {}) {
   if (isCustomBackendSessionEnabled()) {
@@ -21,22 +21,24 @@ export async function register(email, password, profile = {}) {
 }
 
 export async function login(email, password) {
-  await setPersistence(auth, browserLocalPersistence);
   if (isCustomBackendSessionEnabled()) {
     try {
       const result = await customBackendRequest('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
       if (result.accessToken) sessionStorage.setItem('getcyb_session_token', result.accessToken);
       if (result.id) localStorage.setItem('getcyb_account_id', result.id);
+      cacheAppUser(result);
       notifyAppUserChanged();
       return result;
     } catch (customError) {
       // Existing Firebase accounts can still sign in and receive a backend session
       // through the verified-token bridge during the migration period.
+      await setPersistence(auth, browserLocalPersistence);
       const result = await signInWithEmailAndPassword(auth, email, password);
       await establishCustomBackendSession(result.user);
       return result;
     }
   }
+  await setPersistence(auth, browserLocalPersistence);
   const result = await signInWithEmailAndPassword(auth, email, password);
   await establishCustomBackendSession(result.user);
   return result;
