@@ -1,15 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/checkout.css";
-import {
-  addDoc,
-  collection,
-  doc,
-  setDoc,
-  getDoc,
-} from "firebase/firestore";
-
-import { db, auth } from "../firebase";
+import { auth } from "../firebase";
+import { isCustomBackendSessionEnabled, customBackendRequest } from "../services/customBackendSession";
+import { addOrder } from "../services/orderService";
 
 const initialForm = {
   fullName: "",
@@ -118,55 +112,13 @@ const storeUrl = cart[0]?.storeUrl || "";
         paymentStatus: "Pending",
         date: new Date().toISOString(),
       };
-const orderRef = await addDoc(collection(db, "orders"), {
-  ...newOrder,
-  createdAt: new Date(),
-});
-
-newOrder.firebaseId = orderRef.id;
-
-const customerId = form.email
-  .trim()
-  .toLowerCase()
-  .replace(/[^a-z0-9]/g, "-");
-
-const customerRef = doc(
-  db,
-  "customers",
-  `${storeUrl}-${customerId}`
-);
-
-const customerSnap = await getDoc(customerRef);
-
-if (customerSnap.exists()) {
-  const customer = customerSnap.data();
-
-  await setDoc(
-    customerRef,
-    {
-      name: form.fullName.trim(),
-      email: form.email.trim(),
-      phone: form.phone.trim(),
-      storeUrl,
-      orders: Number(customer.orders || 0) + 1,
-      totalSpent:
-        Number(customer.totalSpent || 0) + total,
-      lastOrder: new Date().toISOString(),
-      status: "Active",
-    },
-    { merge: true }
-  );
+if (isCustomBackendSessionEnabled()) {
+  const saved = await customBackendRequest('/public/orders', { method: 'POST', body: JSON.stringify({ data: newOrder }) });
+  newOrder.id = saved.id;
+  newOrder.backendId = saved.id;
 } else {
-  await setDoc(customerRef, {
-    name: form.fullName.trim(),
-    email: form.email.trim(),
-    phone: form.phone.trim(),
-    storeUrl,
-    orders: 1,
-    totalSpent: total,
-    lastOrder: new Date().toISOString(),
-    status: "New",
-  });
+  const savedId = await addOrder(newOrder);
+  newOrder.firebaseId = typeof savedId === 'string' ? savedId : savedId.id;
 }
 
      
