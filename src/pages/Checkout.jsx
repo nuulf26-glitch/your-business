@@ -114,8 +114,7 @@ const storeUrl = cart[0]?.storeUrl || "";
       };
 if (isCustomBackendSessionEnabled()) {
   const saved = await customBackendRequest('/public/orders', { method: 'POST', body: JSON.stringify({ data: newOrder }) });
-  newOrder.id = saved.id;
-  newOrder.backendId = saved.id;
+  Object.assign(newOrder, saved, { id: saved.id, backendId: saved.id });
 } else {
   const savedId = await addOrder(newOrder);
   newOrder.firebaseId = typeof savedId === 'string' ? savedId : savedId.id;
