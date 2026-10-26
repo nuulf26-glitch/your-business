@@ -27,9 +27,18 @@ export async function businessCall(name, data = {}) {
     }
     if(name==='saveBusinessCatalog')return customBackendRequest('/businesses/mine/catalog',{method:'PUT',body:JSON.stringify({data})});
     if(name==='businessRecords')return customBackendRequest(`/businesses/mine/records?type=${encodeURIComponent(data.type||'')}`);
+    if(name==='businessAnalytics')return customBackendRequest('/businesses/mine/analytics');
+    if(name==='businessClients')return customBackendRequest('/businesses/mine/clients');
+    if(name==='saveClientNote')return customBackendRequest(`/businesses/mine/client-notes/${encodeURIComponent(data.id)}`,{method:'PUT',body:JSON.stringify({data:{note:data.note}})});
     if(name==='updateBooking'||name==='updatePickupOrder')return customBackendRequest(`/businesses/mine/records/${encodeURIComponent(data.id)}?type=${name==='updateBooking'?'bookings':'pickupOrders'}`,{method:'PATCH',body:JSON.stringify({status:data.status})});
     if(name==='markNotificationRead')return customBackendRequest(`/businesses/mine/records/${encodeURIComponent(data.id)}?type=notifications`,{method:'PATCH',body:JSON.stringify({status:'read'})});
     if(name==='createOwnerBooking')return customBackendRequest('/businesses/mine/records/bookings',{method:'POST',body:JSON.stringify({data})});
+    if(name==='bookingOptions')return customBackendRequest('/public/bookings/options',{method:'POST',body:JSON.stringify({data})});
+    if(name==='createBooking')return customBackendRequest('/public/bookings',{method:'POST',body:JSON.stringify({data})});
+    if(name==='rescheduleBooking')return customBackendRequest(`/businesses/mine/records/${encodeURIComponent(data.id)}/reschedule`,{method:'PATCH',body:JSON.stringify({data:{start:data.start}})});
+    if(name==='submitInquiry')return customBackendRequest('/public/inquiries',{method:'POST',body:JSON.stringify({data})});
+    if(name==='createPickupOrder')return customBackendRequest('/public/pickup-orders',{method:'POST',body:JSON.stringify({data})});
+    if(name==='recordPageView')return customBackendRequest('/public/analytics/pageview',{method:'POST',body:JSON.stringify({data})});
     throw new Error(`The ${name} feature is not connected to the custom backend yet.`);
   }
   try { return (await httpsCallable(functions, name)(data)).data; }
