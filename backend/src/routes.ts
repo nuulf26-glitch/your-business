@@ -131,7 +131,19 @@ export class AuthController {
     const token=randomBytes(32).toString('base64url'), expires=new Date(Date.now()+14*864e5);
     await this.db.session.create({ data:{ userId, tokenHash:tokenHash(token), expiresAt:expires } }); res.cookie('getcyb_session',token,cookieOptions(expires)); return token;
   }
-  @UseGuards(SessionGuard) @Get('me') me(@Req() req:Request & {user:any}) { return {id:req.user.id,email:req.user.email,emailVerified:!!req.user.emailVerifiedAt,role:req.user.role}; }
+  @UseGuards(SessionGuard) @Get('me') async me(@Req() req:Request & {user:any}) {
+    const subscription=await this.db.subscription.findUnique({where:{userId:req.user.id}});
+    const trialActive=subscription?.status==='TRIALING'&&subscription.trialEndsAt>new Date();
+    return {
+      id:req.user.id,
+      email:req.user.email,
+      emailVerified:!!req.user.emailVerifiedAt,
+      role:req.user.role,
+      paid:subscription?.status==='ACTIVE',
+      trialActive,
+      trialEndsAt:subscription?.trialEndsAt.toISOString()||null,
+    };
+  }
   @UseGuards(SessionGuard) @Post('logout') async logout(@Req() req:Request & {user:any;sessionToken?:string},@Res({passthrough:true}) res:Response) {
     const token=req.sessionToken; if(token) await this.db.session.deleteMany({where:{tokenHash:tokenHash(token)}}); res.clearCookie('getcyb_session',{...cookieOptions(new Date(0))}); return {ok:true};
   }
