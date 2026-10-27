@@ -2,7 +2,6 @@ import { getStore } from "../services/storeService";
 import { getProducts } from "../services/productService";
 import { orderMetrics } from "../business/metrics";
 import { logout } from "../services/authService";
-import { Navigate } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
@@ -117,10 +116,6 @@ const [userProfile, setUserProfile] = useState(null);
     };
     return templateNames[templateId] || templateId || "Not selected";
   }
-
-  const normalizedBusinessCategory = String(store?.businessCategory || '').trim().toLowerCase().replace(/[\s_-]/g, '');
-  const onlineStoreCategories = new Set(['store', 'onlinestore', 'ecommerce', 'shop', 'retail']);
-  if (store?.businessCategory && !onlineStoreCategories.has(normalizedBusinessCategory)) return <Navigate to="/business" replace />;
 
   return (
     <div className="dashboard-page">
