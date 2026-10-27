@@ -13,6 +13,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         clientId: import.meta.env.VITE_PAYPAL_CLIENT_ID,
         currency: "USD",
         intent: "capture",
+        components: "buttons,applepay",
       }}
     >
       <App />
