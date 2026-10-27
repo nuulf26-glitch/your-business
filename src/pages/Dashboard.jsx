@@ -118,7 +118,7 @@ const [userProfile, setUserProfile] = useState(null);
     return templateNames[templateId] || templateId || "Not selected";
   }
 
-  const normalizedBusinessCategory = String(store?.businessCategory || '').trim().toLowerCase().replace(/[\\s_-]/g, '');
+  const normalizedBusinessCategory = String(store?.businessCategory || '').trim().toLowerCase().replace(/[\s_-]/g, '');
   const onlineStoreCategories = new Set(['store', 'onlinestore', 'ecommerce', 'shop', 'retail']);
   if (store?.businessCategory && !onlineStoreCategories.has(normalizedBusinessCategory)) return <Navigate to="/business" replace />;
 
