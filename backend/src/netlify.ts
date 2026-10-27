@@ -33,9 +33,12 @@ export async function handler(event: NetlifyEvent) {
     const { port } = await runtime;
     const sourceUrl = event.rawUrl ? new URL(event.rawUrl) : undefined;
     const functionPrefix = '/.netlify/functions/api';
-    const path = sourceUrl
-      ? `${sourceUrl.pathname}${sourceUrl.search}`
-      : `${event.path.replace(functionPrefix, '') || '/'}${new URLSearchParams((event as any).queryStringParameters || {}).toString()}`;
+    const sourcePath = sourceUrl?.pathname || event.path;
+    const apiPath = sourcePath.startsWith(functionPrefix)
+      ? `/api${sourcePath.slice(functionPrefix.length) || '/'}`
+      : sourcePath;
+    const query = sourceUrl?.search || new URLSearchParams((event as any).queryStringParameters || {}).toString();
+    const path = `${apiPath}${query && !query.startsWith('?') ? `?${query}` : query}`;
     const headers = { ...(event.headers || {}) } as Record<string, string>;
     for (const name of Object.keys(headers)) {
       if (['host', 'content-length', 'connection'].includes(name.toLowerCase())) delete headers[name];
