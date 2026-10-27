@@ -8,7 +8,7 @@
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
-  external_node_modules = ["@netlify/database", "@prisma/client", "argon2"]
+  external_node_modules = ["@netlify/database", "@prisma/client", "argon2", "@nestjs/microservices", "@nestjs/websockets/socket-module"]
   included_files = ["backend/dist/**", "backend/node_modules/.prisma/**", "backend/node_modules/@prisma/client/**", "backend/node_modules/argon2/**", "node_modules/@netlify/database/**"]
 
 [[redirects]]
