@@ -137,28 +137,28 @@
   color: #6f6f6a;
 }
 
-.platform-paypal-buttons {
-  min-height: 160px;
-}
-
-.platform-apple-pay-mount:empty {
-  display: none;
-}
-
-.platform-apple-pay-mount {
-  margin: 0 0 12px;
-}
-
-.platform-apple-pay-button {
+.platform-checkout-button {
   display: block;
   width: 100%;
   height: 48px;
-  border: 0;
-  border-radius: 6px;
+  margin: 24px 0 0;
+  border: 1px solid #151515;
+  border-radius: 10px;
+  background: #151515;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
   cursor: pointer;
-  -webkit-appearance: -apple-pay-button;
-  -apple-pay-button-type: buy;
-  -apple-pay-button-style: black;
+  transition: background 150ms ease, opacity 150ms ease;
+}
+
+.platform-checkout-button:hover:not(:disabled) {
+  background: #333;
+}
+
+.platform-checkout-button:disabled {
+  opacity: .65;
+  cursor: wait;
 }
 
 .platform-payment-error {
