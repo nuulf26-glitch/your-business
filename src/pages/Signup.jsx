@@ -1,11 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { auth } from "../firebase";
-import { saveUserProfile } from "../services/userService";
 import "../styles/auth.css";
-import { createUserWithEmailAndPassword, sendEmailVerification } from "firebase/auth";
 import { register } from "../services/authService";
-import { isCustomBackendSessionEnabled } from "../services/customBackendSession";
 function Signup() {
   const navigate = useNavigate();
 
@@ -27,36 +23,18 @@ async function handleSignup(event) {
       return;
     }
 
-    if (password.length < (isCustomBackendSessionEnabled() ? 12 : 6)) {
-      setError(`Password must be at least ${isCustomBackendSessionEnabled() ? 12 : 6} characters.`);
+    if (password.length < 12) {
+      setError("Password must be at least 12 characters.");
       return;
     }
 
     try {
       setLoading(true);
 
-      if (isCustomBackendSessionEnabled()) {
-        await register(email.trim(), password, { fullName: fullName.trim(), businessName: businessName.trim() });
-        navigate("/login");
-        return;
-      }
-      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
-try {
-
-await saveUserProfile(userCredential.user.uid, {
-  email: email.trim(),
-  fullName: fullName.trim(),
-  businessName: businessName.trim(),
-  marketingConsent: true,
-});
-} catch (error) {
-  console.error("PROFILE SAVE ERROR:", error.code, error.message);
-}
-
-await sendEmailVerification(userCredential.user);
-navigate("/create-website");
+      await register(email.trim(), password, { fullName: fullName.trim(), businessName: businessName.trim() });
+      navigate("/login");
     } catch (signupError) {
-console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (signupError.code === "auth/email-already-in-use") {
+console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (signupError.status === 409 || signupError.code === "auth/email-already-in-use") {
         setError("An account already exists with this email.");
       } else if (signupError.code === "auth/invalid-email") {
         setError("Please enter a valid email address.");
@@ -182,7 +160,7 @@ console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="At least 6 characters"
+                  placeholder="At least 12 characters"
                   autoComplete="new-password"
                 />
 

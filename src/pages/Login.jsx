@@ -33,7 +33,7 @@ await login(email.trim(), password);
     } catch (loginError) {
       console.error(loginError);
 
-      if (
+      if (loginError.status === 400 ||
         loginError.code === "auth/invalid-credential" ||
         loginError.code === "auth/wrong-password" ||
         loginError.code === "auth/user-not-found"

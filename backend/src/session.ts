@@ -28,7 +28,9 @@ export class OriginGuard implements CanActivate {
     if(['GET','HEAD','OPTIONS'].includes(req.method))return true;
     const origin=req.headers.origin as string|undefined;
     const allowed=(process.env.FRONTEND_ORIGIN||'http://localhost:5173').split(',').map((x:string)=>{try{return new URL(x.trim()).origin;}catch{return '';}}).filter(Boolean);
-    if(origin&&!allowed.includes(origin))throw new ForbiddenException('Request origin is not allowed');
+    let previewAllowed=false;
+    if(origin&&process.env.SITE_NAME){try{const host=new URL(origin).hostname,siteHost=`${process.env.SITE_NAME}.netlify.app`;previewAllowed=host===siteHost||host.endsWith(`--${siteHost}`);}catch{}}
+    if(origin&&!allowed.includes(origin)&&!previewAllowed)throw new ForbiddenException('Request origin is not allowed');
     if(process.env.NODE_ENV==='production'&&req.cookies?.getcyb_session&&!origin)throw new ForbiddenException('Origin header required');
     return true;
   }

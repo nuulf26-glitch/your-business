@@ -1,19 +1,15 @@
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { storage } from "../firebase";
-import { customBackendRequest, isCustomBackendSessionEnabled } from "./customBackendSession";
+const baseUrl = (import.meta.env.VITE_CUSTOM_BACKEND_URL || '').replace(/\/$/, '');
 
 export async function uploadProductImage(file) {
-  if(isCustomBackendSessionEnabled()){
-    const signed=await customBackendRequest('/uploads/presign',{method:'POST',body:JSON.stringify({contentType:file.type,fileSize:file.size})});
-    const response=await fetch(signed.url,{method:'PUT',headers:{'Content-Type':file.type},body:file});
-    if(!response.ok)throw new Error('Image upload failed. Check the staging object storage CORS and credentials.');
-    return signed.publicUrl;
-  }
-  const imageRef = ref(storage, `products/${Date.now()}-${file.name}`);
-
-  await uploadBytes(imageRef, file);
-
-  const imageUrl = await getDownloadURL(imageRef);
-
-  return imageUrl;
+  if (file.size < 1 || file.size > 5 * 1024 * 1024) throw new Error('Images must be 5 MB or smaller.');
+  const token = sessionStorage.getItem('getcyb_session_token');
+  const response = await fetch(`${baseUrl}/api/v1/uploads`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': file.type, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: file,
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.message || 'Image upload failed. Please try again.');
+  return result.publicUrl;
 }
