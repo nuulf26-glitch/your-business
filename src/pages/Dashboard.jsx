@@ -118,7 +118,9 @@ const [userProfile, setUserProfile] = useState(null);
     return templateNames[templateId] || templateId || "Not selected";
   }
 
-  if (store?.businessCategory && store.businessCategory !== 'store') return <Navigate to="/business" replace />;
+  const normalizedBusinessCategory = String(store?.businessCategory || '').trim().toLowerCase().replace(/[\\s_-]/g, '');
+  const onlineStoreCategories = new Set(['store', 'onlinestore', 'ecommerce', 'shop', 'retail']);
+  if (store?.businessCategory && !onlineStoreCategories.has(normalizedBusinessCategory)) return <Navigate to="/business" replace />;
 
   return (
     <div className="dashboard-page">
