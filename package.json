@@ -12,6 +12,8 @@
   "dependencies": {
     "@netlify/database": "^2.0.1",
     "@paypal/react-paypal-js": "^8.9.2",
+    "@prisma/client": "^6.16.2",
+    "argon2": "^0.44.0",
     "react": "^19.2.7",
     "react-colorful": "^5.8.0",
     "react-dom": "^19.2.7",
