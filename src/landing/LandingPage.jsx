@@ -7,6 +7,7 @@ import Reviews from "./Reviews";
 import Pricing from "./Pricing";
 import FAQ from "./FAQ";
 import Footer from "./Footer";
+import AiHelpWidget from "../components/AiHelpWidget";
 import "./landing.css";
 
 function LandingPage() {
@@ -25,6 +26,7 @@ function LandingPage() {
       </main>
 
       <Footer />
+      <AiHelpWidget publicMode />
     </div>
   );
 }
