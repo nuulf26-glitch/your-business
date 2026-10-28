@@ -230,7 +230,7 @@ const [userProfile, setUserProfile] = useState(null);
   ) : userProfile?.trialActive ? (
     <>
       <span>Account status</span>
-      <h2>14-day free trial active ✅</h2>
+      <h2>1-week free trial active ✅</h2>
       <p>
         Your GETCYB account is active until {new Date(userProfile.trialEndsAt).toLocaleDateString()}.
       </p>

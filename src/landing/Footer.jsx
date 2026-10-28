@@ -96,7 +96,7 @@ function Footer() {
           <div>
             <span>Built for modern businesses</span>
             <p>
-              Start with a 14-day free trial and build your store at your own
+              Start with a 1-week free trial and build your store at your own
               pace.
             </p>
           </div>

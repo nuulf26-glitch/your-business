@@ -58,7 +58,7 @@ export class AuthController {
   @Post('signup') async signup(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
     const email = dto.email.trim().toLowerCase();
     if (await this.db.user.findUnique({ where:{email} })) throw new ConflictException('Account already exists');
-    const trialEndsAt = new Date(Date.now()+14*864e5);
+    const trialEndsAt = new Date(Date.now()+7*864e5);
     const businessName = dto.businessName?.trim() || '';
     const slugBase = businessName.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,70) || 'business';
     const user = await this.db.$transaction(async tx => {
