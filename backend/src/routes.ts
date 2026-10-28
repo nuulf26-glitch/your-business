@@ -311,7 +311,7 @@ export class WebsiteController {
     const data=await response.json() as any;if(!response.ok)throw new ServiceUnavailableException('AI could not create the design right now. Please try again.');
     const output=String(data.output_text||data.output?.flatMap((item:any)=>item.content||[]).find((item:any)=>item.type==='output_text')?.text||'');let generated:any;try{generated=JSON.parse(output);}catch{throw new ServiceUnavailableException('AI returned an invalid design. Please try again.');}
     const sections=Array.isArray(generated.sections)?generated.sections:[];if(sections.length<3||sections.length>12)throw new ServiceUnavailableException('AI returned an incomplete design. Please try again.');
-    const draft=validateWebsite({editorVersion:2,...generated,pages:[{id:'home',slug:'',title:'Home',sections:sections.map((section:any,index:number)=>({...section,id:`ai-${Date.now()}-${index}`,style:{fontFamily:section.type==='hero'?'Georgia':'Arial',fontSize:section.type==='hero'?56:28,color:generated.textColor||'#171513'}}))]},false);
+    const draft=validateWebsite({editorVersion:2,...generated,pages:[{id:'home',slug:'',title:'Home',sections:sections.map((section:any,index:number)=>({...section,id:`ai-${Date.now()}-${index}`,style:{fontFamily:section.type==='hero'?'Georgia':'Arial',fontSize:section.type==='hero'?56:28,color:generated.textColor||'#171513'}}))}]},false);
     if(!premium)await this.db.businessRecord.create({data:{businessId:b.id,type:'aiDesigns',status:'completed',data:{createdAt:new Date().toISOString(),model:modelName}}});
     return {model:draft,freeDesignUsed:!premium,aiPremium:premium};
   }
