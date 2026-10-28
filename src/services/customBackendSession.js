@@ -9,8 +9,8 @@ function readCachedUser() {
 
 function cacheUser(user) {
   if (!user?.id) return;
-  const { id, uid, email, emailVerified, role, paid, trialActive, trialEndsAt } = user;
-  sessionStorage.setItem(cachedUserKey, JSON.stringify({ id, uid: uid || id, email, emailVerified, role, paid, trialActive, trialEndsAt }));
+  const { id, uid, email, emailVerified, role, paid, trialActive, trialEndsAt, aiPremium } = user;
+  sessionStorage.setItem(cachedUserKey, JSON.stringify({ id, uid: uid || id, email, emailVerified, role, paid, trialActive, trialEndsAt, aiPremium }));
 }
 export const cacheAppUser = cacheUser;
 

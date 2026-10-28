@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { subscribeAppUser } from "../services/customBackendSession";
+import AiHelpWidget from "./AiHelpWidget";
 
 function ProtectedRoute({ children }) {
   const [user, setUser] = useState(null);
@@ -31,7 +32,7 @@ function ProtectedRoute({ children }) {
     return <Navigate to="/login" replace />;
   }
 
-  return children;
+  return <>{children}<AiHelpWidget /></>;
 }
 
 export default ProtectedRoute;

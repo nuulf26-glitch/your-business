@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getStore } from "../services/storeService";
 import { getProducts } from "../services/productService";
 import { uploadProductImage } from "../services/imageService";
+import AiDesigner from "../components/AiDesigner";
 import "../styles/websiteEditor.css";
 import "../styles/editorControls.css";
 
@@ -234,6 +235,7 @@ export default function WebsiteEditor() {
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [showPublish, setShowPublish] = useState(false);
+  const [showAiDesigner, setShowAiDesigner] = useState(false);
   const [publishUrl, setPublishUrl] = useState("");
   const [status, setStatus] = useState("Saved");
   const [saving, setSaving] = useState(false);
@@ -253,6 +255,8 @@ export default function WebsiteEditor() {
 
   useEffect(() => {
     let active = true;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("aiSubscription")) setShowAiDesigner(true);
     async function loadEditor() {
       try {
         const [store, productList, privateDraft] = await Promise.all([getStore(), getProducts(), loadWebsiteDraft()]);
@@ -531,7 +535,7 @@ export default function WebsiteEditor() {
       <label className="editor-mode-picker"><span>Editing mode</span><select aria-label="Editing mode" value={mode} onChange={event => switchMode(event.target.value)}>{EDITOR_MODES.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <div className="history-controls"><button type="button" onClick={undo} disabled={!undoStack.length} aria-label="Undo">↶</button><button type="button" onClick={redo} disabled={!redoStack.length} aria-label="Redo">↷</button></div>
       <div className="device-controls">{[["laptop", "▣", "Laptop"], ["ipad", "▤", "iPad"], ["phone", "▯", "Phone"]].map(([id, icon, label]) => <button type="button" key={id} className={device === id ? "active" : ""} onClick={() => setDevice(id)}>{icon}<span>{label}</span></button>)}</div>
-      <button className="topbar-action" type="button" onClick={saveDraft} disabled={saving}>Save draft</button><button className="topbar-action" type="button" onClick={() => setShowPreview(true)}>Preview</button><button className="topbar-action primary" type="button" onClick={publishWebsite} disabled={saving}>Publish</button>
+      <button className="topbar-action ai-launch" type="button" onClick={() => setShowAiDesigner(true)}>✦ Design with AI</button><button className="topbar-action" type="button" onClick={saveDraft} disabled={saving}>Save draft</button><button className="topbar-action" type="button" onClick={() => setShowPreview(true)}>Preview</button><button className="topbar-action primary" type="button" onClick={publishWebsite} disabled={saving}>Publish</button>
     </header>
     <nav className="editor-mobile-controls" aria-label="Editor workspace">{[['tools','Add & pages'],['canvas','Website'],['properties','Edit selected']].map(([id,label]) => <button type="button" key={id} aria-pressed={mobilePanel === id} onClick={() => setMobilePanel(id)}>{label}</button>)}</nav>
     <div className="editor-mode-hint">{EDITOR_MODES.find(item => item.id === mode).description} <span>Switch modes anytime. Your design stays the same.</span></div>
@@ -558,6 +562,7 @@ export default function WebsiteEditor() {
     {showPreview && <div className="full-preview"><header><span>Preview · {activePage.title}</span><button type="button" onClick={() => setShowPreview(false)}>Back to editor</button></header><div className={`full-preview-site preview-device-${device}`}><WebsiteRenderer model={model} products={products} slug={activePage.slug} device={device} onPageChange={choosePage} /></div></div>}
     {collectionPreview && <div className="full-preview"><header><span>{collectionPreview.name} · Design Collection preview</span><div><button type="button" onClick={() => applyCollection(collectionPreview)}>Add sections to current page</button><button type="button" onClick={() => addCollectionPages(collectionPreview)}>Add all 4 pages</button><button type="button" onClick={() => setCollectionPreview(null)}>Close</button></div></header><WebsiteRenderer model={collectionWebsite(collectionPreview,createSection)} /></div>}
     {showPublish && <div className="editor-modal-backdrop" role="presentation"><section className="editor-modal publish-modal" role="dialog" aria-modal="true"><p className="modal-kicker">Published</p><h2>Your website is live.</h2><p>Your last design is now saved to your GetCyb store and will be shown on your public website.</p>{publishUrl ? <a href={publishUrl} target="_blank" rel="noreferrer">Open your website ↗</a> : <div className="publish-missing-url">Finish Store Setup to choose your public website address.</div>}<button className="topbar-action" type="button" onClick={() => setShowPublish(false)}>Done</button></section></div>}
+    {showAiDesigner && <AiDesigner model={model} onApply={next => { commit(migrateLegacyEditor(next), { message: "AI draft added to your editor" }); setActivePageId("home"); setSelectedId(next.pages?.[0]?.sections?.[0]?.id || null); }} onClose={() => setShowAiDesigner(false)} />}
     {toast && <div className="editor-toast" role="status">{toast}</div>}
   </div>;
 }

@@ -35,6 +35,9 @@ class Credentials {
 class StoreInput { @IsString() @MaxLength(120) name!: string; @IsString() @MaxLength(100) slug!: string; @IsString() category!: string; @IsObject() settings!: object; }
 class JsonInput { @IsObject() data!: Record<string, unknown>; }
 class WebsiteInput { @IsObject() model!: Record<string, unknown>; }
+class AiPromptInput { @IsString() @MinLength(8) @MaxLength(1200) prompt!: string; }
+class AiHelpInput { @IsString() @MinLength(1) @MaxLength(2000) message!: string; @IsOptional() @IsObject() context?: Record<string, unknown>; }
+class AiSubscriptionInput { @IsString() @MaxLength(100) subscriptionId!: string; }
 class TokenInput { @IsString() @MinLength(32) @MaxLength(200) token!: string; }
 class ResetInput extends TokenInput { @IsString() @MinLength(12) @MaxLength(200) password!: string; }
 class EmailInput { @IsEmail() email!: string; }
@@ -115,7 +118,9 @@ export class AuthController {
     await this.db.session.create({ data:{ userId, tokenHash:tokenHash(token), expiresAt:expires } }); res.cookie('getcyb_session',token,cookieOptions(expires)); return token;
   }
   @UseGuards(SessionGuard) @Get('me') async me(@Req() req:Request & {user:any}) {
-    const subscription=await this.db.subscription.findUnique({where:{userId:req.user.id}});
+    const [subscription,business]=await Promise.all([this.db.subscription.findUnique({where:{userId:req.user.id}}),this.db.business.findFirst({where:{ownerId:req.user.id}})]);
+    const aiSubscription=business?await this.db.businessRecord.findFirst({where:{businessId:business.id,type:'aiSubscription',status:'active'}}):null;
+    const aiPeriodEnd=(aiSubscription?.data as any)?.periodEnd;
     const trialActive=subscription?.status==='TRIALING'&&subscription.trialEndsAt>new Date();
     return {
       id:req.user.id,
@@ -125,6 +130,7 @@ export class AuthController {
       paid:subscription?.status==='ACTIVE',
       trialActive,
       trialEndsAt:subscription?.trialEndsAt.toISOString()||null,
+      aiPremium:!!aiSubscription&&!!aiPeriodEnd&&new Date(aiPeriodEnd)>new Date(),
     };
   }
   @UseGuards(SessionGuard) @Post('logout') async logout(@Req() req:Request & {user:any;sessionToken?:string},@Res({passthrough:true}) res:Response) {
@@ -293,6 +299,23 @@ export class PublicOrderController {
 @Controller('websites')
 export class WebsiteController {
   constructor(private db:DbService){}
+  private async businessFor(req:Request & {user:any}){const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)throw new NotFoundException('Create a business first');return business;}
+  private async aiPremium(userId:string){const b=await this.db.business.findFirst({where:{ownerId:userId}});if(!b)return false;const subscription=await this.db.businessRecord.findFirst({where:{businessId:b.id,type:'aiSubscription',status:'active'}}),periodEnd=(subscription?.data as any)?.periodEnd;return !!subscription&&!!periodEnd&&new Date(periodEnd)>new Date();}
+  @UseGuards(SessionGuard) @Get('ai/status') async aiStatus(@Req() req:Request & {user:any}){const b=await this.businessFor(req),[used,helpUsed,premium]=await Promise.all([this.db.businessRecord.count({where:{businessId:b.id,type:'aiDesigns',status:'completed'}}),this.db.businessRecord.count({where:{businessId:b.id,type:'aiHelpUsage',status:'completed'}}),this.aiPremium(req.user.id)]);return {freeDesignUsed:used>0,aiHelpFreeUsed:helpUsed>0,aiPremium:premium,monthlyPrice:process.env.AI_MONTHLY_PRICE_DISPLAY||null};}
+  @UseGuards(SessionGuard) @Throttle({default:{limit:5,ttl:60_000}}) @Post('ai/design') async aiDesign(@Req() req:Request & {user:any},@Body() dto:AiPromptInput){
+    const apiKey=process.env.OPENAI_API_KEY;if(!apiKey)throw new ServiceUnavailableException('AI design is being set up. Please try again later.');
+    const b=await this.businessFor(req),premium=await this.aiPremium(req.user.id);
+    if(!premium){const used=await this.db.businessRecord.count({where:{businessId:b.id,type:'aiDesigns',status:'completed'}});if(used)throw new ConflictException({message:'Your free AI design has been used.',upgradeRequired:true});}
+    const modelName=process.env.OPENAI_MODEL||'gpt-4o-mini';
+    const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:modelName,instructions:'Create a polished ecommerce or service-business website for GETCYB. Return JSON only with {brandName,primaryColor,backgroundColor,textColor,bodyFont,headingFont,buttonRadius,sections}. sections is an array of 4 to 7 objects with unique id, type, label, title, body and optional buttonText/items. Use only types hero, about, services, collection, gallery, faq, contact, footer. Include one hero and one footer. Keep copy specific to the business. Never invent products or prices; use collection for products. Colors must be 6-digit hex.',input:`Business details and design request: ${dto.prompt}`,text:{format:{type:'json_object'}}})});
+    const data=await response.json() as any;if(!response.ok)throw new ServiceUnavailableException('AI could not create the design right now. Please try again.');
+    const output=String(data.output_text||data.output?.flatMap((item:any)=>item.content||[]).find((item:any)=>item.type==='output_text')?.text||'');let generated:any;try{generated=JSON.parse(output);}catch{throw new ServiceUnavailableException('AI returned an invalid design. Please try again.');}
+    const sections=Array.isArray(generated.sections)?generated.sections:[];if(sections.length<3||sections.length>12)throw new ServiceUnavailableException('AI returned an incomplete design. Please try again.');
+    const draft=validateWebsite({editorVersion:2,...generated,pages:[{id:'home',slug:'',title:'Home',sections:sections.map((section:any,index:number)=>({...section,id:`ai-${Date.now()}-${index}`,style:{fontFamily:section.type==='hero'?'Georgia':'Arial',fontSize:section.type==='hero'?56:28,color:generated.textColor||'#171513'}}))]},false);
+    if(!premium)await this.db.businessRecord.create({data:{businessId:b.id,type:'aiDesigns',status:'completed',data:{createdAt:new Date().toISOString(),model:modelName}}});
+    return {model:draft,freeDesignUsed:!premium,aiPremium:premium};
+  }
+  @UseGuards(SessionGuard) @Throttle({default:{limit:12,ttl:60_000}}) @Post('ai/help') async aiHelp(@Req() req:Request & {user:any},@Body() dto:AiHelpInput){const b=await this.businessFor(req),premium=await this.aiPremium(req.user.id);if(!premium&&await this.db.businessRecord.count({where:{businessId:b.id,type:'aiHelpUsage',status:'completed'}}))throw new ConflictException({message:'Your free AI help question has been used.',upgradeRequired:true});const apiKey=process.env.OPENAI_API_KEY;if(!apiKey)throw new ServiceUnavailableException('AI help is being set up. Please try again later.');const context=JSON.stringify(dto.context||{}).slice(0,4000);const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-4o-mini',instructions:'You are the friendly GETCYB website-builder guide. Explain steps simply, help users understand the editor, and answer questions about designing their shop. Never claim to perform changes; give clear steps. Keep the answer concise.',input:`Current website context: ${context}\nUser question: ${dto.message}`})});const data=await response.json() as any;if(!response.ok)throw new ServiceUnavailableException('AI help could not respond right now.');if(!premium)await this.db.businessRecord.create({data:{businessId:b.id,type:'aiHelpUsage',status:'completed',data:{createdAt:new Date().toISOString()}}});return {answer:String(data.output_text||''),aiHelpFreeUsed:!premium};}
   @UseGuards(SessionGuard) @Get('draft') async draft(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});return b?.website||null;}
   @UseGuards(SessionGuard) @Put('draft') async saveDraft(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');const model=validateWebsite(dto.model,false);return this.db.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any},update:{draft:model as any,revision:{increment:1}}});}
   @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)throw new NotFoundException('Website draft not found');const model=validateWebsite(dto.model,true);return this.db.$transaction(async tx=>{const site=await tx.website.update({where:{id:b.website!.id},data:{draft:model as any,published:publicWebsite(model) as any,publishedAt:new Date(),revision:{increment:1}}});const version=await tx.websiteVersion.create({data:{websiteId:site.id,snapshot:site.draft as any}});return {published:true,revision:site.revision,slug:b.slug,versionId:version.id};});}
@@ -363,4 +386,6 @@ export class PayPalController {
     ]);
     return {success:true,status:'COMPLETED',orderId:capture.id};
   }
+  @Post('ai-subscriptions') async createAiSubscription(@Req() req:Request & {user:any}){const planId=process.env.PAYPAL_AI_PLAN_ID;if(!planId)throw new ServiceUnavailableException('The monthly AI plan is still being set up.');const {token,base}=await this.accessToken();const origin=(process.env.PUBLIC_APP_URL||'https://getcyb.fit').replace(/\/$/,'');const response=await fetch(`${base}/v1/billing/subscriptions`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','PayPal-Request-Id':`getcyb-ai-${randomBytes(16).toString('hex')}`},body:JSON.stringify({plan_id:planId,custom_id:req.user.id,application_context:{brand_name:'GETCYB AI',user_action:'SUBSCRIBE_NOW',return_url:`${origin}/editor?aiSubscription=success`,cancel_url:`${origin}/editor?aiSubscription=cancelled`}})});const result=await response.json() as any;if(!response.ok||!result.id)throw new BadRequestException('Could not start the AI subscription.');await this.db.paymentReference.create({data:{provider:'paypal',providerOrderId:`ai-${result.id}`,status:'PENDING',currency:'USD',userId:req.user.id,metadata:{intent:'AI_SUBSCRIPTION',subscriptionId:result.id}}});return {approvalUrl:result.links?.find((link:any)=>link.rel==='approve')?.href};}
+  @Post('ai-subscriptions/activate') async activateAiSubscription(@Req() req:Request & {user:any},@Body() dto:AiSubscriptionInput){const {token,base}=await this.accessToken(),response=await fetch(`${base}/v1/billing/subscriptions/${encodeURIComponent(dto.subscriptionId)}`,{headers:{Authorization:`Bearer ${token}`}});const result=await response.json() as any;if(!response.ok||result.status!=='ACTIVE'||result.custom_id!==req.user.id||result.plan_id!==process.env.PAYPAL_AI_PLAN_ID)throw new BadRequestException('PayPal could not confirm the AI subscription.');const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)throw new NotFoundException('Business not found');const existing=await this.db.businessRecord.findFirst({where:{businessId:business.id,type:'aiSubscription'}}),data={subscriptionId:result.id,periodEnd:result.billing_info?.next_billing_time||null,planId:result.plan_id};if(existing)await this.db.businessRecord.update({where:{id:existing.id},data:{status:'active',data:data as any}});else await this.db.businessRecord.create({data:{businessId:business.id,type:'aiSubscription',status:'active',data:data as any}});return {success:true,aiPremium:true};}
 }
