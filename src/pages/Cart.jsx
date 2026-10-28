@@ -67,7 +67,7 @@ function Cart() {
           className="cart-logo"
           onClick={() => navigate("/")}
         >
-          Your Business
+          CYB
         </button>
 
         <button

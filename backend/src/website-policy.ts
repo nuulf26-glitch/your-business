@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 
-const TYPES=new Set(['hero','about','services','menu','booking','gallery','faq','footer','heading','text','button','photo','product','chat','contact','divider','spacer','collection','group']);
+const TYPES=new Set(['hero','about','services','menu','booking','gallery','faq','reviews','footer','heading','text','button','photo','product','chat','contact','divider','spacer','collection','group']);
 export function validateWebsite(input:unknown,publishing=true):Record<string,any>{
   if(!input||typeof input!=='object'||Array.isArray(input))throw new BadRequestException('Invalid website.');
   const model=JSON.parse(JSON.stringify(input));

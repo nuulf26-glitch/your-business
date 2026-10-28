@@ -4,6 +4,7 @@ import "./landing.css";
 const productLinks = [
   { label: "Website Builder", href: "#website-builder" },
   { label: "Analytics", href: "#analytics" },
+  { label: "AI Design", href: "#ai-design" },
   { label: "Pricing", href: "#pricing" },
   { label: "FAQ", href: "#faq" },
 ];
@@ -40,7 +41,7 @@ function Footer() {
               className="footer-logo"
               onClick={() => navigate("/")}
             >
-              Your Business
+              CYB
             </button>
 
             <p>
@@ -111,7 +112,7 @@ function Footer() {
         </div>
 
         <div className="footer-bottom">
-          <p>© {currentYear} Your Business. All rights reserved.</p>
+          <p>© {currentYear} CYB. All rights reserved.</p>
 
           <div>
             <Link to="/privacy">Privacy</Link>

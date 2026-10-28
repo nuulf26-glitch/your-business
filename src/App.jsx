@@ -34,7 +34,7 @@ const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
 const ResetCustomPassword = lazy(() => import("./pages/ResetCustomPassword"));
 function App() {
   return (
-    <AppErrorBoundary><Suspense fallback={<main role="status" style={{ padding: 40 }}>Loading GETCYB…</main>}>
+    <AppErrorBoundary><Suspense fallback={<main role="status" style={{ padding: 40 }}>Loading CYB…</main>}>
     <Routes>
       {/* Main public pages */}
       <Route path="/" element={<LandingPage />} />

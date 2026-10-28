@@ -84,7 +84,7 @@ function PlatformPayment() {
           type="button"
           onClick={() => navigate("/")}
         >
-          Your Business
+          CYB
         </button>
 
         <button
@@ -103,11 +103,11 @@ function PlatformPayment() {
           <h1>Open your business platform.</h1>
 
           <p>
-            Pay once and activate access to Your Business.
+            Pay once and activate access to CYB.
           </p>
 
           <div className="platform-payment-price">
-            <strong>$245</strong>
+            <strong>$246</strong>
             <span>One-time payment</span>
           </div>
 

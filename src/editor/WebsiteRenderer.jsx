@@ -31,6 +31,7 @@ function SectionContent({ section, model, products = [], addToCart, editText, bo
   if (s.type === 'booking') return <div className="cyb-booking"><div><p className="cyb-eyebrow">By appointment</p>{title()}{body}</div>{booking || <div className="cyb-note">Online booking is not available yet. <Action section={s}>{s.buttonText || 'Contact us'}</Action></div>}</div>;
   if (s.type === 'gallery') return <>{title()}{body}<MediaDisplay value={s} title={s.title}/></>;
   if (s.type === 'faq') return <>{title()}{body}<div className="cyb-faq">{(s.items || []).map((item, index) => <details key={index}><summary>{item.question}</summary><p>{item.answer}</p></details>)}</div></>;
+  if (s.type === 'reviews') return <>{title()}{body}<div className="cyb-reviews">{(s.items || []).map((item, index) => <blockquote key={index}><p>“{item.quote}”</p><cite>{item.name}</cite></blockquote>)}</div></>;
   if (s.type === 'product') {
     const product = products.find(item => item.id === s.productId || item.legacyId === s.productId);
     const price = product ? productPrice(product) : 0;

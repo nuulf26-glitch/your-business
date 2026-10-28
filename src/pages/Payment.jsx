@@ -6,7 +6,7 @@ function Payment() {
   const navigate = useNavigate();
 
   const [order, setOrder] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState("paypal");
+  const [paymentMethod, setPaymentMethod] = useState("cash");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -114,7 +114,7 @@ if (order.backendId) {
           className="payment-logo"
           onClick={() => navigate("/")}
         >
-          Your Business
+          CYB
         </button>
 
         <button
@@ -148,26 +148,21 @@ if (order.backendId) {
             <div className="payment-options">
               <button
                 type="button"
-                className={`payment-option ${
-                  paymentMethod === "paypal" ? "selected" : ""
-                }`}
-                onClick={() => {
-                  setPaymentMethod("paypal");
-                  setError("");
-                }}
+                className="payment-option payment-option-unavailable"
+                disabled
               >
                 <div className="payment-option-icon">P</div>
 
                 <div>
-                  <strong>PayPal</strong>
+                  <strong>PayPal · unavailable</strong>
 
                   <p>
-                    Pay securely using PayPal.
+                    Online card and PayPal payments are not enabled for this store yet.
                   </p>
                 </div>
 
                 <span className="payment-radio">
-                  {paymentMethod === "paypal" ? "✓" : ""}
+                  —
                 </span>
               </button>
 
@@ -196,16 +191,6 @@ if (order.backendId) {
                 </span>
               </button>
             </div>
-
-            {paymentMethod === "paypal" && (
-              <div className="payment-notice">
-                <strong>PayPal setup required</strong>
-
-                <p>
-                  PayPal will work after Firebase credentials are connected.
-                </p>
-              </div>
-            )}
 
             {error && (
               <p className="payment-error">

@@ -118,7 +118,7 @@ function Pricing() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "20px" }}>
               <div>
                 <span style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1.5px", color: "#888", display: "block", marginBottom: "6px", fontFamily: "'Mograp', sans-serif" }}>Complete plan</span>
-                <h3 style={{ fontSize: "1.5rem", fontWeight: "400", margin: 0, fontFamily: "'Mograp', sans-serif" }}>Your Business</h3>
+                <h3 style={{ fontSize: "1.5rem", fontWeight: "400", margin: 0, fontFamily: "'Mograp', sans-serif" }}>CYB Lifetime Access</h3>
               </div>
 
               <span style={{ background: "#111", color: "#fff", padding: "4px 10px", fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "1px", fontFamily: "'Mograp', sans-serif" }}>Best value</span>

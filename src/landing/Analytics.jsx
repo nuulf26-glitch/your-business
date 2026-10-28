@@ -36,14 +36,12 @@ function Analytics() {
               <div className="analytics-window-header">
                 <div>
                   <span className="analytics-small-label">
-                    Business analytics
+                    Sample dashboard preview
                   </span>
                   <h3>Performance overview</h3>
                 </div>
 
-                <div className="analytics-date-filter">
-                  Last 30 days
-                </div>
+                <div className="analytics-date-filter">Illustrative data</div>
               </div>
 
               <div className="analytics-cards-grid">
@@ -198,6 +196,7 @@ function Analytics() {
               simple dashboard. See what is working and make better business
               decisions.
             </p>
+            <p className="analytics-preview-disclaimer">The figures shown are sample preview data. Your dashboard displays your own business records.</p>
 
             <div className="analytics-feature-list">
               <div>

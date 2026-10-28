@@ -6,7 +6,7 @@ const navigationLinks = [
   { label: "How It Works", href: "#how-it-works" },
   { label: "Builder", href: "#website-builder" },
   { label: "Analytics", href: "#analytics" },
-  { label: "Reviews", href: "#reviews" },
+  { label: "AI Design", href: "#ai-design" },
   { label: "Pricing", href: "#pricing" },
   { label: "FAQ", href: "#faq" },
 ];
@@ -93,7 +93,7 @@ function Navbar() {
           onClick={goHome}
           aria-label="Go to homepage"
         >
-          Your Business
+          CYB
         </button>
 
         <nav

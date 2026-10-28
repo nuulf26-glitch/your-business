@@ -101,7 +101,7 @@ function DashboardLayout({ children }) {
     <div style={styles.page}>
       <aside style={styles.sidebar}>
         <h2 style={styles.logo}>
-          Your Business
+          CYB
         </h2>
 
         <button

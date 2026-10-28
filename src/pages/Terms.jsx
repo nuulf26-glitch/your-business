@@ -12,7 +12,7 @@ function Terms() {
           className="legal-logo"
           onClick={() => navigate("/")}
         >
-          Your Business
+          CYB
         </button>
 
         <button
@@ -35,7 +35,7 @@ function Terms() {
           <article>
             <h2>1. Agreement to these terms</h2>
             <p>
-              By accessing or using Your Business, you agree to these Terms
+              By accessing or using CYB, you agree to these Terms
               and Conditions. If you do not agree, you must not use the
               platform.
             </p>
@@ -44,7 +44,7 @@ function Terms() {
           <article>
             <h2>2. Platform purpose</h2>
             <p>
-              Your Business provides tools that allow business owners to
+              CYB provides tools that allow business owners to
               create websites, display products, manage orders, communicate
               with customers, and operate parts of their online business.
             </p>

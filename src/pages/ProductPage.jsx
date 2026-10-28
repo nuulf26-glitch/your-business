@@ -79,7 +79,7 @@ function ProductPage() {
           className="product-page-logo"
           onClick={() => navigate("/")}
         >
-          Your Business
+          CYB
         </button>
 
         <div className="product-page-header-actions">
