@@ -1,3 +1,5 @@
+import MediaDisplay from '../media/MediaDisplay';
+import { mediaItems } from '../media/media';
 import { productPrice } from "../services/productPolicy";
 import { readCart, appendCart } from "../services/cartPolicy";
 import { useEffect, useMemo, useState } from "react";
@@ -94,11 +96,8 @@ function ProductPage() {
       <main className="product-page-main">
         <section className="product-page-layout">
           <div className="product-page-image-card">
-            {product.imageUrl ? (
-              <img src={product.imageUrl} alt={product.name} />
-            ) : (
-              <span>{product.name.charAt(0).toUpperCase()}</span>
-            )}
+            {mediaItems(product).length ? <MediaDisplay value={product} title={product.name}/> : <span>{product.name.charAt(0).toUpperCase()}</span>}
+
           </div>
 
           <div className="product-page-content">

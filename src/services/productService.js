@@ -1,10 +1,11 @@
 import { customBackendRequest } from './customBackendSession';
 import { businessCall } from '../business/api';
 
-const fromProduct = (row) => ({ id: row.id, ...(row.data && typeof row.data === 'object' ? row.data : {}), name: row.name || row.data?.name });
+import { fromProduct } from './productRecord';
 
 export async function addProduct(product) {
-  const row = await customBackendRequest('/products', { method: 'POST', body: JSON.stringify({ data: product }) });
+  const data = { ...product }; delete data.id;
+  const row = await customBackendRequest('/products', { method: 'POST', body: JSON.stringify({ data }) });
   return row.id;
 }
 export async function getProducts() { return (await customBackendRequest('/products')).map(fromProduct); }

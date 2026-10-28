@@ -329,3 +329,4 @@
     grid-template-columns: 1fr;
   }
 }
+.product-page-image-card:has(.cyb-media-display){min-height:0;align-items:flex-start}.product-page-image-card .cyb-media-display img{min-height:0}.product-page-image-card .cyb-media-display{padding:16px;box-sizing:border-box}

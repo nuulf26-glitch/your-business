@@ -13,6 +13,8 @@ import {
 } from "../services/productService";
 
 import "../styles/products.css";
+import MediaFields from '../media/MediaFields';
+import { mediaItems, primaryImage } from '../media/media';
 
 const emptyForm = {
   name: "",
@@ -23,6 +25,7 @@ const emptyForm = {
   description: "",
   imageUrl: "",
   imageName: "",
+  media: [],
   status: "active",
   salePrice: "",
   salePercent: "",
@@ -46,6 +49,8 @@ function Products() {
   const [categoryFilter, setCategoryFilter] =
     useState("All");
   const [imageError, setImageError] = useState("");
+  const [mediaBusy,setMediaBusy]=useState(false);
+  const [saving,setSaving]=useState(false);
   const [statusSavingId, setStatusSavingId] = useState(null);
 
   const fileInputRef = useRef(null);
@@ -209,7 +214,7 @@ function Products() {
     try {
       setStatusSavingId(product.id);
 
-      await updateProduct(product.id, updates);
+      await updateProduct(product.id, { ...product, ...updates });
 
       setProducts((current) =>
         current.map((item) =>
@@ -241,82 +246,6 @@ function Products() {
     }));
   }
 
-  function handleImageChange(event) {
-    const file = event.target.files?.[0];
-
-    setImageError("");
-
-    if (!file) {
-      return;
-    }
-
-    const acceptedTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-    ];
-
-    if (!acceptedTypes.includes(file.type)) {
-      setImageError(
-        "Please choose a PNG, JPG, or WEBP image."
-      );
-
-      event.target.value = "";
-      return;
-    }
-
-    const maximumSize = 1024 * 1024;
-
-    if (file.size > maximumSize) {
-      setImageError(
-        "The image must be smaller than 1 MB."
-      );
-
-      event.target.value = "";
-      return;
-    }
-
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      if (typeof reader.result !== "string") {
-        setImageError(
-          "The image could not be loaded."
-        );
-
-        return;
-      }
-
-      setForm((current) => ({
-        ...current,
-        imageUrl: reader.result,
-        imageName: file.name,
-      }));
-    };
-
-    reader.onerror = () => {
-      setImageError(
-        "The image could not be loaded. Please try again."
-      );
-    };
-
-    reader.readAsDataURL(file);
-  }
-
-  function removeImage() {
-    setForm((current) => ({
-      ...current,
-      imageUrl: "",
-      imageName: "",
-    }));
-
-    setImageError("");
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  }
-
   function resetForm() {
     setForm(emptyForm);
     setEditingId(null);
@@ -329,6 +258,7 @@ function Products() {
 
   async function handleSubmit(event) {
   event.preventDefault();
+  if(saving||mediaBusy)return;
 
     if (
       !form.name.trim() ||
@@ -384,12 +314,7 @@ function Products() {
       : null;
 
     const productData = {
-      id:
-        editingId ||
-        crypto.randomUUID(),
-storeUrl: JSON.parse(
-  localStorage.getItem("websiteSetup")
-)?.storeUrl,
+
       name: form.name.trim(),
 
       sellingPrice,
@@ -403,7 +328,12 @@ storeUrl: JSON.parse(
       description:
         form.description.trim(),
 
-      imageUrl: form.imageUrl,
+      media: form.media,
+      imageUrl: primaryImage(form.media) || form.imageUrl,
+      status: form.status || "active",
+      salePrice: form.salePrice,
+      salePercent: form.salePercent,
+      hiddenUntil: form.hiddenUntil,
 
       imageName: form.imageName,
 
@@ -415,6 +345,7 @@ storeUrl: JSON.parse(
         new Date().toISOString(),
     };
 
+    setSaving(true);setImageError("");
     try {
   if (editingId) {
     await updateProduct(editingId, productData);
@@ -422,12 +353,12 @@ storeUrl: JSON.parse(
     setProducts((current) =>
       current.map((product) =>
         product.id === editingId
-          ? productData
+          ? { ...productData, id: editingId }
           : product
       )
     );
   } else {
-    const newId = await addProduct(productData);
+    await addProduct(productData);
 
 const updatedProducts = await getProducts();
 setProducts(updatedProducts);
@@ -437,8 +368,8 @@ setProducts(updatedProducts);
 
 } catch (error) {
   console.error("Could not save product:", error);
-  alert("Something went wrong while saving product.");
-}
+  setImageError(error.message || "Could not save this product. Please try again.");
+} finally { setSaving(false); }
   }
 
   function handleEdit(product) {
@@ -446,6 +377,9 @@ setProducts(updatedProducts);
     setImageError("");
 
     setForm({
+      ...emptyForm,
+      ...product,
+      media: mediaItems(product),
       name: product.name || "",
 
       sellingPrice: String(
@@ -731,85 +665,8 @@ setProducts(updatedProducts);
               </div>
             </div>
 
-            <div className="product-field">
-              <label htmlFor="productImage">
-                Product image
-              </label>
-
-              <input
-                ref={fileInputRef}
-                id="productImage"
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                onChange={handleImageChange}
-              />
-
-              <small>
-                PNG, JPG, or WEBP. Maximum
-                file size: 1 MB.
-              </small>
-
-              {imageError && (
-                <p className="product-image-error">
-                  {imageError}
-                </p>
-              )}
-
-              {form.imageUrl && (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "14px",
-                    marginTop: "12px",
-                    padding: "12px",
-                    border:
-                      "1px solid #deded9",
-                    borderRadius: "12px",
-                  }}
-                >
-                  <img
-                    src={form.imageUrl}
-                    alt="Product preview"
-                    style={{
-                      width: "82px",
-                      height: "82px",
-                      borderRadius: "10px",
-                      objectFit: "cover",
-                    }}
-                  />
-
-                  <div
-                    style={{
-                      minWidth: 0,
-                      flex: 1,
-                    }}
-                  >
-                    <strong
-                      style={{
-                        display: "block",
-                        overflow: "hidden",
-                        textOverflow:
-                          "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {form.imageName ||
-                        "Selected image"}
-                    </strong>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="product-cancel-button"
-                    onClick={removeImage}
-                  >
-                    Remove
-                  </button>
-                </div>
-              )}
-            </div>
-
+            <MediaFields items={form.media || []} onChange={media=>setForm(current=>({...current,media,imageUrl:primaryImage(media)}))} onBusyChange={setMediaBusy} disabled={saving}/>
+            {imageError && <p className="product-image-error" role="alert">{imageError}</p>}
             <div className="product-form-grid">
               <div className="product-field">
                 <label htmlFor="status">
@@ -999,7 +856,7 @@ setProducts(updatedProducts);
               )}
 
               <button
-                type="submit"
+                type="submit" disabled={saving || mediaBusy}
                 className="product-save-button"
               >
                 {editingId

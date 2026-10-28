@@ -13,7 +13,7 @@ export async function createApp() {
   const origins = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173').split(',').map((value) => value.trim()).filter(Boolean);
   app.enableCors({ origin: (origin: string | undefined, callback: (error: Error | null, allowed?: boolean) => void) => callback(null, !origin || isAllowedOrigin(origin, origins)), credentials: true, methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'] });
   const expressApp = app.getHttpAdapter().getInstance();
-  expressApp.use('/api/v1/uploads', express.raw({ type: ['image/jpeg','image/png','image/webp','image/gif'], limit: '5mb' }));
+  expressApp.use('/api/v1/uploads', express.raw({ type: ['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','video/quicktime'], limit: '5mb' }));
   expressApp.use(express.json({ limit: '6mb' }));
   expressApp.use(express.urlencoded({ extended: true, limit: '6mb' }));
   app.use(helmet());

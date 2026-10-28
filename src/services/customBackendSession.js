@@ -21,7 +21,7 @@ export async function customBackendRequest(path, options = {}) {
     response = await fetch(`${apiBase}${path}`, {
       ...options,
       credentials: 'include',
-      signal: options.signal || AbortSignal.timeout(15000),
+      signal: options.signal || AbortSignal.timeout(path.includes('/ai/') ? 90000 : 45000),
       headers: { 'Content-Type': 'application/json', ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}), ...(options.headers || {}) },
     });
   } catch (error) {

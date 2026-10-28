@@ -1,8 +1,10 @@
 import { createServer, request as httpRequest, Server } from 'node:http';
 import { createApp } from './main';
+import { connectLambda } from '@netlify/blobs';
 
 type NetlifyEvent = {
   path: string;
+  blobs?: string;
   rawUrl?: string;
   httpMethod: string;
   headers?: Record<string, string | undefined>;
@@ -29,6 +31,7 @@ async function startRuntime(): Promise<Runtime> {
 
 export async function handler(event: NetlifyEvent) {
   try {
+    if(event.blobs)connectLambda({blobs:event.blobs,headers:(event.headers||{}) as Record<string,string>});
     runtime ||= startRuntime();
     const { port } = await runtime;
     const sourceUrl = event.rawUrl ? new URL(event.rawUrl) : undefined;
@@ -62,7 +65,7 @@ export async function handler(event: NetlifyEvent) {
       else outgoingHeaders[name] = Array.isArray(value) ? value.join(', ') : value;
     }
     const contentType = String(response.headers['content-type'] || '');
-    const isBinary = contentType.startsWith('image/') || contentType.includes('application/octet-stream');
+    const isBinary = contentType.startsWith('image/') || contentType.startsWith('video/') || contentType.includes('application/octet-stream');
     return {
       statusCode: response.statusCode,
       headers: outgoingHeaders,
