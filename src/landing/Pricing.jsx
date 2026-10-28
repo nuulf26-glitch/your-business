@@ -156,7 +156,7 @@ function Pricing() {
                 marginBottom: "10px"
               }}
             >
-              Start your 14-day free trial
+              Start your 1-week free trial
             </button>
 
             <p style={{ textAlign: "center", fontSize: "0.80rem", color: "#666", margin: "0 0 30px 0", fontFamily: "'Mograp', sans-serif" }}>

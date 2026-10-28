@@ -20,7 +20,7 @@ const faqs = [
   {
     question: "Is there a free trial?",
     answer:
-      "Yes. Every account starts with a 14-day free trial before purchasing.",
+      "Yes. Every account starts with a 1-week free trial before purchasing.",
   },
   {
     question: "Can I edit my website later?",
