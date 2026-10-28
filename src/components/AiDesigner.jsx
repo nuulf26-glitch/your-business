@@ -41,7 +41,7 @@ export default function AiDesigner({ model, onApply, onClose, initialTab = "desi
     event.preventDefault(); if (!question.trim()) return;
     const next = [...messages, { role: "user", text: question.trim() }]; setMessages(next); setQuestion(""); setBusy(true); setError("");
     try {
-      const result = await customBackendRequest("/websites/ai/help", { method: "POST", body: JSON.stringify({ message: next.at(-1).text, context: { brandName: model.brandName, pages: model.pages?.map(page => ({ title: page.title, sections: page.sections?.map(section => section.type) })) || model.sections?.map(section => section.type) } }) });
+      const result = await customBackendRequest("/websites/ai/help", { method: "POST", body: JSON.stringify({ message: next.at(-1).text, context: { brandName: model.brandName, pages: model.pages?.map(page => ({ title: page.title, sections: page.sections?.map(section => section.type) })) || model.sections?.map(section => section.type), history: next.slice(-8) } }) });
       setMessages([...next, { role: "assistant", text: result.answer }]); setStatus(current => ({ ...current, aiHelpFreeUsed: result.aiHelpFreeUsed || current.aiHelpFreeUsed }));
     } catch (e) { if (e.status === 409) setTab("upgrade"); else setError(e.message); }
     finally { setBusy(false); }
