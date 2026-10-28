@@ -39,7 +39,7 @@ describe('backend critical operations', () => {
   it('reports an active free trial to the dashboard session', async () => {
     const trialEndsAt=new Date(Date.now()+24*60*60_000);
     const db:any={subscription:{findUnique:jest.fn().mockResolvedValue({status:'TRIALING',trialEndsAt})}};
-    const result=await new AuthController(db,{} as any,{} as any).me({user:{id:'owner-1',email:'owner@example.com',emailVerifiedAt:new Date(),role:'OWNER'}} as any);
+    const result=await new AuthController(db,{} as any).me({user:{id:'owner-1',email:'owner@example.com',emailVerifiedAt:new Date(),role:'OWNER'}} as any);
     expect(db.subscription.findUnique).toHaveBeenCalledWith({where:{userId:'owner-1'}});
     expect(result).toEqual(expect.objectContaining({paid:false,trialActive:true,trialEndsAt:trialEndsAt.toISOString()}));
   });
@@ -62,14 +62,16 @@ describe('backend critical operations', () => {
     await expect(health.readiness()).rejects.toThrow('Service Unavailable');
   });
 
-  it('creates a 14-day trial and account without requiring email verification', async () => {
+  it('creates a 7-day trial and account without requiring email verification', async () => {
     const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:new Date()};
     const tx:any={user:{create:jest.fn().mockResolvedValue(user)},subscription:{create:jest.fn().mockResolvedValue({})},business:{create:jest.fn().mockResolvedValue({})}};
     const db:any={user:{findUnique:jest.fn().mockResolvedValue(null)},$transaction:jest.fn(async callback=>callback(tx)),verificationToken:{deleteMany:jest.fn().mockResolvedValue({}),create:jest.fn().mockResolvedValue({})},session:{create:jest.fn().mockResolvedValue({})}};
     const mail:any={sendAccountLink:jest.fn().mockResolvedValue(undefined)};
     const res:any={cookie:jest.fn()};
     const previous=process.env.NODE_ENV;process.env.NODE_ENV='test';
-    const result=await new AuthController(db,mail,{} as any).signup({email:' OWNER@example.com ',password:'a-secure-password'} as any,res);
+    const before=Date.now();
+    const result=await new AuthController(db,mail).signup({email:' OWNER@example.com ',password:'a-secure-password'} as any,res);
+    const after=Date.now();
     if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
     expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({email:'owner@example.com'})}));
     expect(tx.subscription.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({userId:'u-1'})}));
@@ -77,6 +79,10 @@ describe('backend critical operations', () => {
     expect(tx.user.create.mock.calls[0][0].data.emailVerifiedAt).toBeInstanceOf(Date);
     expect(result.emailVerified).toBe(true);
     expect(result.trialEndsAt).toBeTruthy();
+    const trialEnd=Date.parse(result.trialEndsAt);
+    expect(trialEnd).toBeGreaterThanOrEqual(before+7*24*60*60_000);
+    expect(trialEnd).toBeLessThanOrEqual(after+7*24*60*60_000);
+    expect(tx.subscription.create.mock.calls[0][0].data.trialEndsAt.getTime()).toBe(trialEnd);
   });
 
   it('allows a valid login when the account email is not verified', async () => {
@@ -84,7 +90,7 @@ describe('backend critical operations', () => {
     const db:any={user:{findUnique:jest.fn().mockResolvedValue(user)},session:{create:jest.fn().mockResolvedValue({})}};
     const res:any={cookie:jest.fn()};
     const previous=process.env.NODE_ENV, previousBearer=process.env.AUTH_BEARER_ENABLED;process.env.NODE_ENV='production';process.env.AUTH_BEARER_ENABLED='true';
-    const result=await new AuthController(db,{} as any,{} as any).login({email:'owner@example.com',password:'a-secure-password'} as any,res);
+    const result=await new AuthController(db,{} as any).login({email:'owner@example.com',password:'a-secure-password'} as any,res);
     if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
     if(previousBearer===undefined)delete process.env.AUTH_BEARER_ENABLED;else process.env.AUTH_BEARER_ENABLED=previousBearer;
     expect(result.emailVerified).toBe(false);
