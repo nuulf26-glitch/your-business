@@ -38,9 +38,10 @@ describe('opaque session token storage', () => {
 describe('backend critical operations', () => {
   it('reports an active free trial to the dashboard session', async () => {
     const trialEndsAt=new Date(Date.now()+24*60*60_000);
-    const db:any={subscription:{findUnique:jest.fn().mockResolvedValue({status:'TRIALING',trialEndsAt})}};
+    const db:any={subscription:{findUnique:jest.fn().mockResolvedValue({status:'TRIALING',trialEndsAt})},business:{findFirst:jest.fn().mockResolvedValue(null)}};
     const result=await new AuthController(db,{} as any).me({user:{id:'owner-1',email:'owner@example.com',emailVerifiedAt:new Date(),role:'OWNER'}} as any);
     expect(db.subscription.findUnique).toHaveBeenCalledWith({where:{userId:'owner-1'}});
+    expect(db.business.findFirst).toHaveBeenCalledWith({where:{ownerId:'owner-1'}});
     expect(result).toEqual(expect.objectContaining({paid:false,trialActive:true,trialEndsAt:trialEndsAt.toISOString()}));
   });
 
