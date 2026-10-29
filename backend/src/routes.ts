@@ -13,6 +13,8 @@ import { publicWebsite, validateWebsite } from './website-policy';
 import { applyAiWebsiteOperations } from './ai-website';
 import { allocate, localParts } from './availability';
 
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+
 @Controller('health')
 export class HealthController {
   constructor(private db: DbService) {}
@@ -323,7 +325,7 @@ export class WebsiteController {
       ? 'Edit the existing CYB website through a small set of structured operations. Return JSON only: {operations:[...]} . Allowed operations: {type:"site_style",fields:{brandName?,tagline?,description?,primaryColor?,backgroundColor?,textColor?,bodyFont?,headingFont?,buttonRadius?}}; {type:"update_section",pageId?,sectionId,fields:{title?,body?,buttonText?,eyebrow?,href?,variant?,limit?,style?:{fontFamily?,fontSize?,color?,backgroundColor?,textAlign?,paddingY?,letterSpacing?,lineHeight?,maxWidth?,minHeight?,hidden?},responsive?:{laptop?:style,ipad?:style,phone?:style}}}; {type:"add_section",pageId?,afterSectionId?,section:{type,label,title,body,buttonText?,eyebrow?,href?,variant?,limit?,items?}}. Add sections may use hero, about, services, gallery, collection, faq, reviews, contact, footer, heading, text, button, photo, divider, or spacer. A collection section renders real products already in the store; use limit:6 when asked for six products and never invent product records. For a mobile-friendly request, use responsive.phone and responsive.ipad overrides on relevant sections (smaller fontSize, reasonable paddingY and maxWidth; do not set fixed minHeight). {type:"move_section",pageId?,sectionId,beforeSectionId}; {type:"delete_section",pageId?,sectionId}. Use exact existing pageId and sectionId values from the website JSON. Do not replace the model or remove any content unless the user explicitly asks for deletion. Do not invent customer reviews, products, prices, metrics, or image URLs. For a request for reviews, add a section with clear editable placeholders requesting real customer quotes. For a visual or copy change, update only the relevant site or section fields. Return a short summary in an optional summary string. If the request cannot be mapped safely, return {operations:[]}.'
       : 'Create a polished ecommerce or service-business website for CYB. Return JSON only with {brandName,primaryColor,backgroundColor,textColor,bodyFont,headingFont,buttonRadius,sections}. sections is an array of 4 to 7 objects with unique id, type, label, title, body and optional buttonText/items. Use only types hero, about, services, collection, gallery, faq, reviews, contact, footer. Include one hero and one footer. Keep copy specific to the business. Never invent products, prices, customer reviews, ratings, or image URLs. If reviews are requested, create a reviews section with an editable placeholder for genuine customer quotes. Use collection for products. Colors must be 6-digit hex.';
     let response:globalThis.Response;
-    try { response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(65000),body:JSON.stringify({model:modelName,max_output_tokens:isModify?1800:2500,instructions,input:isModify?`Existing editable website JSON:\n${JSON.stringify(currentModel)}\n\nUser request:\n${dto.prompt}\n\nReturn JSON operations only. Do not repeat the existing website.`:`Return a JSON object for this website design request: ${dto.prompt}`,text:{format:{type:'json_object'}}})}); }
+    try { response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(50000),body:JSON.stringify({model:modelName,max_output_tokens:isModify?1800:2500,instructions,input:isModify?`Existing editable website JSON:\n${JSON.stringify(currentModel)}\n\nUser request:\n${dto.prompt}\n\nReturn JSON operations only. Do not repeat the existing website.`:`Return a JSON object for this website design request: ${dto.prompt}`,text:{format:{type:'json_object'}}})}); }
     catch(error){Logger.error(JSON.stringify({code:error instanceof Error?error.name:'unknown'}),'AiDesign');throw new ServiceUnavailableException('AI design timed out or could not be reached. Your current website was not changed. Please try again.');}
     const data=await response.json() as any;if(!response.ok){
       const code=String(data.error?.code||'unknown'),param=String(data.error?.param||'');
@@ -365,7 +367,7 @@ export class UploadController {
     const allowed=['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','video/quicktime'];
     if(!allowed.includes(contentType))throw new BadRequestException('Unsupported media type');
     const bytes=Buffer.isBuffer(request.body)?request.body:Buffer.alloc(0);
-    if(bytes.length<1||bytes.length>5*1024*1024)throw new BadRequestException('Media files must be 5 MB or smaller');
+    if(bytes.length<1||bytes.length>MAX_UPLOAD_BYTES)throw new BadRequestException('Media files must be 4 MB or smaller on this upload service.');
     const key=`businesses/${req.user.id}/${randomBytes(18).toString('hex')}`;
     const store=getStore('getcyb-assets');
     const image=new ArrayBuffer(bytes.length);new Uint8Array(image).set(bytes);

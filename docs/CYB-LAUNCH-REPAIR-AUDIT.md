@@ -1,6 +1,6 @@
 # CYB launch repair audit
 
-Audit snapshot: 2026-10-29, continued on PR #12. This is a repository review and limited browser verification, not a production penetration test. No production database writes, schema migrations, provider transactions, merges, or deployments were performed.
+Audit snapshot: 2026-10-29, continued on PR #12. This is a repository review and limited browser verification, not a production penetration test. At the time of this initial audit, no production database writes, schema migrations, provider transactions, merges, or deployments had been performed.
 
 ## Internal issue checklist
 
@@ -40,4 +40,11 @@ Audit snapshot: 2026-10-29, continued on PR #12. This is a repository review and
 - Merchant onboarding, seller-directed PayPal/card processing, refunds, and signed payment webhooks. Storefront checkout currently supports cash on delivery only.
 - Desktop/tablet/mobile visual parity between editor, preview, and public page; load testing and 20 isolated test-account journeys.
 
-**Readiness:** not ready to launch or cut over based on available evidence. The frontend and backend compile and local test suites pass, but several core journeys and every live provider integration still require isolated staging verification. No production deployment or merge was made.
+**Readiness at initial audit:** not ready to launch or cut over based on available evidence. The frontend and backend compile and local test suites pass, but several core journeys and every live provider integration still require isolated staging verification. No production deployment or merge had yet been made at that point.
+
+## Post-audit update — 2026-10-29
+
+- PR #12 was merged after explicit user approval. The user-provided Netlify Deploys screenshot shows `Production: main@7a1bc6b` as `Published`, with the commit title “Complete CYB AI and editor repairs” and a 44-second deploy. The production homepage and read-only `/api/v1/health` check were also observed; the API returned `status: ok` and `database: ok`.
+- A follow-up branch applies two verified hosting safeguards: the AI design request now times out at 50 seconds (inside Netlify's 60-second synchronous function limit), and media uploads are capped at 4 MiB so Base64-encoded request bodies remain under Netlify's 6 MiB buffered limit. The browser UI, service validation, and backend validation use the same upload size.
+- Follow-up local results: lint and frontend/backend builds pass; backend tests pass (27), and root tests pass (30). These results do not demonstrate live AI provider behavior, persistent media lifecycle, authenticated draft save/publish, or payment processing.
+- This follow-up branch has not been merged or deployed. Live verification still needs an isolated staging database and media store, staging provider credentials, and browser access to the authenticated staging journey. No production write, customer charge, or real-account test was performed.
