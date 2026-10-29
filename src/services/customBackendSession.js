@@ -21,7 +21,9 @@ export async function customBackendRequest(path, options = {}) {
     response = await fetch(`${apiBase}${path}`, {
       ...options,
       credentials: 'include',
-      signal: options.signal || AbortSignal.timeout(path.includes('/ai/') ? 90000 : 45000),
+      // Keep the browser open long enough for the API's 50s provider deadline,
+      // with a small buffer for server response handling.
+      signal: options.signal || AbortSignal.timeout(path.includes('/ai/') ? 55000 : 45000),
       headers: { 'Content-Type': 'application/json', ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}), ...(options.headers || {}) },
     });
   } catch (error) {
@@ -29,7 +31,7 @@ export async function customBackendRequest(path, options = {}) {
     throw new Error(error instanceof Error ? error.message : 'The custom backend could not be reached.', { cause: error });
   }
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) { const error = new Error(result.message || 'The request could not be completed.'); error.status = response.status; throw error; }
+  if (!response.ok) { const message = response.status === 401 && path.includes('/ai/') ? 'Your session expired. Sign in again, then retry the prompt shown here.' : result.message || 'The request could not be completed.'; const error = new Error(message); error.status = response.status; throw error; }
   return result;
 }
 
