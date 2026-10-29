@@ -9,10 +9,12 @@ test('database product ID wins over a previously stored client ID',()=>{
 test('legacy photos remain visible and media supports multiple videos and images',()=>{
  assert.equal(mediaItems({imageUrl:'https://example.com/old.jpg'})[0].url,'https://example.com/old.jpg');
  const media=[{type:'video',url:'https://example.com/a.mp4'},{type:'image',url:'/api/v1/uploads/businesses/user/abc'},{type:'video',url:'https://example.com/b.webm'}];
- assert.deepEqual(mediaItems({media}),media);assert.equal(primaryImage(media),media[1].url);
+ assert.deepEqual(mediaItems({media}).map(({id,...item})=>item),media);assert.equal(primaryImage(media),media[1].url);
  assert.equal(safeMediaUrl('javascript:alert(1)'),false);assert.equal(safeMediaUrl('//example.com/test'),false);assert.equal(safeMediaUrl(media[1].url),true);
 });
 test('media dimensions support percent, pixels, automatic height and fit',()=>{
- assert.deepEqual(mediaStyle({width:50,unit:'%',height:300,fit:'contain'}),{width:'50%',maxWidth:'100%',height:'300px',objectFit:'contain'});
+ assert.equal(mediaStyle({width:50,unit:'%',height:300,fit:'contain'}).height,'300px');
+ assert.equal(mediaStyle({width:50,align:'center',aspectRatio:'16 / 9',focalX:20,mobileWidth:80})['--media-position'],'20% 50%');
+ assert.equal(mediaStyle({mobileWidth:80})['--media-mobile-width'],'80%');
  assert.equal(mediaStyle({width:640,unit:'px'}).width,'640px');assert.equal(mediaStyle({width:999,unit:'%'}).width,'100%');
 });

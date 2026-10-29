@@ -165,3 +165,19 @@ model LegacyDocument {
   importedAt DateTime @default(now())
   @@index([collectionPath, sourceId])
 }
+
+// Metadata only. Binary media stays in persistent private object storage.
+model MediaAsset {
+  id String @id
+  ownerId String
+  contentType String
+  size Int
+  checksum String
+  objectKey String @unique
+  status String @default("PENDING")
+  width Int?
+  height Int?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([ownerId, status, expiresAt])
+}

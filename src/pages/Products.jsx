@@ -329,7 +329,7 @@ function Products() {
         form.description.trim(),
 
       media: form.media,
-      imageUrl: primaryImage(form.media) || form.imageUrl,
+      imageUrl: primaryImage(form.media),
       status: form.status || "active",
       salePrice: form.salePrice,
       salePercent: form.salePercent,

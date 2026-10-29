@@ -15,7 +15,8 @@
     "verify:firebase-backup": "node scripts/verify-firebase-export.mjs",
     "migrate:firebase-storage-staging": "node scripts/migrate-storage-staging.mjs",
     "import:firebase-staging": "node scripts/import-firebase-staging.mjs",
-    "verify:firebase-staging-import": "node scripts/verify-firebase-staging-import.mjs"
+    "verify:firebase-staging-import": "node scripts/verify-firebase-staging-import.mjs",
+    "test:media:staging": "node scripts/test-media-storage-staging.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.879.0",
