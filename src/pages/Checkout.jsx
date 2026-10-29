@@ -150,7 +150,7 @@ Object.assign(newOrder, saved, { id: saved.id, backendId: saved.id });
           className="checkout-logo"
           onClick={() => navigate("/")}
         >
-          Your Business
+          CYB
         </button>
 
         <button

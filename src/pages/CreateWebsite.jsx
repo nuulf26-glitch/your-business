@@ -54,7 +54,7 @@ try { await saveStore(websiteData); navigate("/dashboard"); } catch { setError("
         
         <aside className="wizard-sidebar">
           <button type="button" className="wizard-logo" onClick={() => navigate("/")}>
-            Your Business
+            CYB
           </button>
           <div className="wizard-sidebar-content">
             <span className="wizard-eyebrow">Website Setup</span>

@@ -4012,4 +4012,4 @@ section {
   .footer-links-grid {
     grid-template-columns: 1fr;
   }
-}
+}.ai-design-layout{grid-template-columns:minmax(0,1.1fr) minmax(280px,.9fr)}.analytics-preview-disclaimer{font-size:.86rem!important;color:#6b665f!important;padding-top:12px;border-top:1px solid #e5e5e0}@media(max-width:760px){.ai-design-layout{grid-template-columns:1fr!important}.ai-design-layout>div:last-child{margin-top:22px}}

@@ -3,7 +3,7 @@ import Hero from "./Hero";
 import HowItWorks from "./HowItWorks";
 import WebsiteBuilder from "./WebsiteBuilder";
 import Analytics from "./Analytics";
-import Reviews from "./Reviews";
+import AiDesignFeature from "./AiDesignFeature";
 import Pricing from "./Pricing";
 import FAQ from "./FAQ";
 import Footer from "./Footer";
@@ -20,7 +20,7 @@ function LandingPage() {
         <HowItWorks />
         <WebsiteBuilder />
         <Analytics />
-        <Reviews />
+        <AiDesignFeature />
         <Pricing />
         <FAQ />
       </main>

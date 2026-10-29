@@ -47,7 +47,7 @@ function ForgotPassword() {
         <div className="auth-form-wrapper">
 
           <Link className="auth-brand-logo" to="/">
-            Your Business
+            CYB
           </Link>
 
           <div className="auth-heading">

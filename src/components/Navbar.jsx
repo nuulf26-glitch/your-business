@@ -9,7 +9,7 @@ function Navbar() {
         background: "white",
       }}
     >
-      <h2>Your Business</h2>
+      <h2>CYB</h2>
 
       <div style={{ display: "flex", gap: "20px" }}>
         <a href="#">Features</a>

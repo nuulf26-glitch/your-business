@@ -55,7 +55,7 @@ await login(email.trim(), password);
     <div className="auth-page">
       <section className="auth-brand-panel">
         <Link className="auth-brand-logo" to="/">
-          Your Business
+          CYB
         </Link>
 
         <div className="auth-brand-content">
@@ -98,7 +98,7 @@ await login(email.trim(), password);
       <section className="auth-form-panel">
         <div className="auth-form-wrapper">
           <div className="auth-mobile-header">
-            <Link to="/">Your Business</Link>
+            <Link to="/">CYB</Link>
           </div>
 
           <div className="auth-heading">

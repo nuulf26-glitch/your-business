@@ -457,3 +457,4 @@
     text-align: left;
   }
 }
+.payment-option:disabled{opacity:.62;cursor:not-allowed;background:#f5f3ef}

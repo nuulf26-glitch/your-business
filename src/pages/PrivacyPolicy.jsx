@@ -12,7 +12,7 @@ function PrivacyPolicy() {
           className="legal-logo"
           onClick={() => navigate("/")}
         >
-          Your Business
+          CYB
         </button>
 
         <button

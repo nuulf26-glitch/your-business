@@ -40,7 +40,7 @@ function OrderSuccess() {
           className="order-success-logo"
           onClick={() => navigate("/")}
         >
-          Your Business
+          CYB
         </button>
       </header>
 

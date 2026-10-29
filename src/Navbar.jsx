@@ -16,7 +16,7 @@ function Navbar() {
           fontWeight: "700",
         }}
       >
-        Your Business
+        CYB
       </h2>
 
       <div

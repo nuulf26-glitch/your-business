@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, Logger, ServiceUnavailableException, Headers } from '@nestjs/common';
-import { IsEmail, IsString, MinLength, MaxLength, IsObject, IsOptional } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn } from 'class-validator';
 import { Request, Response } from 'express';
 import * as argon2 from 'argon2';
 import { randomBytes, createHash } from 'node:crypto';
@@ -10,6 +10,7 @@ import { Prisma } from '@prisma/client';
 import { SessionGuard, tokenHash } from './session';
 import { MailService } from './mail';
 import { publicWebsite, validateWebsite } from './website-policy';
+import { applyAiWebsiteOperations } from './ai-website';
 import { allocate, localParts } from './availability';
 
 @Controller('health')
@@ -35,9 +36,8 @@ class Credentials {
 class StoreInput { @IsString() @MaxLength(120) name!: string; @IsString() @MaxLength(100) slug!: string; @IsString() category!: string; @IsObject() settings!: object; }
 class JsonInput { @IsObject() data!: Record<string, unknown>; }
 class WebsiteInput { @IsObject() model!: Record<string, unknown>; }
-class AiPromptInput { @IsString() @MinLength(8) @MaxLength(1200) prompt!: string; }
+class AiPromptInput { @IsString() @MinLength(8) @MaxLength(1200) prompt!: string; @IsOptional() @IsIn(['create','modify']) mode?:'create'|'modify'; @IsOptional() @IsObject() model?:Record<string,unknown>; }
 class AiHelpInput { @IsString() @MinLength(1) @MaxLength(2000) message!: string; @IsOptional() @IsObject() context?: Record<string, unknown>; }
-class AiSubscriptionInput { @IsString() @MaxLength(100) subscriptionId!: string; }
 class TokenInput { @IsString() @MinLength(32) @MaxLength(200) token!: string; }
 class ResetInput extends TokenInput { @IsString() @MinLength(12) @MaxLength(200) password!: string; }
 class EmailInput { @IsEmail() email!: string; }
@@ -45,6 +45,22 @@ class PayPalCaptureInput { @IsString() @MaxLength(100) orderId!: string; }
 class OrderStatusInput { @IsString() @MaxLength(30) status!: string; }
 class CustomerStatusInput { @IsString() @MaxLength(30) status!: string; }
 class IdInput { @IsString() @MaxLength(120) id!: string; }
+async function requestAiResponse(payload:Record<string,unknown>,apiKey:string,feature:'AI help') {
+  let response:globalThis.Response;
+  try { response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(45000),body:JSON.stringify(payload)}); }
+  catch(error){Logger.error(JSON.stringify({code:error instanceof Error?error.name:'unknown'}),feature);throw new ServiceUnavailableException('AI help timed out or could not be reached. Please check your connection and try again.');}
+  const data=await response.json().catch(()=>({})) as any;
+  if(!response.ok){
+    const code=String(data.error?.code||'unknown'),param=String(data.error?.param||'');
+    Logger.error(JSON.stringify({status:response.status,code,param,requestId:response.headers.get('x-request-id')}),feature);
+    if(response.status===401)throw new ServiceUnavailableException('CYB AI connection needs attention. Please contact support.');
+    if(response.status===429)throw new ServiceUnavailableException('CYB AI is temporarily busy or the provider API balance is unavailable. Please try again shortly.');
+    throw new ServiceUnavailableException('CYB AI help is temporarily unavailable. Please try again.');
+  }
+  if(data.status==='incomplete')throw new ServiceUnavailableException('CYB AI response was interrupted. Please try again.');
+  return data;
+}
+function aiResponseText(data:any){return String(data.output_text||data.output?.flatMap((item:any)=>item.content||[]).filter((item:any)=>item.type==='output_text').map((item:any)=>item.text||'').join('\n')||'').trim();}
 // Keep the session cookie host-only on the API origin. A configured parent
 // domain (for example getcyb.fit) causes browsers to reject it on Render's
 // staging hostname and can also be unnecessary when the API is a subdomain.
@@ -118,9 +134,7 @@ export class AuthController {
     await this.db.session.create({ data:{ userId, tokenHash:tokenHash(token), expiresAt:expires } }); res.cookie('getcyb_session',token,cookieOptions(expires)); return token;
   }
   @UseGuards(SessionGuard) @Get('me') async me(@Req() req:Request & {user:any}) {
-    const [subscription,business]=await Promise.all([this.db.subscription.findUnique({where:{userId:req.user.id}}),this.db.business.findFirst({where:{ownerId:req.user.id}})]);
-    const aiSubscription=business?await this.db.businessRecord.findFirst({where:{businessId:business.id,type:'aiSubscription',status:'active'}}):null;
-    const aiPeriodEnd=(aiSubscription?.data as any)?.periodEnd;
+    const subscription=await this.db.subscription.findUnique({where:{userId:req.user.id}});
     const trialActive=subscription?.status==='TRIALING'&&subscription.trialEndsAt>new Date();
     return {
       id:req.user.id,
@@ -130,7 +144,6 @@ export class AuthController {
       paid:subscription?.status==='ACTIVE',
       trialActive,
       trialEndsAt:subscription?.trialEndsAt.toISOString()||null,
-      aiPremium:!!aiSubscription&&!!aiPeriodEnd&&new Date(aiPeriodEnd)>new Date(),
     };
   }
   @UseGuards(SessionGuard) @Post('logout') async logout(@Req() req:Request & {user:any;sessionToken?:string},@Res({passthrough:true}) res:Response) {
@@ -300,12 +313,18 @@ export class PublicOrderController {
 export class WebsiteController {
   constructor(private db:DbService){}
   private async businessFor(req:Request & {user:any}){const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)throw new NotFoundException('Create a business first');return business;}
-  private async aiPremium(userId:string){const b=await this.db.business.findFirst({where:{ownerId:userId}});if(!b)return false;const subscription=await this.db.businessRecord.findFirst({where:{businessId:b.id,type:'aiSubscription',status:'active'}}),periodEnd=(subscription?.data as any)?.periodEnd;return !!subscription&&!!periodEnd&&new Date(periodEnd)>new Date();}
-  @UseGuards(SessionGuard) @Get('ai/status') async aiStatus(){return {freeDesignUsed:false,aiHelpFreeUsed:false,aiPremium:false,usageLimited:false};}
+  @UseGuards(SessionGuard) @Get('ai/status') async aiStatus(){return {available:true,usageLimited:false};}
   @UseGuards(SessionGuard) @Throttle({default:{limit:5,ttl:60_000}}) @Post('ai/design') async aiDesign(@Req() req:Request & {user:any},@Body() dto:AiPromptInput){
     const apiKey=process.env.OPENAI_API_KEY;if(!apiKey)throw new ServiceUnavailableException('AI design is being set up. Please try again later.');
     const modelName=process.env.OPENAI_MODEL||'gpt-4o-mini';
-    const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:modelName,max_output_tokens:2500,instructions:'Create a polished ecommerce or service-business website for GETCYB. Return JSON only with {brandName,primaryColor,backgroundColor,textColor,bodyFont,headingFont,buttonRadius,sections}. sections is an array of 4 to 7 objects with unique id, type, label, title, body and optional buttonText/items. Use only types hero, about, services, collection, gallery, faq, contact, footer. Include one hero and one footer. Keep copy specific to the business. Never invent products or prices; use collection for products. Colors must be 6-digit hex.',input:`Return a JSON object for this website design request: ${dto.prompt}`,text:{format:{type:'json_object'}}})});
+    const isModify=dto.mode==='modify';
+    const currentModel=isModify?validateWebsite(dto.model,false):null;
+    const instructions=isModify
+      ? 'Edit the existing CYB website through a small set of structured operations. Return JSON only: {operations:[...]} . Allowed operations: {type:"site_style",fields:{brandName?,tagline?,description?,primaryColor?,backgroundColor?,textColor?,bodyFont?,headingFont?,buttonRadius?}}; {type:"update_section",pageId?,sectionId,fields:{title?,body?,buttonText?,eyebrow?,href?,variant?,style?:{fontFamily?,fontSize?,color?,backgroundColor?,textAlign?,paddingY?,letterSpacing?,lineHeight?,maxWidth?,minHeight?,hidden?}}}; {type:"add_section",pageId?,afterSectionId?,section:{type,label,title,body,buttonText?,eyebrow?,href?,variant?,items?}}; {type:"move_section",pageId?,sectionId,beforeSectionId}; {type:"delete_section",pageId?,sectionId}. Use exact existing pageId and sectionId values from the website JSON. Do not replace the model or remove any content unless the user explicitly asks for deletion. Do not invent customer reviews, products, prices, metrics, or image URLs. For a request for reviews, add a section with clear editable placeholders requesting real customer quotes. For a visual or copy change, update only the relevant site or section fields. Return a short summary in an optional summary string. If the request cannot be mapped safely, return {operations:[]}.'
+      : 'Create a polished ecommerce or service-business website for CYB. Return JSON only with {brandName,primaryColor,backgroundColor,textColor,bodyFont,headingFont,buttonRadius,sections}. sections is an array of 4 to 7 objects with unique id, type, label, title, body and optional buttonText/items. Use only types hero, about, services, collection, gallery, faq, reviews, contact, footer. Include one hero and one footer. Keep copy specific to the business. Never invent products, prices, customer reviews, ratings, or image URLs. If reviews are requested, create a reviews section with an editable placeholder for genuine customer quotes. Use collection for products. Colors must be 6-digit hex.';
+    let response:globalThis.Response;
+    try { response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(65000),body:JSON.stringify({model:modelName,max_output_tokens:isModify?1800:2500,instructions,input:isModify?`Existing editable website JSON:\n${JSON.stringify(currentModel)}\n\nUser request:\n${dto.prompt}\n\nReturn JSON operations only. Do not repeat the existing website.`:`Return a JSON object for this website design request: ${dto.prompt}`,text:{format:{type:'json_object'}}})}); }
+    catch(error){Logger.error(JSON.stringify({code:error instanceof Error?error.name:'unknown'}),'AiDesign');throw new ServiceUnavailableException('AI design timed out or could not be reached. Your current website was not changed. Please try again.');}
     const data=await response.json() as any;if(!response.ok){
       const code=String(data.error?.code||'unknown'),param=String(data.error?.param||'');
       Logger.error(JSON.stringify({status:response.status,code,param,requestId:response.headers?.get('x-request-id')}),'AiDesign');
@@ -314,17 +333,21 @@ export class WebsiteController {
     }
     if(data.status==='incomplete')throw new ServiceUnavailableException('The design was interrupted. Please try again with a shorter description.');
     const output=String(data.output_text||data.output?.flatMap((item:any)=>item.content||[]).find((item:any)=>item.type==='output_text')?.text||'');let generated:any;try{generated=JSON.parse(output);}catch{throw new ServiceUnavailableException('AI returned an invalid design. Please try again.');}
+    if(isModify){
+      if(!currentModel)throw new BadRequestException('Choose a website to edit first.');
+      try{return applyAiWebsiteOperations(currentModel,generated,dto.prompt);}catch(error){if(error instanceof BadRequestException)throw error;throw new ServiceUnavailableException('AI returned an edit that could not be safely applied. Your current website was not changed. Please try a more specific request.');}
+    }
     const sections=Array.isArray(generated.sections)?generated.sections:[];if(sections.length<3||sections.length>12)throw new ServiceUnavailableException('AI returned an incomplete design. Please try again.');
+    for(const section of sections)if(section.type==='reviews')section.items=[{name:'Customer name',quote:'Add a real customer review here.'}];
     const draft=validateWebsite({editorVersion:2,...generated,pages:[{id:'home',slug:'',title:'Home',sections:sections.map((section:any,index:number)=>({...section,id:`ai-${Date.now()}-${index}`,style:{fontFamily:section.type==='hero'?'Georgia':'Arial',fontSize:section.type==='hero'?56:28,color:generated.textColor||'#171513'}}))}]},false);
-    return {model:draft,freeDesignUsed:false,aiPremium:false};
+    return {model:draft};
   }
-  @UseGuards(SessionGuard) @Throttle({default:{limit:12,ttl:60_000}}) @Post('ai/help') async aiHelp(@Req() req:Request & {user:any},@Body() dto:AiHelpInput){const apiKey=process.env.OPENAI_API_KEY;if(!apiKey)throw new ServiceUnavailableException('AI help is being set up. Please try again later.');const context=JSON.stringify(dto.context||{}).slice(0,4000);const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly GETCYB website-builder guide. Explain steps simply, help users understand the editor, and answer questions about designing their shop. Never claim to perform changes; give clear steps. Keep the answer concise.',input:`Current website and recent conversation context: ${context}\nUser question: ${dto.message}`})});const data=await response.json() as any;if(!response.ok)throw new ServiceUnavailableException('AI help could not respond right now.');if(!String(data.output_text||data.output?.flatMap((item:any)=>item.content||[]).filter((item:any)=>item.type==='output_text').map((item:any)=>item.text||'').join('\n')||'').trim())throw new ServiceUnavailableException('AI returned an empty reply. Please try again.');return {answer:String(data.output_text||data.output?.flatMap((item:any)=>item.content||[]).filter((item:any)=>item.type==='output_text').map((item:any)=>item.text||'').join('\n')||''),aiHelpFreeUsed:false};}
+  @UseGuards(SessionGuard) @Throttle({default:{limit:12,ttl:60_000}}) @Post('ai/help') async aiHelp(@Req() req:Request & {user:any},@Body() dto:AiHelpInput){const apiKey=process.env.OPENAI_API_KEY;if(!apiKey)throw new ServiceUnavailableException('CYB AI help is not configured yet. Please try again later.');const context=JSON.stringify(dto.context||{}).slice(0,4000);const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB website-builder guide. Explain steps simply, help users understand the editor, and answer questions about designing their website. When users want design changes, direct them to the Edit my website tab, where their request will be applied as an editable change. Never claim to perform changes in this help chat. Keep the answer concise and do not invent features.',input:`Current website and recent conversation context: ${context}\nUser question: ${dto.message}`},apiKey,'AI help');const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};}
   @Throttle({default:{limit:3,ttl:60_000}}) @Post('public/ai/help') async publicAiHelp(@Body() dto:AiHelpInput){
-    const apiKey=process.env.OPENAI_API_KEY;if(!apiKey)throw new ServiceUnavailableException('AI help is being set up. Please try again later.');
+    const apiKey=process.env.OPENAI_API_KEY;if(!apiKey)throw new ServiceUnavailableException('CYB AI help is not configured yet. Please try again later.');
     const context=JSON.stringify(dto.context||{}).slice(0,4000);
-    const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly GETCYB guide for visitors who have not created an account yet. Answer concise questions about GETCYB, starting a website, and the general website-building process. Do not claim to see or change a visitor’s account or website. If a question needs account-specific details, tell them to sign in. If you are unsure about a GETCYB feature, say so instead of guessing.',input:`Visitor context: ${context}\nQuestion: ${dto.message}`})});
-    const data=await response.json() as any;if(!response.ok)throw new ServiceUnavailableException('AI help could not respond right now.');
-    return {answer:String(data.output_text||data.output?.flatMap((item:any)=>item.content||[]).filter((item:any)=>item.type==='output_text').map((item:any)=>item.text||'').join('\n')||'')};
+    const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB guide for visitors who have not created an account yet. Answer concise questions about CYB, starting a website, and the general website-building process. Do not claim to see or change a visitor’s account or website. If a question needs account-specific details, tell them to sign in. If you are unsure about a CYB feature, say so instead of guessing.',input:`Visitor context: ${context}\nQuestion: ${dto.message}`},apiKey,'AI help');
+    const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};
   }
   @UseGuards(SessionGuard) @Get('draft') async draft(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});return b?.website||null;}
   @UseGuards(SessionGuard) @Put('draft') async saveDraft(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');const model=validateWebsite(dto.model,false);return this.db.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any},update:{draft:model as any,revision:{increment:1}}});}
@@ -372,21 +395,8 @@ export class PayPalController {
     const response=await fetch(`${base}/v1/oauth2/token`,{method:'POST',headers:{Authorization:`Basic ${Buffer.from(`${id}:${secret}`).toString('base64')}`,'Content-Type':'application/x-www-form-urlencoded'},body:'grant_type=client_credentials'});
     const body=await response.json() as any;if(!response.ok||!body.access_token)throw new BadRequestException('PayPal authentication failed');return {token:body.access_token,base};
   }
-  private async aiPlan(token:string,base:string){
-    if(process.env.PAYPAL_AI_PLAN_ID)return {planId:process.env.PAYPAL_AI_PLAN_ID,amount:process.env.PAYPAL_AI_MONTHLY_AMOUNT||'9.99'};
-    const key='system/paypal-ai-monthly-plan',saved=await this.db.legacyDocument.findUnique({where:{sourcePath:key}}),savedData=saved?.data as any;
-    if(savedData?.planId)return {planId:String(savedData.planId),amount:String(savedData.amount||'9.99')};
-    const amount=process.env.PAYPAL_AI_MONTHLY_AMOUNT||'9.99';if(!/^\d+\.\d{2}$/.test(amount))throw new BadRequestException('The AI monthly price must use two decimals, for example 9.99.');
-    const productResponse=await fetch(`${base}/v1/catalogs/products`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','PayPal-Request-Id':`getcyb-ai-product-${randomBytes(12).toString('hex')}`},body:JSON.stringify({name:'GETCYB AI',description:'AI website design and help for GETCYB users',type:'SERVICE',category:'SOFTWARE'})});
-    const product=await productResponse.json() as any;if(!productResponse.ok||!product.id)throw new BadRequestException('Could not create the GETCYB AI product in PayPal.');
-    const planResponse=await fetch(`${base}/v1/billing/plans`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','PayPal-Request-Id':`getcyb-ai-plan-${randomBytes(12).toString('hex')}`},body:JSON.stringify({product_id:product.id,name:'GETCYB AI Monthly',description:'Monthly access to AI website design and help',billing_cycles:[{frequency:{interval_unit:'MONTH',interval_count:1},tenure_type:'REGULAR',sequence:1,total_cycles:0,pricing_scheme:{fixed_price:{value:amount,currency_code:'USD'}}}],payment_preferences:{auto_bill_outstanding:true,payment_failure_threshold:1}})});
-    const plan=await planResponse.json() as any;if(!planResponse.ok||!plan.id)throw new BadRequestException('Could not create the monthly GETCYB AI plan in PayPal.');
-    if(plan.status!=='ACTIVE'){const activated=await fetch(`${base}/v1/billing/plans/${encodeURIComponent(plan.id)}/activate`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'}});if(!activated.ok)throw new BadRequestException('Could not activate the monthly GETCYB AI plan in PayPal.');}
-    await this.db.legacyDocument.upsert({where:{sourcePath:key},create:{sourcePath:key,collectionPath:'system',sourceId:'paypal-ai-monthly-plan',data:{productId:product.id,planId:plan.id,amount,currency:'USD'} as any},update:{collectionPath:'system',sourceId:'paypal-ai-monthly-plan',data:{productId:product.id,planId:plan.id,amount,currency:'USD'} as any}});
-    return {planId:String(plan.id),amount};
-  }
   @Post('orders') async createOrder(@Req() req:Request & {user:any}){
-    const {token,base}=await this.accessToken(),amount=process.env.PAYPAL_BASIC_AMOUNT||'245.00';
+    const {token,base}=await this.accessToken(),amount=process.env.PAYPAL_BASIC_AMOUNT||'246.00';
     if(!/^\d+\.\d{2}$/.test(amount))throw new BadRequestException('PayPal price configuration is invalid');
     const response=await fetch(`${base}/v2/checkout/orders`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','PayPal-Request-Id':`getcyb-${randomBytes(16).toString('hex')}`},body:JSON.stringify({intent:'CAPTURE',purchase_units:[{reference_id:req.user.id,custom_id:req.user.id,description:'GETCYB Basic lifetime access',amount:{currency_code:'USD',value:amount}}]})});
     const body=await response.json() as any;if(!response.ok||!body.id)throw new BadRequestException('Could not create PayPal order');
@@ -409,6 +419,4 @@ export class PayPalController {
     ]);
     return {success:true,status:'COMPLETED',orderId:capture.id};
   }
-  @Post('ai-subscriptions') async createAiSubscription(@Req() req:Request & {user:any}){throw new BadRequestException('Monthly AI subscriptions are unavailable.');const {token,base}=await this.accessToken(),{planId,amount}=await this.aiPlan(token,base);const origin=(process.env.PUBLIC_APP_URL||'https://getcyb.fit').replace(/\/$/,'');const response=await fetch(`${base}/v1/billing/subscriptions`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','PayPal-Request-Id':`getcyb-ai-${randomBytes(16).toString('hex')}`},body:JSON.stringify({plan_id:planId,custom_id:req.user.id,application_context:{brand_name:'GETCYB AI',user_action:'SUBSCRIBE_NOW',return_url:`${origin}/editor?aiSubscription=success`,cancel_url:`${origin}/editor?aiSubscription=cancelled`}})});const result=await response.json() as any;if(!response.ok||!result.id)throw new BadRequestException('Could not start the AI subscription.');await this.db.paymentReference.create({data:{provider:'paypal',providerOrderId:`ai-${result.id}`,status:'PENDING',amountCents:Math.round(Number(amount)*100),currency:'USD',userId:req.user.id,metadata:{intent:'AI_SUBSCRIPTION',subscriptionId:result.id}}});return {approvalUrl:result.links?.find((link:any)=>link.rel==='approve')?.href};}
-  @Post('ai-subscriptions/activate') async activateAiSubscription(@Req() req:Request & {user:any},@Body() dto:AiSubscriptionInput){const {token,base}=await this.accessToken(),{planId}=await this.aiPlan(token,base),response=await fetch(`${base}/v1/billing/subscriptions/${encodeURIComponent(dto.subscriptionId)}`,{headers:{Authorization:`Bearer ${token}`}});const result=await response.json() as any;if(!response.ok||result.status!=='ACTIVE'||result.custom_id!==req.user.id||result.plan_id!==planId)throw new BadRequestException('PayPal could not confirm the AI subscription.');const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)throw new NotFoundException('Business not found');const existing=await this.db.businessRecord.findFirst({where:{businessId:business.id,type:'aiSubscription'}}),data={subscriptionId:result.id,periodEnd:result.billing_info?.next_billing_time||null,planId:result.plan_id};if(existing)await this.db.businessRecord.update({where:{id:existing.id},data:{status:'active',data:data as any}});else await this.db.businessRecord.create({data:{businessId:business.id,type:'aiSubscription',status:'active',data:data as any}});return {success:true,aiPremium:true};}
 }
