@@ -225,6 +225,9 @@ export default function WebsiteEditor() {
   function switchMode(value) { const next=editorMode(value);setMode(next);try {localStorage.setItem(`${cacheKey}:mode`,next);}catch {} if(next==='simple')setActiveTab('pages'); }
   const [model, setModel] = useState(createDefaultModel);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [loadNotice, setLoadNotice] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [activePageId, setActivePageId] = useState("home");
   const [newPageTitle, setNewPageTitle] = useState("");
   const [collectionPreview, setCollectionPreview] = useState(null);
@@ -264,11 +267,15 @@ export default function WebsiteEditor() {
 
   useEffect(() => {
     let active = true;
-    const params = new URLSearchParams(window.location.search);
     async function loadEditor() {
       try {
-        const [store, productList, privateDraft] = await Promise.all([getStore(), getProducts(), loadWebsiteDraft()]);
+        const [storeResult, productsResult, draftResult] = await Promise.allSettled([getStore(), getProducts(), loadWebsiteDraft()]);
         if (!active) return;
+        if (storeResult.status === "rejected") throw storeResult.reason;
+        if (draftResult.status === "rejected") throw draftResult.reason;
+        const store = storeResult.value;
+        const privateDraft = draftResult.value;
+        const productList = productsResult.status === "fulfilled" ? productsResult.value : [];
         if (privateDraft || store?.editorData || store?.sections || store?.elements) {
           let next = migrateLegacyEditor(privateDraft || store);
           let recovered = false;
@@ -285,15 +292,19 @@ export default function WebsiteEditor() {
           setSelectedId((current) => current || model.sections[0]?.id || null);
         }
         setProducts(Array.isArray(productList) ? productList : []);
+        if (productsResult.status === "rejected") {
+          const reason = productsResult.reason;
+          setLoadNotice(`Your website loaded, but products could not be loaded${reason?.message ? `: ${reason.message}` : "."}`);
+        }
         setLoaded(true);
       } catch (error) {
         console.error("Could not load website editor data:", error);
-        if (active) setStatus("Load failed — reload before editing");
+        if (active) setLoadError(error?.message || "Could not load your website. Check your connection and try again.");
       }
     }
     loadEditor();
     return () => { active = false; };
-  }, []);
+  }, [loadAttempt]);
 
   useEffect(() => { if (loaded) {
     try { localStorage.setItem(cacheKey, JSON.stringify({ model, dirty: !['Saved','Published'].includes(status) })); }
@@ -535,7 +546,9 @@ export default function WebsiteEditor() {
     </>;
   }
 
-  if (!loaded) return <main role="status" style={{ padding: 40 }}>{status.startsWith("Load failed") ? status : "Loading your website…"}</main>;
+  if (!loaded) return <main role="status" style={{ padding: 40 }}>
+    {loadError ? <><p role="alert">Could not load your website: {loadError}</p><button type="button" onClick={() => { setLoadError(""); setLoadAttempt(attempt => attempt + 1); }}>Try again</button></> : "Loading your website…"}
+  </main>;
 
   return <div className={`getcyb-editor editor-mode-${mode} editor-mobile-${mobilePanel}`}>
     <header className="getcyb-editor-topbar">
@@ -547,6 +560,7 @@ export default function WebsiteEditor() {
       <div className="device-controls">{[["laptop", "▣", "Laptop"], ["ipad", "▤", "iPad"], ["phone", "▯", "Phone"]].map(([id, icon, label]) => <button type="button" key={id} className={device === id ? "active" : ""} onClick={() => setDevice(id)}>{icon}<span>{label}</span></button>)}</div>
       <button className="topbar-action ai-launch" type="button" onClick={() => setShowAiDesigner(true)}>✦ Design with AI</button><button className="topbar-action" type="button" onClick={saveDraft} disabled={saving || mediaUploading || productMediaSaving>0}>Save draft</button><button className="topbar-action" type="button" onClick={() => setShowPreview(true)}>Preview</button><button className="topbar-action primary" type="button" onClick={publishWebsite} disabled={saving || mediaUploading || productMediaSaving>0}>Publish</button>
     </header>
+    {loadNotice && <p role="status" style={{ margin: "8px 16px", padding: "10px 14px", borderRadius: 8, background: "#f7f2eb", color: "#4b4035" }}>{loadNotice}</p>}
     <nav className="editor-mobile-controls" aria-label="Editor workspace">{[['tools','Add & pages'],['canvas','Website'],['properties','Edit selected']].map(([id,label]) => <button type="button" key={id} aria-pressed={mobilePanel === id} onClick={() => setMobilePanel(id)}>{label}</button>)}</nav>
     <div className="editor-mode-hint">{EDITOR_MODES.find(item => item.id === mode).description} <span>Switch modes anytime. Your design stays the same.</span></div>
     <div className="getcyb-editor-workspace">
