@@ -47,6 +47,14 @@ describe('AI website design', () => {
     const model={brandName:'LUNE',sections:[{id:'hero',type:'hero'},{id:'about',type:'about'}]};
     expect(()=>applyAiWebsiteOperations(model,{operations:[{type:'delete_section',sectionId:'about'}]},'Make the site more elegant')).toThrow('remove content you did not ask to remove');
   });
+  it('turns gallery item output into editable image placeholders instead of rejecting the edit',()=>{
+    const model={editorVersion:2,brandName:'LUNE',pages:[{id:'home',slug:'',title:'Home',sections:[{id:'hero',type:'hero',title:'Welcome'},{id:'footer',type:'footer',title:'LUNE'}]}]};
+    const result=applyAiWebsiteOperations(model,{operations:[{type:'add_section',pageId:'home',afterSectionId:'hero',section:{type:'gallery',title:'Our skincare',items:[{alt:'Serum bottle'},{alt:'Face cream'},{alt:'Skincare routine'}]}}]},'Add product photos');
+    const gallery=result.model.pages[0].sections.find((section:any)=>section.type==='gallery');
+    expect(gallery.imagePlaceholderCount).toBe(3);
+    expect(result.model.pages[0].sections.map((section:any)=>section.id)).toEqual(['hero',gallery.id,'footer']);
+    expect(model.pages[0].sections).toHaveLength(2);
+  });
   it('routes all seven requested edit prompts through the AI response parser into editable changes',async()=>{
     process.env.OPENAI_API_KEY='test-only';
     const model={editorVersion:2,brandName:'LUNE',backgroundColor:'#f5f2ea',textColor:'#171513',pages:[{id:'home',slug:'',title:'Home',sections:[
@@ -82,6 +90,7 @@ describe('AI website design', () => {
     const generated={brandName:'LUNE SKIN',primaryColor:'#a6957b',backgroundColor:'#ffffff',textColor:'#211d18',headingFont:'Georgia',bodyFont:'Arial',sections:[
       {type:'hero',title:'Ritual, refined',body:'Thoughtful skincare for daily rituals.'},
       {type:'about',title:'Care in every detail',body:'Created for a considered routine.'},
+      {type:'gallery',title:'Skincare imagery',body:'Add your product and lifestyle photography.',imagePlaceholderCount:3},
       {type:'collection',title:'The collection',body:'Explore our products.'},
       {type:'contact',title:'Get in touch',body:'Questions about your routine?'},
       {type:'footer',title:'Lune Skin',body:'Skincare, considered.'}
@@ -89,6 +98,7 @@ describe('AI website design', () => {
     global.fetch=jest.fn(async (_url,init:any)=>{
       const request=JSON.parse(init.body);
       expect(request.input).toContain('Create a luxury skincare website with beige and white colors.');
+      expect(request.instructions).toContain('imagePlaceholderCount:3');
       expect(request.text.format.type).toBe('json_object');
       return {ok:true,json:async()=>({status:'completed',output_text:JSON.stringify(generated)})} as any;
     });
@@ -96,6 +106,7 @@ describe('AI website design', () => {
     expect(result.model.backgroundColor).toBe('#ffffff');
     expect(result.model.pages[0].sections.map((section:any)=>section.type)).toContain('collection');
     expect(result.model.pages[0].sections.map((section:any)=>section.type)).toContain('contact');
+    expect(result.model.pages[0].sections.find((section:any)=>section.type==='gallery').imagePlaceholderCount).toBe(3);
   });
   it('rejects malformed responsive values and out-of-range product limits without changing the source model',()=>{
     const model={brandName:'LUNE',pages:[{id:'home',slug:'',title:'Home',sections:[{id:'products',type:'collection',title:'Products',body:''}]}]};

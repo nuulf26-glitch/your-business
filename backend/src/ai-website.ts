@@ -4,7 +4,7 @@ import { validateWebsite } from './website-policy';
 
 const siteFields = new Set(['brandName', 'tagline', 'description', 'primaryColor', 'backgroundColor', 'textColor', 'bodyFont', 'headingFont', 'buttonRadius']);
 const sectionTypes = new Set(['hero', 'about', 'services', 'gallery', 'collection', 'faq', 'reviews', 'contact', 'footer', 'heading', 'text', 'button', 'photo', 'divider', 'spacer']);
-const sectionFields = new Set(['title', 'body', 'buttonText', 'eyebrow', 'href', 'variant', 'alt', 'limit', 'responsive']);
+const sectionFields = new Set(['title', 'body', 'buttonText', 'eyebrow', 'href', 'variant', 'alt', 'limit', 'responsive', 'image', 'images', 'media', 'imagePlaceholderCount']);
 const styleFields = new Set(['fontFamily', 'fontSize', 'color', 'backgroundColor', 'textAlign', 'paddingY', 'letterSpacing', 'lineHeight', 'maxWidth', 'minHeight', 'hidden']);
 const deleteIntent = /\b(delete|remove|take out|erase|get rid of)\b/i;
 const sectionPosition = /\b(first|1st|second|2nd|third|3rd|fourth|4th|last)\s+(?:section|part)\b/i;
@@ -63,14 +63,28 @@ export function applyAiWebsiteOperations(input: Record<string, any>, raw: unknow
       const section = operation.section;
       const clean:Record<string,any> = { id: `ai-${randomBytes(8).toString('hex')}`, type: section.type, label: typeof section.label === 'string' ? section.label.slice(0, 80) : section.type, title: typeof section.title === 'string' ? section.title.slice(0, 240) : '', body: typeof section.body === 'string' ? section.body.slice(0, 2000) : '', style: { fontFamily: 'Arial', fontSize: 28, color: model.textColor || '#171513' } };
       for (const key of ['buttonText', 'eyebrow', 'href', 'variant']) if (section[key] !== undefined) clean[key] = section[key];
+      // The model sometimes represents gallery placeholders as `items`, even though
+      // the editor's gallery renderer consumes image fields. Keep those requests
+      // editable and visible instead of rejecting the whole edit.
+      if (section.type === 'gallery' && Array.isArray(section.items)) {
+        clean.imagePlaceholderCount = Math.max(1, Math.min(8, section.items.length || 3));
+      }
+      if (section.type === 'gallery' && Number.isInteger(section.imagePlaceholderCount)) {
+        clean.imagePlaceholderCount = Math.max(1, Math.min(8, section.imagePlaceholderCount));
+      }
+      if (section.type === 'gallery' && Array.isArray(section.images)) {
+        clean.images = section.images.filter((value: unknown) => typeof value === 'string').slice(0, 8);
+      }
       if (section.type === 'collection' && section.limit !== undefined) {
         if (!Number.isInteger(section.limit) || section.limit < 1 || section.limit > 24) throw new BadRequestException('AI returned an invalid product collection size. Please try again.');
         clean.limit = section.limit;
       }
       if (section.type === 'reviews') clean.items = [{ name: 'Customer name', quote: 'Add a real customer review here.' }];
       else if (section.items !== undefined) {
-        if (!['faq','services'].includes(section.type) || !Array.isArray(section.items) || section.items.length > 12) throw new BadRequestException('AI returned invalid section content. Please try again.');
-        clean.items = section.items;
+        if (!Array.isArray(section.items) || section.items.length > 12) throw new BadRequestException('AI returned invalid section content. Please try again.');
+        if (section.type === 'gallery') clean.imagePlaceholderCount = Math.max(1, Math.min(8, section.items.length || 3));
+        else if (['faq','services'].includes(section.type)) clean.items = section.items;
+        else throw new BadRequestException('AI returned invalid section content. Please try again.');
       }
       const after = operation.afterSectionId ? page.sections.findIndex((item: any) => item.id === operation.afterSectionId) : page.sections.length - 1;
       if (operation.afterSectionId && after < 0) throw new BadRequestException('AI referenced a missing section. Please try again.');
@@ -96,8 +110,13 @@ export function applyAiWebsiteOperations(input: Record<string, any>, raw: unknow
       if (Object.keys(fields).some(key => !sectionFields.has(key) && key !== 'style')) throw new BadRequestException('AI returned an unsupported section edit. Please try again.');
       if (fields.style !== undefined && (!fields.style || typeof fields.style !== 'object' || Array.isArray(fields.style) || Object.keys(fields.style).some(key => !styleFields.has(key)))) throw new BadRequestException('AI returned unsupported style settings. Please try again.');
       for (const [key, value] of Object.entries(fields)) {
-        if (!['style', 'responsive', 'limit'].includes(key) && (typeof value !== 'string' || value.length > (key === 'body' ? 2000 : 500))) throw new BadRequestException('AI returned invalid section content. Please try again.');
+        if (['style', 'responsive', 'limit', 'media', 'images', 'imagePlaceholderCount'].includes(key)) continue;
+        if (key === 'image' && typeof value === 'string' && value.length <= 2000) continue;
+        if (typeof value !== 'string' || value.length > (key === 'body' ? 2000 : 500)) throw new BadRequestException('AI returned invalid section content. Please try again.');
       }
+      if (fields.imagePlaceholderCount !== undefined && (!Number.isInteger(fields.imagePlaceholderCount) || fields.imagePlaceholderCount < 0 || fields.imagePlaceholderCount > 8)) throw new BadRequestException('AI returned invalid section content. Please try again.');
+      if (fields.images !== undefined && (!Array.isArray(fields.images) || fields.images.length > 8 || fields.images.some((value: unknown) => typeof value !== 'string' || value.length > 2000))) throw new BadRequestException('AI returned invalid section content. Please try again.');
+      if (fields.media !== undefined && (!Array.isArray(fields.media) || fields.media.length > 12 || fields.media.some((item: any) => !item || typeof item !== 'object' || !['image','video'].includes(item.type) || typeof item.url !== 'string' || item.url.length > 2000))) throw new BadRequestException('AI returned invalid section content. Please try again.');
       if (fields.style !== undefined) validateStyleFields(fields.style);
       if (fields.limit !== undefined && (page.sections[index].type !== 'collection' || !Number.isInteger(fields.limit) || fields.limit < 1 || fields.limit > 24)) throw new BadRequestException('AI returned an invalid product collection size. Please try again.');
       if (fields.responsive !== undefined) {
