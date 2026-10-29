@@ -1,22 +1,15 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/orderSuccess.css";
 
+function readCompletedOrder() {
+  try { const savedOrder = localStorage.getItem("completedOrder"); return savedOrder ? JSON.parse(savedOrder) : null; }
+  catch (error) { console.error("Could not load completed order:", error); return null; }
+}
+
 function OrderSuccess() {
   const navigate = useNavigate();
-  const [order, setOrder] = useState(null);
-
-  useEffect(() => {
-    try {
-      const savedOrder = localStorage.getItem("completedOrder");
-
-      if (savedOrder) {
-        setOrder(JSON.parse(savedOrder));
-      }
-    } catch (error) {
-      console.error("Could not load completed order:", error);
-    }
-  }, []);
+  const [order] = useState(readCompletedOrder);
 
   if (!order) {
     return (

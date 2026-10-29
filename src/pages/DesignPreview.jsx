@@ -14,6 +14,6 @@ export default function DesignPreview(){
    if(section.type==='footer')section.body='Sample business · Replace with your own address and opening hours.';
   }
   return result;
- },[collectionId]);
+ },[collectionId,collection]);
  return <div className="design-preview"><header className="design-preview-bar"><a href="/">getcyb<span>Design Collections</span></a><div><span className="preview-sample">SAMPLE CONTENT · DESIGN PREVIEW</span><label>Device<select value={width} onChange={event=>setWidth(event.target.value)}><option value="laptop">Laptop</option><option value="ipad">iPad</option><option value="phone">Phone</option></select></label></div></header><nav className="design-preview-tabs" aria-label="Design collections">{DESIGN_COLLECTIONS.map(item=><button type="button" key={item.id} className={item.id===collectionId?'active':''} onClick={()=>{setCollectionId(item.id);setSlug('');}}><small>{item.category}</small><strong>{item.name}</strong><span>↗</span></button>)}</nav><p className="design-preview-disclaimer">Preview of the shared website renderer. Sample business content. Booking, purchases and form submissions are disabled here.</p><div className={`design-preview-frame ${width}`}><WebsiteRenderer model={model} device={width} slug={slug} onPageChange={page=>setSlug(page.slug)}/></div></div>;
 }

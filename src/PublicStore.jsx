@@ -16,7 +16,8 @@ function PublicStore() {
   const navigate = useNavigate();
   const { storeUrl, "*": pageSlug = "" } = useParams();
 
-  const [catalog, setCatalog] = useState(null);
+  const [catalogState, setCatalogState] = useState({ storeUrl: '', value: null });
+  const catalog = catalogState.storeUrl === storeUrl ? catalogState.value : null;
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [websiteSetup, setWebsiteSetup] = useState(null);
@@ -25,8 +26,7 @@ function PublicStore() {
 
   useEffect(() => {
     let active = true;
-    setCatalog(null);
-    businessCall('businessCatalog', { storeUrl }).then(value => { if (active) setCatalog(value); }).catch(() => {});
+    businessCall('businessCatalog', { storeUrl }).then(value => { if (active) setCatalogState({ storeUrl, value }); }).catch(() => {});
     return () => { active = false; };
   }, [storeUrl]);
 

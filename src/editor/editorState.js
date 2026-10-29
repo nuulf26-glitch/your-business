@@ -3,4 +3,4 @@ export const EDITOR_MODES = [
   { id: 'advanced', name: 'Easy + Advanced', description: 'Content first, with design settings when you need them.' },
   { id: 'professional', name: 'Professional Editor', description: 'Layers, reusable sections and detailed responsive settings.' },
 ];
-export function editorMode(value) { return EDITOR_MODES.some(mode => mode.id === value) ? value : 'advanced'; }
+export function editorMode(value) { return EDITOR_MODES.some(mode => mode.id === value) ? value : 'simple'; }

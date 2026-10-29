@@ -45,4 +45,49 @@ describe('AI website design', () => {
     const model={brandName:'LUNE',sections:[{id:'hero',type:'hero'},{id:'about',type:'about'}]};
     expect(()=>applyAiWebsiteOperations(model,{operations:[{type:'delete_section',sectionId:'about'}]},'Make the site more elegant')).toThrow('remove content you did not ask to remove');
   });
+  it('applies the five requested design prompts as editable website changes',()=>{
+    const model={editorVersion:2,brandName:'LUNE',backgroundColor:'#f5f2ea',textColor:'#171513',pages:[{id:'home',slug:'',title:'Home',sections:[
+      {id:'hero',type:'hero',title:'Lune',body:'Skincare',style:{fontSize:56}},
+      {id:'products',type:'collection',title:'The collection',body:'Explore the products'},
+      {id:'contact',type:'contact',title:'Contact',body:'Get in touch'},
+      {id:'footer',type:'footer',title:'Lune',body:'Footer'}
+    ]}]};
+    const cases:Array<{prompt:string;output:Record<string,any>;verify:(website:Record<string,any>)=>void}>=[
+      {prompt:'Add a product gallery with six products.',output:{operations:[{type:'add_section',pageId:'home',afterSectionId:'hero',section:{type:'collection',title:'Six products',body:'Explore our collection',limit:6}}]},verify:website=>{const section=website.pages[0].sections.find((item:any)=>item.type==='collection'&&item.limit===6);expect(section).toBeTruthy();}},
+      {prompt:'Change the background to black.',output:{operations:[{type:'site_style',fields:{backgroundColor:'#000000',textColor:'#ffffff'}}]},verify:website=>{expect(website.backgroundColor).toBe('#000000');expect(website.textColor).toBe('#ffffff');}},
+      {prompt:'Move the contact section above the footer.',output:{operations:[{type:'move_section',pageId:'home',sectionId:'contact',beforeSectionId:'footer'}]},verify:website=>{const sections=website.pages[0].sections;expect(sections.findIndex((item:any)=>item.id==='contact')).toBeLessThan(sections.findIndex((item:any)=>item.id==='footer'));}},
+      {prompt:'Make the website mobile-friendly.',output:{operations:[{type:'update_section',pageId:'home',sectionId:'hero',fields:{responsive:{phone:{fontSize:32,paddingY:32,maxWidth:420},ipad:{fontSize:42,paddingY:48}}}}]},verify:website=>{expect(website.pages[0].sections[0].responsive.phone.fontSize).toBe(32);expect(website.pages[0].sections[0].responsive.ipad.paddingY).toBe(48);}},
+    ];
+    for(const {prompt,output,verify} of cases){
+      const result=applyAiWebsiteOperations(model,output,prompt);
+      verify(result.model);
+      expect(result.model.pages[0].sections.some((item:any)=>item.id==='hero')).toBe(true);
+    }
+  });
+  it('creates an editable beige luxury skincare website from the requested prompt',async()=>{
+    process.env.OPENAI_API_KEY='test-only';
+    const generated={brandName:'LUNE SKIN',primaryColor:'#a6957b',backgroundColor:'#ffffff',textColor:'#211d18',headingFont:'Georgia',bodyFont:'Arial',sections:[
+      {type:'hero',title:'Ritual, refined',body:'Thoughtful skincare for daily rituals.'},
+      {type:'about',title:'Care in every detail',body:'Created for a considered routine.'},
+      {type:'collection',title:'The collection',body:'Explore our products.'},
+      {type:'contact',title:'Get in touch',body:'Questions about your routine?'},
+      {type:'footer',title:'Lune Skin',body:'Skincare, considered.'}
+    ]};
+    global.fetch=jest.fn(async (_url,init:any)=>{
+      const request=JSON.parse(init.body);
+      expect(request.input).toContain('Create a luxury skincare website with beige and white colors.');
+      expect(request.text.format.type).toBe('json_object');
+      return {ok:true,json:async()=>({status:'completed',output_text:JSON.stringify(generated)})} as any;
+    });
+    const result=await new WebsiteController({} as any).aiDesign({user:{id:'test'}} as any,{prompt:'Create a luxury skincare website with beige and white colors.'});
+    expect(result.model.backgroundColor).toBe('#ffffff');
+    expect(result.model.pages[0].sections.map((section:any)=>section.type)).toContain('collection');
+    expect(result.model.pages[0].sections.map((section:any)=>section.type)).toContain('contact');
+  });
+  it('rejects malformed responsive values and out-of-range product limits without changing the source model',()=>{
+    const model={brandName:'LUNE',pages:[{id:'home',slug:'',title:'Home',sections:[{id:'products',type:'collection',title:'Products',body:''}]}]};
+    expect(()=>applyAiWebsiteOperations(model,{operations:[{type:'update_section',pageId:'home',sectionId:'products',fields:{limit:25}}]},'Show more products')).toThrow('invalid product collection size');
+    expect(()=>applyAiWebsiteOperations(model,{operations:[{type:'update_section',pageId:'home',sectionId:'products',fields:{responsive:{tablet:{fontSize:30}}}}]},'Make it responsive')).toThrow('invalid responsive settings');
+    expect(model.pages[0].sections[0]).not.toHaveProperty('limit');
+  });
 });

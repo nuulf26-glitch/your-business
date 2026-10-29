@@ -14,8 +14,8 @@ export default function BusinessWorkspace(){
   const [staffFilter,setStaffFilter]=useState('');
   const [pickupOrders,setPickupOrders]=useState([]);
   const [storeUrl,setStoreUrl]=useState('');
-  async function load(){
-    setBusy(true);setError('');
+  const [referenceNow,setReferenceNow]=useState(0);
+  async function loadData(){
     const results=await Promise.allSettled([
       businessCall('businessCatalog'),
       businessCall('businessRecords',{type:'bookings'}),
@@ -26,22 +26,26 @@ export default function BusinessWorkspace(){
     ]);
     const value=(index,fallback)=>results[index].status==='fulfilled'?(results[index].value??fallback):fallback;
     const failures=results.filter(result=>result.status==='rejected');
+    return { value, failures };
+  }
+  function applyData({value,failures}){
     const store=value(4,null);
     setPickupOrders(value(5,[]));setStoreUrl(store?.storeUrl||'');
     setCatalog(value(0,null)||{...structuredClone(emptyCatalog),businessCategory:store?.businessCategory||'general'});
     setRecords(value(1,[]));setInquiries(value(2,[]));setNotifications(value(3,[]));
-    if(failures.length)setError(failures[0].reason?.message||'Some business data could not be loaded. Refresh to try again.');
-    setBusy(false);
+    setError(failures.length?failures[0].reason?.message||'Some business data could not be loaded. Refresh to try again.':'');
+    setReferenceNow(Date.now());
   }
-  useEffect(()=>{load();},[]);
+  async function load(){setBusy(true);try{applyData(await loadData());}catch(error){setError(error.message||'Business data could not be loaded.');}finally{setBusy(false);}}
+  useEffect(()=>{let active=true;loadData().then(result=>{if(active)applyData(result);}).catch(error=>{if(active)setError(error.message||'Business data could not be loaded.');});return()=>{active=false;};},[]);
   const category=categoryFor(catalog);
   function update(patch){setCatalog({...catalog,...patch});setDirty(true);}
   async function save(){setBusy(true);setError('');try{await businessCall('saveBusinessCatalog',catalog);setDirty(false);}catch(e){setError(e.message);}finally{setBusy(false);}}
   async function status(id,value){setBusy(true);try{await businessCall('updateBooking',{id,status:value});await load();}catch(e){setError(e.message);}finally{setBusy(false);}}
   const currency=value=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(value)||0);
   const localDate=value=>new Intl.DateTimeFormat('en-CA',{timeZone:catalog?.timeZone||'UTC',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
-  const today=localDate(Date.now());
-  const upcoming=records.filter(row=>row.start>=Date.now()&&row.status==='confirmed');
+  const today=referenceNow?localDate(referenceNow):'';
+  const upcoming=records.filter(row=>row.start>=referenceNow&&row.status==='confirmed');
   const filtered=records.filter(row=>{
     if(staffFilter&&row.staffId!==staffFilter)return false;
     if(!date)return true;const day=localDate(row.start);

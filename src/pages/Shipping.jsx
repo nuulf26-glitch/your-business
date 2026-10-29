@@ -10,7 +10,7 @@ export default function Shipping() {
   const [filter, setFilter] = useState("all");
   const [message, setMessage] = useState("");
 
-  const fetchDeliveries = async (currentUser) => {
+  const fetchDeliveries = async () => {
     try {
       setLoading(true);
       setDeliveries(await getOrders());
@@ -25,7 +25,7 @@ export default function Shipping() {
     const unsubscribe = subscribeAppUser((currentUser) => {
       if (currentUser) {
         setUser(currentUser);
-        fetchDeliveries(currentUser);
+        fetchDeliveries();
       } else {
         setUser(null);
         setLoading(false);
