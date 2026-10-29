@@ -45,7 +45,8 @@ describe('AI website design', () => {
     const model={brandName:'LUNE',sections:[{id:'hero',type:'hero'},{id:'about',type:'about'}]};
     expect(()=>applyAiWebsiteOperations(model,{operations:[{type:'delete_section',sectionId:'about'}]},'Make the site more elegant')).toThrow('remove content you did not ask to remove');
   });
-  it('applies the five requested design prompts as editable website changes',()=>{
+  it('routes each of the four requested edit prompts through the AI response parser into editable changes',async()=>{
+    process.env.OPENAI_API_KEY='test-only';
     const model={editorVersion:2,brandName:'LUNE',backgroundColor:'#f5f2ea',textColor:'#171513',pages:[{id:'home',slug:'',title:'Home',sections:[
       {id:'hero',type:'hero',title:'Lune',body:'Skincare',style:{fontSize:56}},
       {id:'products',type:'collection',title:'The collection',body:'Explore the products'},
@@ -59,7 +60,13 @@ describe('AI website design', () => {
       {prompt:'Make the website mobile-friendly.',output:{operations:[{type:'update_section',pageId:'home',sectionId:'hero',fields:{responsive:{phone:{fontSize:32,paddingY:32,maxWidth:420},ipad:{fontSize:42,paddingY:48}}}}]},verify:website=>{expect(website.pages[0].sections[0].responsive.phone.fontSize).toBe(32);expect(website.pages[0].sections[0].responsive.ipad.paddingY).toBe(48);}},
     ];
     for(const {prompt,output,verify} of cases){
-      const result=applyAiWebsiteOperations(model,output,prompt);
+      global.fetch=jest.fn(async (_url,init:any)=>{
+        const request=JSON.parse(init.body);
+        expect(request.input).toContain(prompt);
+        expect(request.input).toContain('Existing editable website JSON');
+        return {ok:true,json:async()=>({status:'completed',output_text:JSON.stringify(output)})} as any;
+      });
+      const result=await new WebsiteController({} as any).aiDesign({user:{id:'test'}} as any,{prompt,mode:'modify',model});
       verify(result.model);
       expect(result.model.pages[0].sections.some((item:any)=>item.id==='hero')).toBe(true);
     }
