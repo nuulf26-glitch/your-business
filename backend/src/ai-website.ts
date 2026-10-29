@@ -7,6 +7,15 @@ const sectionTypes = new Set(['hero', 'about', 'services', 'gallery', 'collectio
 const sectionFields = new Set(['title', 'body', 'buttonText', 'eyebrow', 'href', 'variant', 'alt', 'limit', 'responsive']);
 const styleFields = new Set(['fontFamily', 'fontSize', 'color', 'backgroundColor', 'textAlign', 'paddingY', 'letterSpacing', 'lineHeight', 'maxWidth', 'minHeight', 'hidden']);
 const deleteIntent = /\b(delete|remove|take out|erase|get rid of)\b/i;
+const sectionPosition = /\b(first|1st|second|2nd|third|3rd|fourth|4th|last)\s+(?:section|part)\b/i;
+
+function deletionTargetIsClear(prompt: string, sections: any[]) {
+  if (sectionPosition.test(prompt)) return true;
+  const lowerPrompt = prompt.toLocaleLowerCase();
+  const matches = sections.filter(section => [section.title, section.label, section.type]
+    .some(value => typeof value === 'string' && value.length > 1 && lowerPrompt.includes(value.toLocaleLowerCase())));
+  return matches.length === 1;
+}
 
 function validateStyleFields(style: Record<string, unknown>) {
   if (Object.keys(style).some(key => !styleFields.has(key))) throw new BadRequestException('AI returned unsupported style settings. Please try again.');
@@ -64,7 +73,7 @@ export function applyAiWebsiteOperations(input: Record<string, any>, raw: unknow
         clean.items = section.items;
       }
       const after = operation.afterSectionId ? page.sections.findIndex((item: any) => item.id === operation.afterSectionId) : page.sections.length - 1;
-      if (after < -1) throw new BadRequestException('AI referenced a missing section. Please try again.');
+      if (operation.afterSectionId && after < 0) throw new BadRequestException('AI referenced a missing section. Please try again.');
       page.sections.splice(after + 1, 0, clean);
       touched.add(`added ${clean.label}`);
       continue;
@@ -72,6 +81,7 @@ export function applyAiWebsiteOperations(input: Record<string, any>, raw: unknow
     if (operation.type === 'delete_section') {
       if (!deleteIntent.test(prompt)) throw new BadRequestException('AI tried to remove content you did not ask to remove. Please try again.');
       if (!page) throw new BadRequestException('AI referenced a missing page. Please try again.');
+      if (!deletionTargetIsClear(prompt, page.sections)) throw new BadRequestException('Please specify the section by its title or position. Your website was not changed.');
       const index = page.sections.findIndex((item: any) => item.id === operation.sectionId);
       if (index < 0 || page.sections[index].locked || page.sections.length <= 1) throw new BadRequestException('AI could not safely remove that section. Please try again.');
       page.sections.splice(index, 1);
@@ -113,7 +123,10 @@ export function applyAiWebsiteOperations(input: Record<string, any>, raw: unknow
     throw new BadRequestException('AI returned an unsupported edit. Please try again.');
   }
 
-  if (!operations.length) throw new BadRequestException('AI could not find a safe change to make. Try a more specific instruction.');
+  if (!operations.length) {
+    if (deleteIntent.test(prompt)) throw new BadRequestException('Please specify the section by its title or position. Your website was not changed.');
+    throw new BadRequestException('AI could not find a safe change to make. Try a more specific instruction.');
+  }
   model.pages = pages;
   model.sections = pages[0]?.sections || [];
   return { model: validateWebsite(model, false), changesSummary: [...touched].join(', ') };
