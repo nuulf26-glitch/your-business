@@ -10,7 +10,7 @@ Authenticated authorize → short-lived checksum/length/type-bound signed PUT �
 
 Stable `/api/v1/uploads/media/:uuid` references redirect to fresh expiring read URLs. S3 serves video byte ranges directly; files do not pass through a serverless response. Removing media from a design removes the reference, never the stored object. Published snapshots and versions therefore retain their files. There is no finalized-object garbage collector in this change.
 
-Raw staging uploads are not stored on Render's filesystem or in PostgreSQL. The new table stores metadata only. Asset IDs are random UUIDs. Account-specific reservations serialize the 2 GiB / 1,000 asset quota; pending reservations expire after 15 minutes. Finalization and attaching managed media to products or websites require ownership. Validated media is intentionally accessible to anyone with its unguessable stable URL; private confidential files are not a supported use for these website assets. There is no public asset-list API.
+Older small-upload clients use the same S3 validation pipeline through a 4 MiB compatibility endpoint. New clients upload directly. Raw staging uploads are not stored on Render's filesystem or in PostgreSQL. The new table stores metadata only. Asset IDs are random UUIDs. Account-specific reservations serialize the 2 GiB / 1,000 asset quota; pending reservations expire after 15 minutes. Finalization and attaching managed media to products or websites require ownership. Validated media is intentionally accessible to anyone with its unguessable stable URL; private confidential files are not a supported use for these website assets. There is no public asset-list API.
 
 Existing Netlify/Firebase/external URLs are retained. Optional server-only `NETLIFY_BLOBS_SITE_ID` and `NETLIFY_BLOBS_TOKEN` allow legacy Netlify reads on Render. No existing asset is copied, deleted or rewritten automatically.
 
@@ -59,3 +59,74 @@ Images: JPEG, PNG, WebP, GIF ≤20 MiB and ≤40 million pixels. Videos: MP4 wit
 Backend unit/HTTP regression tests use mocked DB/S3 dependencies where explicitly stated. The codec test invokes real FFmpeg and ffprobe on generated JPEG, PNG, WebP, H.264 MP4 and VP9 WebM files; it is not an object-storage test. `npm --prefix backend run test:media:staging` uses the deployed API and real configured storage, creates an isolated test account and products, and only accepts the known staging API hostname. It reports blocked with exit 2 if storage is not configured. It does not replace browser verification.
 
 Browser checklist still required: JPEG/PNG/WebP uploads, multiple product images, primary image/reordering/replacement/removal, video upload/preview/size/replacement/removal, save/refresh/publish/public playback, mobile layout and unsupported/size-boundary validation. Do not mark this task complete until these pass with real persistent staging storage, including reads after a staging API redeploy.
+
+## Actual staging delivery evidence — 29 October 2026
+
+Dedicated branch: `codex/cyb-media-task2-repair-20261029`; draft PR #15, stacked on Task 1. Both PR #13 and PR #14 heads are ancestors of the remote Task 2 commit, so neither prior repair branch was overwritten.
+
+Runtime commit initially verified: `d9a8fd8bcfce5441460d74bc31d7c4ad756b4ec1`.
+
+- API deploy `dep-dbhehquc6qcc73f78b00`: live at 10:36 UAE time.
+- Frontend deploy `dep-dbheilu1egvs73fc2q3g`: live at 10:36 UAE time.
+- API logs confirm the additive `20261029110000_media_assets` migration succeeded.
+- GitHub backend CI run 83 succeeded.
+- Screenshot: `task2-evidence/staging-live.jpg`.
+
+Real deployed API requests used generated staging-only test accounts. Secrets were held in memory and were not printed. The test did not change any existing account or any production record.
+
+| Request | Actual response | Meaning |
+| --- | --- | --- |
+| POST /auth/signup | 201 | Isolated staging session created |
+| GET /uploads/status | 200, configured:false | No persistent object-store configuration available |
+| POST /uploads/authorize, valid PNG metadata | 503 | Explicit storage-configuration failure; no object was uploaded |
+| POST /uploads/authorize, MP4 >250 MiB | 400 | Server size boundary enforced |
+| POST /uploads/authorize, MOV | 400 | Unsupported container rejected |
+
+The real staging storage script exited **2 / BLOCKED**, not success. No S3 PUT, object read, signed read, byte-range playback or post-redeploy persistence has succeeded in staging yet.
+
+The actual staging browser reached its login form. Secure credential submission returned the visible error **“The email or password is incorrect.”** No authentication changes, password resets, production sign-ins or verification bypasses were attempted.
+
+| Acceptance workflow | Current result |
+| --- | --- |
+| JPEG/PNG/WebP real storage upload | Blocked by bucket configuration and browser sign-in |
+| Multiple product images / main image / reorder | Implemented; browser acceptance blocked |
+| Image/video resize, fit, aspect ratio, focal point | Implemented; browser acceptance blocked |
+| MP4/WebM upload, preview and playback | Real local codecs passed; real storage/browser playback blocked |
+| Replacement/removal | Implemented; real storage/browser acceptance blocked |
+| Save → refresh → publish → public media | Not verified with uploaded media |
+| Desktop/tablet/mobile acceptance | Not verified in the authenticated editor or public uploaded-media site |
+| Persistence after API redeploy | Not verified with real objects |
+
+Local validation: frontend and backend builds, ESLint, 9 backend suites / 49 cases, 32 root regression cases, and diff whitespace checks passed. The original missing-configuration regression uses a real local HTTP server with a mocked DB and no configured object store. Owner checks use mocked DB responses. Signature generation uses the real AWS SDK with test-only dummy credentials but does not contact S3. Codec fixtures use real FFmpeg/ffprobe. Live staging API checks use real deployed code and PostgreSQL, but **zero real object storage successes are claimed**.
+
+## Task 2 files changed
+
+The Task 2 implementation modifies these files (inherited PR #13 files are separate history):
+
+- `.github/workflows/backend-ci.yml`
+- `backend/.env.example`
+- `backend/Dockerfile`
+- `backend/package.json`
+- `backend/prisma/schema.prisma`
+- `backend/prisma/migrations/20261029110000_media_assets/migration.sql`
+- `backend/scripts/test-media-storage-staging.mjs`
+- `backend/src/media-storage.ts`
+- `backend/src/module.ts`
+- `backend/src/routes.ts`
+- `backend/test/media-routing.spec.ts`
+- `backend/test/media-storage.spec.ts`
+- `src/editor/structure.js`
+- `src/media/MediaFields.jsx`
+- `src/media/MediaDisplay.jsx`
+- `src/media/media.css`
+- `src/media/media.js`
+- `src/media/uploadPolicy.js`
+- `src/pages/Products.jsx`
+- `src/pages/WebsiteEditor.jsx`
+- `src/services/imageService.js`
+- `test/product-media.test.mjs`
+- `test/upload-policy.test.mjs`
+- `docs/TASK2-MEDIA-STORAGE.md`
+- `docs/task2-evidence/staging-live.jpg`
+
+No new Task 2 payment, pricing, AI generation or authentication-architecture changes were made. No PR merge or production deployment was performed.

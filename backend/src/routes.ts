@@ -376,19 +376,15 @@ export class UploadController {
   @UseGuards(SessionGuard) @Get('status') status() { return this.mediaStorage.status(); }
   @UseGuards(SessionGuard) @Post('authorize') authorize(@Req() req: Request & {user:any}, @Body() dto: MediaUploadInput) { return this.mediaStorage.authorize(req.user.id, dto); }
   @UseGuards(SessionGuard) @Post('complete/:id') complete(@Req() req: Request & {user:any}) { return this.mediaStorage.complete(req.user.id, String(req.params['id'])); }
+  @Throttle({default:{limit:600,ttl:60_000}})
   @Get('media/:id') async media(@Req() req: Request, @Res() response: Response) { response.setHeader('Cache-Control','no-store'); response.setHeader('Cross-Origin-Resource-Policy','cross-origin'); return response.redirect(307, await this.mediaStorage.publicUrl(String(req.params['id']))); }
 
   @UseGuards(SessionGuard)
   @Post() async upload(@Req() req:Request & {user:any},@Headers('content-type') contentType:string,@Req() request:Request,@Res() response:Response) {
-    const allowed=['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','video/quicktime'];
-    if(!allowed.includes(contentType))throw new BadRequestException('Unsupported media type');
     const bytes=Buffer.isBuffer(request.body)?request.body:Buffer.alloc(0);
-    if(bytes.length<1||bytes.length>MAX_UPLOAD_BYTES)throw new BadRequestException('Media files must be 4 MB or smaller on this upload service.');
-    const key=`businesses/${req.user.id}/${randomBytes(18).toString('hex')}`;
-    const store=legacyMediaStore();
-    const image=new ArrayBuffer(bytes.length);new Uint8Array(image).set(bytes);
-    await store.set(key,image,{metadata:{owner:req.user.id,contentType}});
-    return response.status(201).json({key,publicUrl:`/api/v1/uploads/${key}`});
+    if(bytes.length<1||bytes.length>MAX_UPLOAD_BYTES)throw new BadRequestException('Media files must be 4 MB or smaller on this legacy upload endpoint. Use direct uploads for larger files.');
+    const result=await this.mediaStorage.uploadSmall(req.user.id,contentType,bytes);
+    return response.status(201).json(result);
   }
   @Get(['businesses/:owner/:name', ':owner/:name']) async read(@Req() req:Request,@Res() response:Response) {
     const owner=String(req.params['owner']||''),name=String(req.params['name']||'');

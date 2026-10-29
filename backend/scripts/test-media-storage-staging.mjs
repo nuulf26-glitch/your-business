@@ -17,7 +17,15 @@ const signup=await call('/auth/signup','POST',{email,password,fullName:'Task 2 S
 if(signup.status!==201||!signup.data.accessToken)throw Error(`Could not create isolated staging test session (HTTP ${signup.status}).`);
 token=signup.data.accessToken;
 const status=await call('/uploads/status');
-if(!status.data.configured){console.log(JSON.stringify({result:'BLOCKED',reason:'Dedicated S3 staging bucket/credentials are not configured.',evidence},null,2));process.exitCode=2;}
+if(!status.data.configured){
+ const checksum=Buffer.alloc(32).toString('base64');
+ const blocked=await call('/uploads/authorize','POST',{contentType:'image/png',size:100,checksum});
+ if(blocked.status!==503)throw Error(`Expected actionable storage 503, got ${blocked.status}.`);
+ const tooLarge=await call('/uploads/authorize','POST',{contentType:'video/mp4',size:250*1024*1024+1,checksum});
+ if(tooLarge.status!==400)throw Error('Video size boundary was not enforced.');
+ const unsupported=await call('/uploads/authorize','POST',{contentType:'video/quicktime',size:100,checksum});
+ if(unsupported.status!==400)throw Error('Unsupported formats were accepted.');
+ console.log(JSON.stringify({result:'BLOCKED',reason:'Dedicated S3 staging bucket/credentials are not configured.',evidence},null,2));process.exitCode=2;}
 else{
  const dir=mkdtempSync(join(tmpdir(),'cyb-storage-'));
  try{

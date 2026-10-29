@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand, CopyObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { DbService } from './database';
@@ -63,6 +63,14 @@ export class MediaStorage {
       const url = await getSignedUrl(client, new PutObjectCommand({ Bucket: bucket, Key: `incoming/${asset.id}`, ContentType: contentType, ContentLength: size, ChecksumSHA256: checksum }), { expiresIn: 900, unhoistableHeaders: new Set(['x-amz-checksum-sha256']), signableHeaders: new Set(['content-type','content-length']) });
       return { id: asset.id, uploadUrl: url, headers: { 'Content-Type': contentType, 'x-amz-checksum-sha256': checksum }, expiresIn: 900 };
     } catch { await this.db.mediaAsset.update({where:{id:asset.id},data:{status:'FAILED'}}); throw new ServiceUnavailableException('Could not authorize storage. Check bucket credentials and region.'); }
+  }
+  async uploadSmall(ownerId: string, contentType: string, bytes: Buffer) {
+    const ticket = await this.authorize(ownerId, {contentType,size:bytes.length,checksum:createHash('sha256').update(bytes).digest('base64')});
+    try {
+      const response = await fetch(ticket.uploadUrl, {method:'PUT',headers:ticket.headers,body:new Uint8Array(bytes),signal:AbortSignal.timeout(45000)});
+      if (!response.ok) throw new Error('Storage rejected upload');
+    } catch { throw new ServiceUnavailableException('Media storage could not accept this upload. Please retry.'); }
+    return this.complete(ownerId,ticket.id);
   }
   async complete(ownerId: string, id: string) {
     const asset = await this.db.mediaAsset.findFirst({ where: { id, ownerId } });

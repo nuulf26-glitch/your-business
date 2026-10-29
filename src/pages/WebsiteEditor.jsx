@@ -424,7 +424,7 @@ export default function WebsiteEditor() {
     if (!isImageFile(file)) { showToast("Choose a JPG, PNG, WEBP or GIF image up to 20 MB."); return; }
     setStatus("Uploading image…");
     try {
-      const url = await uploadProductImage(file);
+      const url = await uploadProductImage(file,{onProgress:state=>setStatus(state.phase==='verifying'?'Checking image…':`Uploading image ${state.percent}%`)});
       const latest = currentModel.current;
       const targetPage = websitePages(latest).find(page => page.sections.some(item => item.id === sectionId));
       if (!targetPage) return;
