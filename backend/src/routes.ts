@@ -315,7 +315,7 @@ export class PublicOrderController {
 export class WebsiteController {
   constructor(private db:DbService){}
   private async businessFor(req:Request & {user:any}){const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)throw new NotFoundException('Create a business first');return business;}
-  @UseGuards(SessionGuard) @Get('ai/status') async aiStatus(){return {available:true,usageLimited:false};}
+  @UseGuards(SessionGuard) @Get('ai/status') async aiStatus(){return {available:!!process.env.OPENAI_API_KEY,usageLimited:false};}
   @UseGuards(SessionGuard) @Post('ai/design') async aiDesign(@Req() req:Request & {user:any},@Body() dto:AiPromptInput){
     const apiKey=process.env.OPENAI_API_KEY;if(!apiKey)throw new ServiceUnavailableException('AI design is being set up. Please try again later.');
     const modelName=process.env.OPENAI_MODEL||'gpt-4o-mini';
