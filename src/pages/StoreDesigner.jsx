@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../layouts/DashboardLayout";
 import { subscribeAppUser } from "../services/customBackendSession";
@@ -65,22 +65,7 @@ function StoreDesigner() {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
-  useEffect(() => {
-    const unsubscribe = subscribeAppUser((currentUser) => {
-      setUser(currentUser);
-
-      if (currentUser) {
-        loadStore(currentUser.uid);
-      } else {
-        setLoading(false);
-        setError("You must be logged in.");
-      }
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  async function loadStore(userId) {
+  const loadStore = useCallback(async function loadStore(userId) {
     try {
       setLoading(true);
       setError("");
@@ -135,7 +120,16 @@ function StoreDesigner() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeAppUser((currentUser) => {
+      setUser(currentUser);
+      if (currentUser) loadStore(currentUser.uid);
+      else { setLoading(false); setError("You must be logged in."); }
+    });
+    return () => unsubscribe();
+  }, [loadStore]);
 
   function handleLogoFile(event) {
     const file = event.target.files?.[0];

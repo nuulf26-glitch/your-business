@@ -416,36 +416,19 @@ setProducts(updatedProducts);
     });
   }
 
-  function handleDelete(productId) {
+  async function handleDelete(productId) {
     const confirmed = window.confirm(
       "Are you sure you want to delete this product?"
     );
 
-    if (!confirmed) {
-      return;
+    if (!confirmed) return;
+    try {
+      await deleteProduct(productId);
+      setProducts(current => current.filter(product => product.id !== productId));
+    } catch (error) {
+      console.error("Could not delete product:", error);
+      alert("Could not delete product.");
     }
-
-         async function handleDelete(productId) {
-  const confirmed = window.confirm(
-    "Are you sure you want to delete this product?"
-  );
-
-  if (!confirmed) return;
-
-  try {
-    await deleteProduct(productId);
-
-    setProducts((current) =>
-      current.filter(
-        (product) => product.id !== productId
-      )
-    );
-
-  } catch (error) {
-    console.error("Could not delete product:", error);
-    alert("Could not delete product.");
-  }
-}
 
     if (editingId === productId) {
       resetForm();

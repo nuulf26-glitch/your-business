@@ -4,6 +4,7 @@ import { safeHref, websitePages } from './pages';
 import './website.css';
 import MediaDisplay from '../media/MediaDisplay';
 import { mediaItems } from '../media/media';
+import { sectionStyle } from './sectionStyle';
 
 function Image({ src, alt = '', className = '' }) {
   return src ? <img className={`cyb-image ${className}`} src={src} alt={alt} loading="lazy" /> : null;
@@ -37,7 +38,7 @@ function SectionContent({ section, model, products = [], addToCart, editText, bo
     const price = product ? productPrice(product) : 0;
     return <div className="cyb-product"><MediaDisplay value={product || s} title={product?.name || s.alt || s.title}/><div><p className="cyb-eyebrow">The collection</p>{title()}{body}{product && <><strong>{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(price) || 0)}</strong><button className="cyb-action" disabled={!addToCart || product.stock <= 0} onClick={() => addToCart(product)}>{product.stock > 0 ? 'Add to cart' : 'Out of stock'}</button></>}{!product && <p className="cyb-note">Product unavailable.</p>}</div></div>;
   }
-  if (s.type === 'collection') return <>{title()}{body}<div className="cyb-shop-grid">{products.map(product => <article key={product.id}><MediaDisplay value={product} title={product.name}/><h3>{product.name}</h3><p>{product.description}</p><strong>{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(productPrice(product))}</strong><button className="cyb-action" disabled={!addToCart || product.stock<=0} onClick={()=>addToCart(product)}>{product.stock>0?'Add to cart':'Out of stock'}</button></article>)}</div>{!products.length&&<p className="cyb-note">The collection will be available soon.</p>}</>;
+  if (s.type === 'collection') { const visibleProducts = Number.isInteger(s.limit) && s.limit > 0 ? products.slice(0, s.limit) : products; return <>{title()}{body}<div className="cyb-shop-grid">{visibleProducts.map(product => <article key={product.id}><MediaDisplay value={product} title={product.name}/><h3>{product.name}</h3><p>{product.description}</p><strong>{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(productPrice(product))}</strong><button className="cyb-action" disabled={!addToCart || product.stock<=0} onClick={()=>addToCart(product)}>{product.stock>0?'Add to cart':'Out of stock'}</button></article>)}</div>{!products.length&&<p className="cyb-note">The collection will be available soon.</p>}</>; }
   if (s.type === 'heading') return title();
   if (s.type === 'text') return body;
   if (s.type === 'button') return <Action section={s}>{s.buttonText || s.title}</Action>;
@@ -64,10 +65,6 @@ function WebsiteForm({ section, submitForm }) {
     try { await submitForm({ ...data, formId: section.id }); setStatus('Thank you. Your message has been received.'); form.reset(); }
     catch { setStatus('Could not send your message. Please try again.'); } finally { setBusy(false); }
   }}><label>Your name<input name="name" required maxLength={120} autoComplete="name" /></label><label>Email<input name="email" type="email" required autoComplete="email" /></label><label>Message<textarea name="message" required maxLength={4000} rows={4} /></label><button className="cyb-action" disabled={!submitForm || busy}>{busy ? 'Sending…' : 'Send inquiry'}</button>{!submitForm && <p className="cyb-note">Form preview. Submission is available on the published website when configured.</p>}<p role="status">{status}</p></form>;
-}
-export function sectionStyle(section, device) {
-  const style = { ...section.style, ...(section.responsive?.[device] || {}) };
-  return { '--cyb-heading-size': `${style.fontSize || 48}px`, fontFamily: style.fontFamily || 'inherit', color: style.color, backgroundColor: style.backgroundColor, textAlign: style.textAlign, paddingBlock: style.paddingY != null ? `${style.paddingY}px` : undefined, '--cyb-letter-spacing': `${style.letterSpacing || 0}em`, '--cyb-line-height': style.lineHeight || 1.05, maxWidth: style.maxWidth ? `${style.maxWidth}px` : undefined, marginInline: 'auto', minHeight: style.minHeight ? `${style.minHeight}px` : undefined, display: style.hidden ? 'none' : undefined };
 }
 export default function WebsiteRenderer({ model, products = [], addToCart, baseUrl = '', slug = '', onPageChange, booking, submitForm, catalog, pickup, device = 'auto' }) {
   const [menuOpen, setMenuOpen] = useState(false);

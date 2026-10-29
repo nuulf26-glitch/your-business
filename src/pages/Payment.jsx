@@ -1,27 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/payment.css";
 import { customBackendRequest } from "../services/customBackendSession";
+
+function readPendingOrder() {
+  try { const savedOrder = localStorage.getItem("pendingOrder"); return savedOrder ? JSON.parse(savedOrder) : null; }
+  catch (error) { console.error("Could not load pending order:", error); return null; }
+}
+
 function Payment() {
   const navigate = useNavigate();
 
-  const [order, setOrder] = useState(null);
+  const [order] = useState(readPendingOrder);
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    try {
-      const savedOrder = localStorage.getItem("pendingOrder");
-
-      if (savedOrder) {
-        setOrder(JSON.parse(savedOrder));
-      }
-    } catch (loadError) {
-      console.error("Could not load pending order:", loadError);
-      setError("Could not load the order.");
-    }
-  }, []);
 
   const itemCount = useMemo(() => {
     if (!Array.isArray(order?.items)) {

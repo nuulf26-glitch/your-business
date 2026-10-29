@@ -24,7 +24,6 @@ const WORLD_CURRENCIES = [
 
 function Settings() {
   const [user, setUser] = useState(null);
-  const [storeDocId, setStoreDocId] = useState("");
 
   const [businessName, setBusinessName] = useState("");
   const [supportEmail, setSupportEmail] = useState("");
@@ -63,7 +62,6 @@ function Settings() {
         try {
           const data = await getStore();
           if (data) {
-            setStoreDocId(data.id || currentUser.uid);
             setBusinessName(
               data.businessName || data.storeName || ""
             );

@@ -25,8 +25,8 @@ export async function customBackendRequest(path, options = {}) {
       headers: { 'Content-Type': 'application/json', ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}), ...(options.headers || {}) },
     });
   } catch (error) {
-    if (error.name === 'TimeoutError' || error.name === 'AbortError') throw new Error('The custom backend took too long to respond. Check your connection and try again.');
-    throw error;
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') throw new Error('The custom backend took too long to respond. Check your connection and try again.', { cause: error });
+    throw new Error(error instanceof Error ? error.message : 'The custom backend could not be reached.', { cause: error });
   }
   const result = await response.json().catch(() => ({}));
   if (!response.ok) { const error = new Error(result.message || 'The request could not be completed.'); error.status = response.status; throw error; }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/checkout.css";
 import { customBackendRequest } from "../services/customBackendSession";
@@ -12,26 +12,24 @@ const initialForm = {
   notes: "",
 };
 
+function readSavedCart() {
+  try {
+    const savedCart = localStorage.getItem("businessCart");
+    const parsed = savedCart ? JSON.parse(savedCart) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error("Could not load cart:", error);
+    return [];
+  }
+}
+
 function Checkout() {
   const navigate = useNavigate();
 
-  const [cart, setCart] = useState([]);
+  const [cart] = useState(readSavedCart);
   const [form, setForm] = useState(initialForm);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    try {
-      const savedCart = localStorage.getItem("businessCart");
-      const parsedCart = savedCart ? JSON.parse(savedCart) : [];
-
-      if (Array.isArray(parsedCart)) {
-        setCart(parsedCart);
-      }
-    } catch (loadError) {
-      console.error("Could not load cart:", loadError);
-    }
-  }, []);
 
   const subtotal = useMemo(() => {
     return cart.reduce((total, item) => {

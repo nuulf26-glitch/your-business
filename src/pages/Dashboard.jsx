@@ -18,18 +18,6 @@ function formatCurrency(value) {
   return currencyFormatter.format(Number(value) || 0);
 }
 
-function readLocalStorageArray(key) {
-  try {
-    const saved = localStorage.getItem(key);
-    const parsed = saved ? JSON.parse(saved) : [];
-
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    console.error(`Could not load ${key}:`, error);
-    return [];
-  }
-}
-
 function Dashboard() {
   const navigate = useNavigate();
   const [store, setStore] = useState(null);

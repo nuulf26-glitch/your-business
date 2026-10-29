@@ -1,11 +1,12 @@
 import { EDITOR_MODES, editorMode } from "../editor/editorState";
 import { groupSections, ungroupSections, mediaAssets } from "../editor/structure";
 import { publishSnapshot, websiteVersions, loadWebsiteDraft, saveWebsiteDraft, unpublishWebsite } from "../editor/versionService";
-import WebsiteRenderer, { WebsiteSection, sectionStyle } from "../editor/WebsiteRenderer";
+import WebsiteRenderer, { WebsiteSection } from "../editor/WebsiteRenderer";
+import { sectionStyle } from "../editor/sectionStyle";
 import { websitePages, changePageSections, addWebsitePage, pageSlug, reorderPage } from "../editor/pages";
 import { DESIGN_COLLECTIONS, collectionSections, collectionWebsite } from "../editor/collections";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getStore } from "../services/storeService";
 import { getProducts, updateProduct } from "../services/productService";
 import { uploadProductImage } from "../services/imageService";
@@ -219,12 +220,14 @@ function isImageFile(file) {
 }
 
 export default function WebsiteEditor() {
-  const cacheKey = `websiteEditorData:${localStorage.getItem('getcyb_account_id') || 'custom'}`;
+  const [cacheKey] = useState(() => `websiteEditorData:${localStorage.getItem('getcyb_account_id') || 'custom'}`);
   const [mode, setMode] = useState(() => { try { return editorMode(localStorage.getItem(`${cacheKey}:mode`) || 'simple'); } catch { return 'simple'; } });
   const [mobilePanel, setMobilePanel] = useState('canvas');
-  function switchMode(value) { const next=editorMode(value);setMode(next);try {localStorage.setItem(`${cacheKey}:mode`,next);}catch {} if(next==='simple')setActiveTab('pages'); }
   const [model, setModel] = useState(createDefaultModel);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [loadNotice, setLoadNotice] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [activePageId, setActivePageId] = useState("home");
   const [newPageTitle, setNewPageTitle] = useState("");
   const [collectionPreview, setCollectionPreview] = useState(null);
@@ -254,21 +257,27 @@ export default function WebsiteEditor() {
   const [toast, setToast] = useState("");
   const toastTimer = useRef(null);
   const currentModel = useRef(model);
-  currentModel.current = model;
+  const saveDraftRef = useRef(null);
+  function switchMode(value) { const next=editorMode(value);setMode(next);try {localStorage.setItem(`${cacheKey}:mode`,next);}catch { /* Mode choice still applies if browser storage is unavailable. */ } if(next==='simple')setActiveTab('pages'); }
 
   const pages = websitePages(model);
   const activePage = pages.find(page => page.id === activePageId) || pages[0];
   const visibleSections = activePage.sections;
-  const selected = useMemo(() => visibleSections.find((section) => section.id === selectedId) || null, [visibleSections, selectedId]);
+  const selected = visibleSections.find((section) => section.id === selectedId) || null;
   const canvasSize = { laptop: "Laptop · fluid", ipad: "iPad · up to 834 px", phone: "Phone · 390 px" }[device];
 
   useEffect(() => {
     let active = true;
-    const params = new URLSearchParams(window.location.search);
     async function loadEditor() {
       try {
-        const [store, productList, privateDraft] = await Promise.all([getStore(), getProducts(), loadWebsiteDraft()]);
+        setLoadNotice("");
+        const [storeResult, productsResult, draftResult] = await Promise.allSettled([getStore(), getProducts(), loadWebsiteDraft()]);
         if (!active) return;
+        if (storeResult.status === "rejected") throw storeResult.reason;
+        if (draftResult.status === "rejected") throw draftResult.reason;
+        const store = storeResult.value;
+        const privateDraft = draftResult.value;
+        const productList = productsResult.status === "fulfilled" ? productsResult.value : [];
         if (privateDraft || store?.editorData || store?.sections || store?.elements) {
           let next = migrateLegacyEditor(privateDraft || store);
           let recovered = false;
@@ -282,23 +291,28 @@ export default function WebsiteEditor() {
           setStatus(recovered ? "Unsaved" : "Saved");
         } else {
           if (store?.businessName || store?.storeName) setModel(current => ({ ...current, brandName: store.businessName || store.storeName }));
-          setSelectedId((current) => current || model.sections[0]?.id || null);
+          setSelectedId((current) => current || currentModel.current.sections[0]?.id || null);
         }
         setProducts(Array.isArray(productList) ? productList : []);
+        if (productsResult.status === "rejected") {
+          const reason = productsResult.reason;
+          setLoadNotice(`Your website loaded, but products could not be loaded${reason?.message ? `: ${reason.message}` : "."}`);
+        }
         setLoaded(true);
       } catch (error) {
         console.error("Could not load website editor data:", error);
-        if (active) setStatus("Load failed — reload before editing");
+        if (active) setLoadError(error?.message || "Could not load your website. Check your connection and try again.");
       }
     }
     loadEditor();
     return () => { active = false; };
-  }, []);
+  }, [loadAttempt, cacheKey]);
 
   useEffect(() => { if (loaded) {
     try { localStorage.setItem(cacheKey, JSON.stringify({ model, dirty: !['Saved','Published'].includes(status) })); }
     catch { /* Cloud saves remain available if device storage is full. */ }
   } }, [model, loaded, cacheKey, status]);
+  useEffect(() => { currentModel.current = model; }, [model]);
   useEffect(() => () => clearTimeout(toastTimer.current), []);
   useEffect(() => {
     const warn = event => { if(status === 'Unsaved' || status === 'Save failed') { event.preventDefault(); event.returnValue=''; } };
@@ -308,7 +322,7 @@ export default function WebsiteEditor() {
 
   useEffect(() => {
     if (!loaded || saving || status !== 'Unsaved') return;
-    const timer = setTimeout(() => saveDraft(),2000);
+    const timer = setTimeout(() => saveDraftRef.current?.(),2000);
     return () => clearTimeout(timer);
   },[model,loaded,saving,status]);
 
@@ -441,6 +455,7 @@ export default function WebsiteEditor() {
       console.error("Could not save website editor:", error); setStatus("Save failed"); showToast(error.message || "Could not save your draft");
     } finally { setSaving(false); }
   }
+  useEffect(() => { saveDraftRef.current = saveDraft; });
   async function publishWebsite() {
     setSaving(true); setStatus("Publishing…");
     try {
@@ -485,7 +500,7 @@ export default function WebsiteEditor() {
   }
   function addCollectionPages(collection) {
     const template = collectionWebsite(collection,createSection);
-    const prefix = `${collection.id}-${Date.now().toString(36)}`;
+    const prefix = `${collection.id}-${crypto.randomUUID()}`;
     const incoming = template.pages.map(page => ({ ...page, id: `${prefix}-${page.id}`, slug: `${prefix}${page.slug ? `-${page.slug}` : ''}`, title: `${collection.name} · ${page.title}` }));
     commit({ ...model,pages:[...pages,...incoming] },{message:'Four collection pages added. Rename their addresses in Pages.'});
     choosePage(incoming[0]);setCollectionPreview(null);
@@ -535,7 +550,9 @@ export default function WebsiteEditor() {
     </>;
   }
 
-  if (!loaded) return <main role="status" style={{ padding: 40 }}>{status.startsWith("Load failed") ? status : "Loading your website…"}</main>;
+  if (!loaded) return <main role="status" style={{ padding: 40 }}>
+    {loadError ? <><p role="alert">Could not load your website: {loadError}</p><button type="button" onClick={() => { setLoadError(""); setLoadAttempt(attempt => attempt + 1); }}>Try again</button></> : "Loading your website…"}
+  </main>;
 
   return <div className={`getcyb-editor editor-mode-${mode} editor-mobile-${mobilePanel}`}>
     <header className="getcyb-editor-topbar">
@@ -547,6 +564,7 @@ export default function WebsiteEditor() {
       <div className="device-controls">{[["laptop", "▣", "Laptop"], ["ipad", "▤", "iPad"], ["phone", "▯", "Phone"]].map(([id, icon, label]) => <button type="button" key={id} className={device === id ? "active" : ""} onClick={() => setDevice(id)}>{icon}<span>{label}</span></button>)}</div>
       <button className="topbar-action ai-launch" type="button" onClick={() => setShowAiDesigner(true)}>✦ Design with AI</button><button className="topbar-action" type="button" onClick={saveDraft} disabled={saving || mediaUploading || productMediaSaving>0}>Save draft</button><button className="topbar-action" type="button" onClick={() => setShowPreview(true)}>Preview</button><button className="topbar-action primary" type="button" onClick={publishWebsite} disabled={saving || mediaUploading || productMediaSaving>0}>Publish</button>
     </header>
+    {loadNotice && <p role="status" style={{ margin: "8px 16px", padding: "10px 14px", borderRadius: 8, background: "#f7f2eb", color: "#4b4035" }}>{loadNotice} <button type="button" onClick={() => setLoadAttempt(attempt => attempt + 1)}>Retry loading</button></p>}
     <nav className="editor-mobile-controls" aria-label="Editor workspace">{[['tools','Add & pages'],['canvas','Website'],['properties','Edit selected']].map(([id,label]) => <button type="button" key={id} aria-pressed={mobilePanel === id} onClick={() => setMobilePanel(id)}>{label}</button>)}</nav>
     <div className="editor-mode-hint">{EDITOR_MODES.find(item => item.id === mode).description} <span>Switch modes anytime. Your design stays the same.</span></div>
     <div className="getcyb-editor-workspace">

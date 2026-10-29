@@ -15,7 +15,8 @@ function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPath, setMenuPath] = useState(null);
+  const menuOpen = menuPath === location.pathname;
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -31,12 +32,8 @@ function Navbar() {
     };
   }, []);
 
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [location.pathname]);
-
   function scrollToSection(sectionId) {
-    setMenuOpen(false);
+    setMenuPath(null);
 
     if (location.pathname !== "/") {
       navigate("/");
@@ -66,7 +63,7 @@ function Navbar() {
   }
 
   function goHome() {
-    setMenuOpen(false);
+    setMenuPath(null);
 
     if (location.pathname === "/") {
       window.scrollTo({
@@ -130,7 +127,7 @@ function Navbar() {
             className={`navbar-menu-button ${
               menuOpen ? "navbar-menu-button-open" : ""
             }`}
-            onClick={() => setMenuOpen((current) => !current)}
+            onClick={() => setMenuPath(menuOpen ? null : location.pathname)}
             aria-label="Open navigation menu"
             aria-expanded={menuOpen}
           >
