@@ -29,7 +29,6 @@ describe('staging bucket initialization',()=>{
  });
 });
 
-
 describe('direct media storage policy',()=>{
  it('accepts practical image/video boundaries and rejects unsupported or empty media',()=>{
   expect(validateUpload('image/png',IMAGE_LIMIT,checksum).size).toBe(IMAGE_LIMIT);
@@ -103,6 +102,8 @@ describe('real AWS SDK signature construction (no storage network)',()=>{
    expect(url.searchParams.get('X-Amz-Expires')).toBe('900');expect(url.pathname).toBe(`/incoming/${result.id}`);
    expect(result.headers).toEqual({'Content-Type':'video/mp4','x-amz-checksum-sha256':checksum});
    expect(tx.mediaAsset.create.mock.calls[0][0].data.objectKey).toBe(`media/owner/${result.id}`);
+   expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+   expect(tx.$queryRaw.mock.calls[0][0].join('')).toContain('::text AS locked');
   }finally{process.env=original;}
  });
 });
