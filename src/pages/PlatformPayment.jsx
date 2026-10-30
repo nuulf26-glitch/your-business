@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { PayPalButtons } from "@paypal/react-paypal-js";
 import { customBackendRequest } from "../services/customBackendSession";
 import "../styles/platformPayment.css";
 
@@ -56,58 +55,6 @@ function PlatformPayment() {
       setError(paymentError.message || "Could not start Stripe checkout.");
       setStripeLoading(false);
     }
-  }
-
-  async function createOrder() {
-    try {
-      setError("");
-
-      const result = await customBackendRequest('/payments/paypal/orders', { method: 'POST' });
-      if (!result?.orderId) throw new Error('Could not start the PayPal payment.');
-      return result.orderId;
-    } catch (paymentError) {
-      console.error("Create PayPal order error:", paymentError);
-
-      setError(
-        paymentError.message ||
-          "Could not start the PayPal payment."
-      );
-
-      throw paymentError;
-    }
-  }
-
-  async function captureOrder(data) {
-    try {
-      setError("");
-
-      const result = await customBackendRequest('/payments/paypal/capture', { method: 'POST', body: JSON.stringify({ orderId: data.orderID }) });
-      if (!result?.success) throw new Error('The payment could not be confirmed.');
-      setPaymentComplete(true);
-
-      window.setTimeout(() => {
-        navigate("/dashboard", {
-          replace: true,
-        });
-      }, 1800);
-    } catch (paymentError) {
-      console.error("Capture PayPal order error:", paymentError);
-
-      setError(
-        paymentError.message ||
-          "The payment could not be confirmed."
-      );
-
-      throw paymentError;
-    }
-  }
-
-  function handlePayPalError(paypalError) {
-    console.error("PayPal checkout error:", paypalError);
-
-    setError(
-      "PayPal could not complete the payment. Please try again."
-    );
   }
 
   if (paymentComplete) {
@@ -180,7 +127,7 @@ function PlatformPayment() {
         <section className="platform-payment-card">
           <span>Secure payment</span>
 
-          <h2>Choose how to pay</h2>
+          <h2>Pay securely with Stripe</h2>
 
           <p>
             Complete the one-time payment to activate your account.
@@ -204,29 +151,8 @@ function PlatformPayment() {
             {stripeLoading ? "Checking payment…" : "Pay securely with Stripe"}
           </button>
 
-          <div className="platform-payment-divider"><span>or</span></div>
-
-          <div className="platform-paypal-buttons">
-            <PayPalButtons
-              style={{
-                layout: "vertical",
-                shape: "rect",
-                label: "pay",
-                height: 48,
-              }}
-              createOrder={createOrder}
-              onApprove={captureOrder}
-              onError={handlePayPalError}
-              onCancel={() => {
-                setError(
-                  "The payment was cancelled. No money was taken."
-                );
-              }}
-            />
-          </div>
-
           <small>
-            Your account activates only after the payment provider confirms your payment.
+            Your account activates only after Stripe confirms your payment.
           </small>
         </section>
       </main>
