@@ -7,7 +7,7 @@ import { useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
 import { getOrders } from "../services/orderService";
 import { getCustomers } from "../services/customerService";
-import { getAppUser } from "../services/customBackendSession";
+import { getAppUser, customBackendRequest } from "../services/customBackendSession";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -25,6 +25,8 @@ function Dashboard() {
 const [customers, setCustomers] = useState([]);
 const [products, setProducts] = useState([]);
 const [userProfile, setUserProfile] = useState(null);
+const [refundLoading, setRefundLoading] = useState(false);
+const [refundMessage, setRefundMessage] = useState("");
   useEffect(() => {
     async function loadDashboardData() {
       try {
@@ -53,6 +55,21 @@ const [userProfile, setUserProfile] = useState(null);
 
     loadDashboardData();
   }, []);
+  async function requestRefund() {
+    if (!window.confirm("Cancel your CYB access and refund the $246 lifetime payment?")) return;
+    setRefundLoading(true);
+    setRefundMessage("");
+    try {
+      await customBackendRequest("/payments/platform-access/refund", { method: "POST" });
+      setUserProfile(await getAppUser());
+      setRefundMessage("Your refund has been issued. Your account is now inactive.");
+    } catch (error) {
+      setRefundMessage(error.message || "We could not process the refund. Please try again.");
+    } finally {
+      setRefundLoading(false);
+    }
+  }
+
   const websiteSetup = store;
   const editorData = store?.draftEditorData || store?.editorData;
   const businessName = editorData?.brandName || store?.businessName || store?.storeName || 'Your Business';
@@ -206,49 +223,25 @@ const [userProfile, setUserProfile] = useState(null);
           </div>
         </header>
 <section className="dashboard-payment-card">
-
   {userProfile?.paid ? (
     <>
       <span>Account status</span>
       <h2>Active account ✅</h2>
-      <p>
-        Your Business platform is unlocked.
-      </p>
-    </>
-  ) : userProfile?.trialActive ? (
-    <>
-      <span>Account status</span>
-      <h2>14-day free trial active ✅</h2>
-      <p>
-        Your GETCYB account is active until {new Date(userProfile.trialEndsAt).toLocaleDateString()}.
-      </p>
-      <button
-        type="button"
-        className="dashboard-primary-button"
-        onClick={() => navigate("/platform-payment")}
-      >
-        Pay $246 once — lifetime access
+      <p>Your Business platform is unlocked.</p>
+      <p>You can cancel and request a full refund within 30 days of payment.</p>
+      <button type="button" className="dashboard-secondary-button" onClick={requestRefund} disabled={refundLoading}>
+        {refundLoading ? "Processing refund…" : "Cancel account & get refund"}
       </button>
     </>
   ) : (
     <>
       <span>Account inactive</span>
       <h2>Activate your account</h2>
-      <p>
-        Complete your payment to unlock your website builder,
-        store, and dashboard features.
-      </p>
-
-      <button
-        type="button"
-        className="dashboard-primary-button"
-        onClick={() => navigate("/platform-payment")}
-      >
-        Pay Now
-      </button>
+      <p>Complete your payment to unlock your website builder, store, and dashboard features.</p>
+      <button type="button" className="dashboard-primary-button" onClick={() => navigate("/platform-payment")}>Pay Now</button>
     </>
   )}
-
+  {refundMessage && <p role="status">{refundMessage}</p>}
 </section>
         <button type="button" className="dashboard-secondary-button" onClick={() => navigate('/business')}>Business workspace ↗</button>
         <section className="dashboard-stats-grid"><article className="dashboard-stat-card"><span>Net profit</span><strong>{metrics.profit == null ? 'Not available' : formatCurrency(metrics.profit)}</strong><p>{metrics.profit == null ? 'Add order cost of goods and expenses to calculate profit.' : 'Based on recorded order costs and expenses.'}</p></article><article className="dashboard-stat-card"><span>Profit margin</span><strong>{metrics.margin == null ? '—' : `${metrics.margin.toFixed(1)}%`}</strong></article></section>
