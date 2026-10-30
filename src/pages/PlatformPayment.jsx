@@ -142,17 +142,17 @@ function PlatformPayment() {
 
       <main className="platform-payment-main">
         <section className="platform-payment-information">
-          <span>Staging payment test</span>
+          <span>One-time payment</span>
 
-          <h1>Test Stripe checkout.</h1>
+          <h1>Open your business platform.</h1>
 
           <p>
-            This temporary staging test is $1. Your live lifetime price remains $246.
+            Pay once and activate access to CYB.
           </p>
 
           <div className="platform-payment-price">
-            <strong>$1.00</strong>
-            <span>Temporary test price</span>
+            <strong>$246</strong>
+            <span>One-time payment</span>
           </div>
 
           <div className="platform-payment-features">
@@ -179,7 +179,7 @@ function PlatformPayment() {
           <h2>Choose how to pay</h2>
 
           <p>
-            Complete this $1 staging test to check the payment flow.
+            Complete the one-time payment to activate your account.
           </p>
 
           {error && (

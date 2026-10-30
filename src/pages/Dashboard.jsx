@@ -227,7 +227,7 @@ const [userProfile, setUserProfile] = useState(null);
         className="dashboard-primary-button"
         onClick={() => navigate("/platform-payment")}
       >
-        Test Stripe — $1 (staging)
+        Pay $246 once — lifetime access
       </button>
     </>
   ) : (
