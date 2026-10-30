@@ -233,3 +233,4 @@
     flex-direction: column;
   }
 }
+.platform-stripe-button{width:100%;min-height:48px;margin-top:8px;border:0;border-radius:6px;background:#635bff;color:#fff;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s ease}.platform-stripe-button:hover:not(:disabled){background:#5147e5}.platform-stripe-button:disabled{opacity:.65;cursor:wait}.platform-payment-divider{display:flex;align-items:center;gap:12px;margin:14px 0;color:#8a8178;font-size:12px}.platform-payment-divider::before,.platform-payment-divider::after{content:"";height:1px;flex:1;background:#e7e0d6}.platform-paypal-buttons{margin-top:0}
