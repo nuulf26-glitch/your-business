@@ -72,7 +72,10 @@ export class MediaStorage implements OnModuleInit {
     const { bucket, client } = this.config();
     // Reservations are serialized per account, including concurrent browser tabs.
     const asset = await this.db.$transaction(async tx => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${ownerId}), 872031)`;
+      // pg_advisory_xact_lock returns PostgreSQL's `void` type, which Prisma
+      // cannot deserialize through $queryRaw. Cast the selected value to text
+      // while retaining the transaction-scoped lock.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${ownerId}), 872031)::text AS locked`;
       const where = { ownerId, OR: [{ status: 'READY' }, { status: 'PENDING', expiresAt: { gt: new Date() } }] };
       const usage = await tx.mediaAsset.aggregate({ where, _sum: { size: true }, _count: true });
       if ((usage._sum.size || 0) + size > 2 * 1024 * 1024 * 1024 || usage._count >= 1000) throw new BadRequestException('This account has reached its 2 GB or 1,000-file media limit. Contact support for more storage.');
