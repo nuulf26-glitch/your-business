@@ -4,10 +4,31 @@ import { UploadController } from '../src/routes';
 import { DbService } from '../src/database';
 import { SessionGuard } from '../src/session';
 import { execFileSync } from 'node:child_process';
+import { S3Client, CreateBucketCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const checksum=Buffer.alloc(32).toString('base64');
+
+describe('staging bucket initialization',()=>{
+ it('creates a missing configured MinIO bucket once and tolerates concurrent creation',async()=>{
+  const original={...process.env};
+  Object.assign(process.env,{S3_AUTO_CREATE_BUCKET:'true',S3_BUCKET:'cyb-staging-media',S3_REGION:'us-east-1',S3_ENDPOINT:'http://127.0.0.1:9000',S3_FORCE_PATH_STYLE:'true',S3_ACCESS_KEY_ID:'test-only-access-key',S3_SECRET_ACCESS_KEY:'test-only-secret-key'});
+  const send=jest.spyOn(S3Client.prototype,'send' as any).mockImplementationOnce(async()=>{throw Object.assign(new Error('missing'),{name:'NotFound',$metadata:{httpStatusCode:404}})}).mockImplementationOnce(async()=>({}));
+  try{
+   await new MediaStorage({} as DbService).onModuleInit();
+   expect(send.mock.calls[0][0]).toBeInstanceOf(HeadBucketCommand);
+   expect(send.mock.calls[1][0]).toBeInstanceOf(CreateBucketCommand);
+  }finally{send.mockRestore();process.env=original;}
+ });
+ it('does not create or probe buckets unless explicitly enabled',async()=>{
+  const original=process.env.S3_AUTO_CREATE_BUCKET;delete process.env.S3_AUTO_CREATE_BUCKET;
+  const send=jest.spyOn(S3Client.prototype,'send' as any);
+  try{await new MediaStorage({} as DbService).onModuleInit();expect(send).not.toHaveBeenCalled();}
+  finally{send.mockRestore();if(original!==undefined)process.env.S3_AUTO_CREATE_BUCKET=original;}
+ });
+});
+
 
 describe('direct media storage policy',()=>{
  it('accepts practical image/video boundaries and rejects unsupported or empty media',()=>{
