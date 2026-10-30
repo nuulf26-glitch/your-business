@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand, CopyObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
+import { S3Client, PutObjectCommand, HeadObjectCommand, GetObjectCommand, CopyObjectCommand, DeleteObjectCommand, CreateBucketCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID, createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -38,8 +38,28 @@ export function validateProbe(probe: any, type: string) {
 }
 
 @Injectable()
-export class MediaStorage {
+export class MediaStorage implements OnModuleInit {
   constructor(private db: DbService) {}
+  async onModuleInit() {
+    if (process.env.S3_AUTO_CREATE_BUCKET !== 'true') return;
+    const { bucket, client } = this.config();
+    try {
+      await client.send(new HeadBucketCommand({ Bucket: bucket }));
+      return;
+    } catch (error: any) {
+      const status = error?.$metadata?.httpStatusCode;
+      if (status !== 404 && error?.name !== 'NotFound' && error?.name !== 'NoSuchBucket') {
+        throw new Error('Persistent media bucket is unreachable. Check staging bucket credentials and permissions.');
+      }
+    }
+    try {
+      await client.send(new CreateBucketCommand({ Bucket: bucket }));
+    } catch {
+      // Another API instance may have created the bucket between HeadBucket and CreateBucket.
+      try { await client.send(new HeadBucketCommand({ Bucket: bucket })); }
+      catch { throw new Error('Persistent media bucket could not be created. Check staging bucket permissions.'); }
+    }
+  }
   private config() {
     const keys = ['S3_BUCKET','S3_REGION','S3_ACCESS_KEY_ID','S3_SECRET_ACCESS_KEY'];
     const missing = keys.filter(key => !process.env[key]?.trim());
