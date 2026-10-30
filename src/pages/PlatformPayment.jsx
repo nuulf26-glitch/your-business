@@ -185,6 +185,9 @@ function PlatformPayment() {
           <p>
             Complete the one-time payment to activate your account.
           </p>
+          <p className="platform-payment-guarantee">
+            Cancel within 30 days for a full refund.
+          </p>
 
           {error && (
             <div className="platform-payment-error">
