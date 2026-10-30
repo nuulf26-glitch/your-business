@@ -222,6 +222,13 @@ const [userProfile, setUserProfile] = useState(null);
       <p>
         Your GETCYB account is active until {new Date(userProfile.trialEndsAt).toLocaleDateString()}.
       </p>
+      <button
+        type="button"
+        className="dashboard-primary-button"
+        onClick={() => navigate("/platform-payment")}
+      >
+        Pay $246 once — lifetime access
+      </button>
     </>
   ) : (
     <>
