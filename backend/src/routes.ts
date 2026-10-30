@@ -414,7 +414,7 @@ export class PayPalController {
     const valid=capture.status==='COMPLETED'&&item?.status==='COMPLETED'&&unit?.reference_id===req.user.id&&item?.amount?.currency_code===payment.currency&&Math.round(Number(item?.amount?.value)*100)===payment.amountCents;
     if(!valid)throw new BadRequestException('PayPal payment verification failed');
     await this.db.$transaction([
-      this.db.paymentReference.update({where:{id:payment.id},data:{status:'COMPLETED',providerCaptureId:item.id,metadata:{intent:'PLATFORM_ACCESS',paypalOrderId:capture.id}}}),
+      this.db.paymentReference.update({where:{id:payment.id},data:{status:'COMPLETED',providerCaptureId:item.id,metadata:{intent:'PLATFORM_ACCESS',paypalOrderId:capture.id,paidAt:new Date().toISOString()}}}),
       this.db.subscription.upsert({where:{userId:req.user.id},create:{userId:req.user.id,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}}),
     ]);
     return {success:true,status:'COMPLETED',orderId:capture.id};
@@ -436,7 +436,8 @@ export class PlatformRefundController {
     const payment=payments.find(item=>(item.metadata as any)?.intent==='PLATFORM_ACCESS');
     if(!payment)throw new NotFoundException('No completed platform payment was found');
     if(payment.status==='REFUNDED')return {success:true,status:'REFUNDED'};
-    if(Date.now()-payment.createdAt.getTime()>30*864e5)throw new BadRequestException('The 30-day refund period has ended');
+    const paymentDate=new Date((payment.metadata as any)?.paidAt||payment.createdAt);
+    if(!Number.isFinite(paymentDate.getTime())||Date.now()-paymentDate.getTime()>30*864e5)throw new BadRequestException('The 30-day refund period has ended');
     let refundId:string|undefined;
     if(payment.provider==='stripe') {
       const key=process.env.STRIPE_SECRET_KEY;
@@ -521,7 +522,7 @@ export class StripeController {
     const valid=session.mode==='payment'&&session.payment_status==='paid'&&session.client_reference_id===req.user.id&&session.metadata?.userId===req.user.id&&session.metadata?.intent==='PLATFORM_ACCESS'&&session.currency===payment.currency.toLowerCase()&&session.amount_total===payment.amountCents;
     if(!valid)throw new BadRequestException('Stripe payment verification failed');
     await this.db.$transaction(async tx=>{
-      const updated=await tx.paymentReference.updateMany({where:{id:payment.id,status:'PENDING'},data:{status:'COMPLETED',providerCaptureId:dto.sessionId,metadata:{intent:'PLATFORM_ACCESS',stripeSessionId:dto.sessionId,paymentIntentId:session.payment_intent||null}}});
+      const updated=await tx.paymentReference.updateMany({where:{id:payment.id,status:'PENDING'},data:{status:'COMPLETED',providerCaptureId:dto.sessionId,metadata:{intent:'PLATFORM_ACCESS',stripeSessionId:dto.sessionId,paymentIntentId:session.payment_intent||null,paidAt:new Date().toISOString()}}});
       if(!updated.count) {
         const current=await tx.paymentReference.findUnique({where:{id:payment.id}});
         if(current?.status==='COMPLETED')return;
