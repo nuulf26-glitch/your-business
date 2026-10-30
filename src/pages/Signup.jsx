@@ -74,7 +74,7 @@ console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (
           <div className="auth-benefits">
             <div>
               <span>01</span>
-              <p>14-day free trial</p>
+              <p>30-day money-back guarantee</p>
             </div>
 
             <div>

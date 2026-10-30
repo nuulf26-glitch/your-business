@@ -93,10 +93,9 @@ function Pricing() {
             <div style={{ display: "flex", gap: "20px", alignItems: "flex-start", borderTop: "1px solid #e5e5e0", paddingTop: "20px" }}>
               <span style={{ fontSize: "0.85rem", fontWeight: "600", color: "#666", fontFamily: "'Mograp', sans-serif" }}>03</span>
               <div>
-                <h3 style={{ fontSize: "1.1rem", fontWeight: "500", margin: "0 0 8px 0", color: "#111", fontFamily: "'Mograp', sans-serif" }}>Start before you pay</h3>
+                <h3 style={{ fontSize: "1.1rem", fontWeight: "500", margin: "0 0 8px 0", color: "#111", fontFamily: "'Mograp', sans-serif" }}>30-day money-back guarantee</h3>
                 <p style={{ color: "#555", fontSize: "0.95rem", lineHeight: "1.5", margin: 0, fontFamily: "'Mograp', sans-serif" }}>
-                  Create your account and explore the platform with a 14-day
-                  free trial before purchasing.
+                  Activate your account with a one-time payment. If it is not right for you, cancel within 30 days for a full refund.
                 </p>
               </div>
             </div>
@@ -156,11 +155,11 @@ function Pricing() {
                 marginBottom: "10px"
               }}
             >
-              Start your 14-day free trial
+              Create your account to activate CYB
             </button>
 
             <p style={{ textAlign: "center", fontSize: "0.80rem", color: "#666", margin: "0 0 30px 0", fontFamily: "'Mograp', sans-serif" }}>
-              No payment required to create your account
+              One-time payment · Full refund available within 30 days
             </p>
 
             <div style={{ borderTop: "1px solid #e5e5e0", paddingTop: "30px" }}>

@@ -42,6 +42,7 @@ class TokenInput { @IsString() @MinLength(32) @MaxLength(200) token!: string; }
 class ResetInput extends TokenInput { @IsString() @MinLength(12) @MaxLength(200) password!: string; }
 class EmailInput { @IsEmail() email!: string; }
 class PayPalCaptureInput { @IsString() @MaxLength(100) orderId!: string; }
+class StripeSessionInput { @IsString() @MaxLength(200) sessionId!: string; }
 class OrderStatusInput { @IsString() @MaxLength(30) status!: string; }
 class CustomerStatusInput { @IsString() @MaxLength(30) status!: string; }
 class IdInput { @IsString() @MaxLength(120) id!: string; }
@@ -74,17 +75,16 @@ export class AuthController {
   @Post('signup') async signup(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
     const email = dto.email.trim().toLowerCase();
     if (await this.db.user.findUnique({ where:{email} })) throw new ConflictException('Account already exists');
-    const trialEndsAt = new Date(Date.now()+14*864e5);
     const businessName = dto.businessName?.trim() || '';
     const slugBase = businessName.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,70) || 'business';
     const user = await this.db.$transaction(async tx => {
       const created = await tx.user.create({ data:{ email, fullName:dto.fullName?.trim() || null, passwordHash:await argon2.hash(dto.password), role:'OWNER', emailVerifiedAt:new Date() } });
-      await tx.subscription.create({data:{userId:created.id,trialEndsAt}});
+      await tx.subscription.create({data:{userId:created.id,status:'INACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()}});
       await tx.business.create({data:{ownerId:created.id,name:businessName,slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
       return created;
     });
     const sessionToken=await this.issueSession(user.id,res);
-    return { id:user.id, email:user.email, emailVerified:true, trialEndsAt:trialEndsAt.toISOString(), ...(process.env.AUTH_BEARER_ENABLED==='true'&&sessionToken?{accessToken:sessionToken}:{}) };
+    return { id:user.id, email:user.email, emailVerified:true, ...(process.env.AUTH_BEARER_ENABLED==='true'&&sessionToken?{accessToken:sessionToken}:{}) };
   }
   @Throttle({default:{limit:8,ttl:60_000}})
   @Post('login') async login(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
@@ -135,7 +135,7 @@ export class AuthController {
   }
   @UseGuards(SessionGuard) @Get('me') async me(@Req() req:Request & {user:any}) {
     const subscription=await this.db.subscription.findUnique({where:{userId:req.user.id}});
-    const trialActive=subscription?.status==='TRIALING'&&subscription.trialEndsAt>new Date();
+    const trialActive=false;
     return {
       id:req.user.id,
       email:req.user.email,
@@ -414,9 +414,122 @@ export class PayPalController {
     const valid=capture.status==='COMPLETED'&&item?.status==='COMPLETED'&&unit?.reference_id===req.user.id&&item?.amount?.currency_code===payment.currency&&Math.round(Number(item?.amount?.value)*100)===payment.amountCents;
     if(!valid)throw new BadRequestException('PayPal payment verification failed');
     await this.db.$transaction([
-      this.db.paymentReference.update({where:{id:payment.id},data:{status:'COMPLETED',providerCaptureId:item.id,metadata:{intent:'PLATFORM_ACCESS',paypalOrderId:capture.id}}}),
+      this.db.paymentReference.update({where:{id:payment.id},data:{status:'COMPLETED',providerCaptureId:item.id,metadata:{intent:'PLATFORM_ACCESS',paypalOrderId:capture.id,paidAt:new Date().toISOString()}}}),
       this.db.subscription.upsert({where:{userId:req.user.id},create:{userId:req.user.id,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}}),
     ]);
     return {success:true,status:'COMPLETED',orderId:capture.id};
+  }
+}
+
+
+
+@Controller('payments')
+@UseGuards(SessionGuard)
+export class PlatformRefundController {
+  constructor(private db:DbService){}
+  @Post('platform-access/refund') async refund(@Req() req:Request & {user:any}) {
+    const payments=await this.db.paymentReference.findMany({
+      where:{userId:req.user.id,provider:{in:['stripe','paypal']},status:{in:['COMPLETED','REFUNDED']}},
+      orderBy:{createdAt:'desc'},
+      take:20,
+    });
+    const payment=payments.find(item=>(item.metadata as any)?.intent==='PLATFORM_ACCESS');
+    if(!payment)throw new NotFoundException('No completed platform payment was found');
+    if(payment.status==='REFUNDED')return {success:true,status:'REFUNDED'};
+    const paymentDate=new Date((payment.metadata as any)?.paidAt||payment.createdAt);
+    if(!Number.isFinite(paymentDate.getTime())||Date.now()-paymentDate.getTime()>30*864e5)throw new BadRequestException('The 30-day refund period has ended');
+    let refundId:string|undefined;
+    if(payment.provider==='stripe') {
+      const key=process.env.STRIPE_SECRET_KEY;
+      const paymentIntentId=(payment.metadata as any)?.paymentIntentId;
+      if(!key||typeof paymentIntentId!=='string'||!paymentIntentId.startsWith('pi_'))throw new ServiceUnavailableException('This Stripe payment cannot be refunded automatically. Please contact support.');
+      const form=new URLSearchParams({payment_intent:paymentIntentId});
+      let response:globalThis.Response;
+      try { response=await fetch('https://api.stripe.com/v1/refunds',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/x-www-form-urlencoded','Idempotency-Key':`getcyb-refund-${payment.id}`},body:form.toString(),signal:AbortSignal.timeout(20000)}); }
+      catch { throw new ServiceUnavailableException('The refund provider could not be reached. Please try again.'); }
+      const result=await response.json().catch(()=>({})) as any;
+      if(!response.ok||!result.id)throw new BadRequestException('Stripe could not process the refund. Please try again.');
+      refundId=result.id;
+    } else {
+      const id=process.env.PAYPAL_CLIENT_ID,secret=process.env.PAYPAL_CLIENT_SECRET;
+      const captureId=payment.providerCaptureId;
+      if(!id||!secret||!captureId)throw new ServiceUnavailableException('This PayPal payment cannot be refunded automatically. Please contact support.');
+      const base=process.env.PAYPAL_API_BASE||'https://api-m.sandbox.paypal.com';
+      const tokenResponse=await fetch(`${base}/v1/oauth2/token`,{method:'POST',headers:{Authorization:`Basic ${Buffer.from(`${id}:${secret}`).toString('base64')}`,'Content-Type':'application/x-www-form-urlencoded'},body:'grant_type=client_credentials',signal:AbortSignal.timeout(20000)});
+      const tokenData=await tokenResponse.json().catch(()=>({})) as any;
+      if(!tokenResponse.ok||!tokenData.access_token)throw new ServiceUnavailableException('PayPal could not authorize the refund. Please try again.');
+      const response=await fetch(`${base}/v2/payments/captures/${encodeURIComponent(captureId)}/refund`,{method:'POST',headers:{Authorization:`Bearer ${tokenData.access_token}`,'Content-Type':'application/json','PayPal-Request-Id':`getcyb-refund-${payment.id}`},body:JSON.stringify({})});
+      const result=await response.json().catch(()=>({})) as any;
+      if(!response.ok||!result.id)throw new BadRequestException('PayPal could not process the refund. Please try again.');
+      refundId=result.id;
+    }
+    await this.db.$transaction([
+      this.db.paymentReference.update({where:{id:payment.id},data:{status:'REFUNDED',metadata:{...(payment.metadata as any),refundId,refundedAt:new Date().toISOString()}}}),
+      this.db.subscription.updateMany({where:{userId:req.user.id},data:{status:'INACTIVE',billingType:'ONE_TIME'}}),
+    ]);
+    return {success:true,status:'REFUNDED'};
+  }
+}
+
+
+@Controller('payments/stripe')
+@UseGuards(SessionGuard)
+export class StripeController {
+  constructor(private db:DbService){}
+  private async stripeRequest(path:string, init:RequestInit={}) {
+    const key=process.env.STRIPE_SECRET_KEY;
+    if(!key)throw new BadRequestException('Stripe is not configured');
+    let response:globalThis.Response;
+    try { response=await fetch(`https://api.stripe.com/v1${path}`,{...init,headers:{Authorization:`Bearer ${key}`,...(init.headers||{})},signal:AbortSignal.timeout(20000)}); }
+    catch { throw new ServiceUnavailableException('Stripe could not be reached. Please try again.'); }
+    const body=await response.json().catch(()=>({})) as any;
+    if(!response.ok) {
+      Logger.error(JSON.stringify({status:response.status,code:body.error?.code||'unknown',type:body.error?.type||'unknown'}),'Stripe');
+      throw new BadRequestException('Stripe could not complete the payment request. Please try again.');
+    }
+    return body;
+  }
+  @Post('checkout-sessions') async createCheckoutSession(@Req() req:Request & {user:any}) {
+    const amount=process.env.STRIPE_BASIC_AMOUNT||'24600',currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
+    if(!/^\d+$/.test(amount)||Number(amount)<50||!/^[a-z]{3}$/.test(currency))throw new BadRequestException('Stripe price configuration is invalid');
+    let appUrl:string;
+    try { const parsed=new URL(process.env.PUBLIC_APP_URL||'https://getcyb.fit'); if(!['https:','http:'].includes(parsed.protocol))throw new Error(); appUrl=parsed.origin; }
+    catch { throw new BadRequestException('Stripe return URL configuration is invalid'); }
+    const form=new URLSearchParams({
+      mode:'payment',
+      success_url:`${appUrl}/platform-payment?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:`${appUrl}/platform-payment?stripe_cancelled=1`,
+      client_reference_id:req.user.id,
+      'metadata[userId]':req.user.id,
+      'metadata[intent]':'PLATFORM_ACCESS',
+      'line_items[0][price_data][currency]':currency,
+      'line_items[0][price_data][unit_amount]':amount,
+      'line_items[0][price_data][product_data][name]':'CYB Lifetime Access',
+      'line_items[0][price_data][product_data][description]':'One-time payment for lifetime access to CYB',
+      'line_items[0][quantity]':'1',
+    });
+    const session=await this.stripeRequest('/checkout/sessions',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:form.toString()});
+    if(!session.id||!session.url)throw new ServiceUnavailableException('Stripe did not return a checkout link. Please try again.');
+    await this.db.paymentReference.create({data:{provider:'stripe',providerOrderId:session.id,status:'PENDING',amountCents:Number(amount),currency:currency.toUpperCase(),userId:req.user.id,metadata:{intent:'PLATFORM_ACCESS'}}});
+    return {url:session.url};
+  }
+  @Post('confirm-checkout') async confirmCheckout(@Req() req:Request & {user:any},@Body() dto:StripeSessionInput) {
+    const payment=await this.db.paymentReference.findUnique({where:{providerOrderId:dto.sessionId}});
+    if(!payment||payment.provider!=='stripe'||payment.userId!==req.user.id)throw new NotFoundException('Stripe checkout session not found');
+    if(payment.status==='COMPLETED')return {success:true,status:'COMPLETED'};
+    if(payment.status!=='PENDING')throw new BadRequestException('Stripe checkout session cannot be confirmed');
+    const session=await this.stripeRequest(`/checkout/sessions/${encodeURIComponent(dto.sessionId)}`);
+    const valid=session.mode==='payment'&&session.payment_status==='paid'&&session.client_reference_id===req.user.id&&session.metadata?.userId===req.user.id&&session.metadata?.intent==='PLATFORM_ACCESS'&&session.currency===payment.currency.toLowerCase()&&session.amount_total===payment.amountCents;
+    if(!valid)throw new BadRequestException('Stripe payment verification failed');
+    await this.db.$transaction(async tx=>{
+      const updated=await tx.paymentReference.updateMany({where:{id:payment.id,status:'PENDING'},data:{status:'COMPLETED',providerCaptureId:dto.sessionId,metadata:{intent:'PLATFORM_ACCESS',stripeSessionId:dto.sessionId,paymentIntentId:session.payment_intent||null,paidAt:new Date().toISOString()}}});
+      if(!updated.count) {
+        const current=await tx.paymentReference.findUnique({where:{id:payment.id}});
+        if(current?.status==='COMPLETED')return;
+        throw new BadRequestException('Stripe payment is already being confirmed');
+      }
+      await tx.subscription.upsert({where:{userId:req.user.id},create:{userId:req.user.id,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}});
+    });
+    return {success:true,status:'COMPLETED'};
   }
 }
