@@ -12,7 +12,7 @@ function Payment() {
   const navigate = useNavigate();
 
   const [order] = useState(readPendingOrder);
-  const [paymentMethod, setPaymentMethod] = useState("cash");
+  const paymentMethod = "cash";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -65,8 +65,6 @@ if (order.backendId) {
 
     try {
       setLoading(true);
-
-      if (paymentMethod === "paypal") { setError("PayPal checkout for store orders is not configured yet."); return; }
 
      if (paymentMethod === "cash") {
   await completeOrder("Cash on delivery", "New");
@@ -141,33 +139,7 @@ if (order.backendId) {
             <div className="payment-options">
               <button
                 type="button"
-                className="payment-option payment-option-unavailable"
-                disabled
-              >
-                <div className="payment-option-icon">P</div>
-
-                <div>
-                  <strong>PayPal · unavailable</strong>
-
-                  <p>
-                    Online card and PayPal payments are not enabled for this store yet.
-                  </p>
-                </div>
-
-                <span className="payment-radio">
-                  —
-                </span>
-              </button>
-
-              <button
-                type="button"
-                className={`payment-option ${
-                  paymentMethod === "cash" ? "selected" : ""
-                }`}
-                onClick={() => {
-                  setPaymentMethod("cash");
-                  setError("");
-                }}
+                className="payment-option selected"
               >
                 <div className="payment-option-icon">C</div>
 
@@ -197,11 +169,7 @@ if (order.backendId) {
               onClick={handlePayment}
               disabled={loading}
             >
-              {loading
-                ? "Processing..."
-                : paymentMethod === "cash"
-                  ? "Confirm cash on delivery"
-                  : `Pay USD ${Number(order.total || 0).toFixed(2)}`}
+              {loading ? "Processing..." : "Confirm cash on delivery"}
             </button>
           </section>
 
