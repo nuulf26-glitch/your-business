@@ -461,7 +461,7 @@ export class StripeController {
   }
   @Post('checkout-sessions') async createCheckoutSession(@Req() req:Request & {user:any}) {
     const amount=process.env.STRIPE_BASIC_AMOUNT||'24600',currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
-    if(!/^\\d+$/.test(amount)||Number(amount)<50||!/^[a-z]{3}$/.test(currency))throw new BadRequestException('Stripe price configuration is invalid');
+    if(!/^\d+$/.test(amount)||Number(amount)<50||!/^[a-z]{3}$/.test(currency))throw new BadRequestException('Stripe price configuration is invalid');
     let appUrl:string;
     try { const parsed=new URL(process.env.PUBLIC_APP_URL||'https://getcyb.fit'); if(!['https:','http:'].includes(parsed.protocol))throw new Error(); appUrl=parsed.origin; }
     catch { throw new BadRequestException('Stripe return URL configuration is invalid'); }
