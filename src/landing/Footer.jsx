@@ -97,8 +97,7 @@ function Footer() {
           <div>
             <span>Built for modern businesses</span>
             <p>
-              Start with a 14-day free trial and build your store at your own
-              pace.
+              Create your account, activate CYB with a one-time payment, and cancel within 30 days for a full refund.
             </p>
           </div>
 
@@ -107,7 +106,7 @@ function Footer() {
             className="footer-secondary-button"
             onClick={() => navigate("/signup")}
           >
-            Start free
+            Create account
           </button>
         </div>
 
