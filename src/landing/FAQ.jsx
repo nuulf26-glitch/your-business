@@ -18,9 +18,9 @@ const faqs = [
       "Yes. You can connect your own custom domain whenever you're ready.",
   },
   {
-    question: "Is there a free trial?",
+    question: "Can I try the platform before paying?",
     answer:
-      "Yes. Every account starts with a 14-day free trial before purchasing.",
+      "There is no free trial. Your account activates after the one-time payment, and you can cancel within 30 days for a full refund.",
   },
   {
     question: "Can I edit my website later?",
