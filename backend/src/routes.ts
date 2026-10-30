@@ -474,8 +474,8 @@ export class StripeController {
       'metadata[intent]':'PLATFORM_ACCESS',
       'line_items[0][price_data][currency]':currency,
       'line_items[0][price_data][unit_amount]':amount,
-      'line_items[0][price_data][product_data][name]':'CYB Lifetime Access',
-      'line_items[0][price_data][product_data][description]':'One-time payment for lifetime access to CYB',
+      'line_items[0][price_data][product_data][name]':Number(amount)===100?'CYB Stripe Test Payment':'CYB Lifetime Access',
+      'line_items[0][price_data][product_data][description]':Number(amount)===100?'Temporary staging payment verification':'One-time payment for lifetime access to CYB',
       'line_items[0][quantity]':'1',
     });
     const session=await this.stripeRequest('/checkout/sessions',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:form.toString()});
