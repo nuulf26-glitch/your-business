@@ -42,6 +42,7 @@ class TokenInput { @IsString() @MinLength(32) @MaxLength(200) token!: string; }
 class ResetInput extends TokenInput { @IsString() @MinLength(12) @MaxLength(200) password!: string; }
 class EmailInput { @IsEmail() email!: string; }
 class PayPalCaptureInput { @IsString() @MaxLength(100) orderId!: string; }
+class StripeSessionInput { @IsString() @MaxLength(200) sessionId!: string; }
 class OrderStatusInput { @IsString() @MaxLength(30) status!: string; }
 class CustomerStatusInput { @IsString() @MaxLength(30) status!: string; }
 class IdInput { @IsString() @MaxLength(120) id!: string; }
@@ -418,5 +419,68 @@ export class PayPalController {
       this.db.subscription.upsert({where:{userId:req.user.id},create:{userId:req.user.id,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}}),
     ]);
     return {success:true,status:'COMPLETED',orderId:capture.id};
+  }
+}
+
+
+@Controller('payments/stripe')
+@UseGuards(SessionGuard)
+export class StripeController {
+  constructor(private db:DbService){}
+  private async stripeRequest(path:string, init:RequestInit={}) {
+    const key=process.env.STRIPE_SECRET_KEY;
+    if(!key)throw new BadRequestException('Stripe is not configured');
+    let response:globalThis.Response;
+    try { response=await fetch(`https://api.stripe.com/v1${path}`,{...init,headers:{Authorization:`Bearer ${key}`,...(init.headers||{})},signal:AbortSignal.timeout(20000)}); }
+    catch { throw new ServiceUnavailableException('Stripe could not be reached. Please try again.'); }
+    const body=await response.json().catch(()=>({})) as any;
+    if(!response.ok) {
+      Logger.error(JSON.stringify({status:response.status,code:body.error?.code||'unknown',type:body.error?.type||'unknown'}),'Stripe');
+      throw new BadRequestException('Stripe could not complete the payment request. Please try again.');
+    }
+    return body;
+  }
+  @Post('checkout-sessions') async createCheckoutSession(@Req() req:Request & {user:any}) {
+    const amount=process.env.STRIPE_BASIC_AMOUNT||'24600',currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
+    if(!/^\d+$/.test(amount)||Number(amount)<50||!/^[a-z]{3}$/.test(currency))throw new BadRequestException('Stripe price configuration is invalid');
+    let appUrl:string;
+    try { const parsed=new URL(process.env.PUBLIC_APP_URL||'https://getcyb.fit'); if(!['https:','http:'].includes(parsed.protocol))throw new Error(); appUrl=parsed.origin; }
+    catch { throw new BadRequestException('Stripe return URL configuration is invalid'); }
+    const form=new URLSearchParams({
+      mode:'payment',
+      success_url:`${appUrl}/platform-payment?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:`${appUrl}/platform-payment?stripe_cancelled=1`,
+      client_reference_id:req.user.id,
+      'metadata[userId]':req.user.id,
+      'metadata[intent]':'PLATFORM_ACCESS',
+      'line_items[0][price_data][currency]':currency,
+      'line_items[0][price_data][unit_amount]':amount,
+      'line_items[0][price_data][product_data][name]':'CYB Lifetime Access',
+      'line_items[0][price_data][product_data][description]':'One-time payment for lifetime access to CYB',
+      'line_items[0][quantity]':'1',
+    });
+    const session=await this.stripeRequest('/checkout/sessions',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:form.toString()});
+    if(!session.id||!session.url)throw new ServiceUnavailableException('Stripe did not return a checkout link. Please try again.');
+    await this.db.paymentReference.create({data:{provider:'stripe',providerOrderId:session.id,status:'PENDING',amountCents:Number(amount),currency:currency.toUpperCase(),userId:req.user.id,metadata:{intent:'PLATFORM_ACCESS'}}});
+    return {url:session.url};
+  }
+  @Post('confirm-checkout') async confirmCheckout(@Req() req:Request & {user:any},@Body() dto:StripeSessionInput) {
+    const payment=await this.db.paymentReference.findUnique({where:{providerOrderId:dto.sessionId}});
+    if(!payment||payment.provider!=='stripe'||payment.userId!==req.user.id)throw new NotFoundException('Stripe checkout session not found');
+    if(payment.status==='COMPLETED')return {success:true,status:'COMPLETED'};
+    if(payment.status!=='PENDING')throw new BadRequestException('Stripe checkout session cannot be confirmed');
+    const session=await this.stripeRequest(`/checkout/sessions/${encodeURIComponent(dto.sessionId)}`);
+    const valid=session.mode==='payment'&&session.payment_status==='paid'&&session.client_reference_id===req.user.id&&session.metadata?.userId===req.user.id&&session.metadata?.intent==='PLATFORM_ACCESS'&&session.currency===payment.currency.toLowerCase()&&session.amount_total===payment.amountCents;
+    if(!valid)throw new BadRequestException('Stripe payment verification failed');
+    await this.db.$transaction(async tx=>{
+      const updated=await tx.paymentReference.updateMany({where:{id:payment.id,status:'PENDING'},data:{status:'COMPLETED',providerCaptureId:dto.sessionId,metadata:{intent:'PLATFORM_ACCESS',stripeSessionId:dto.sessionId,paymentIntentId:session.payment_intent||null}}});
+      if(!updated.count) {
+        const current=await tx.paymentReference.findUnique({where:{id:payment.id}});
+        if(current?.status==='COMPLETED')return;
+        throw new BadRequestException('Stripe payment is already being confirmed');
+      }
+      await tx.subscription.upsert({where:{userId:req.user.id},create:{userId:req.user.id,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}});
+    });
+    return {success:true,status:'COMPLETED'};
   }
 }
