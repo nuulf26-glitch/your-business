@@ -11,7 +11,7 @@ function Image({ src, alt = '', className = '' }) {
 }
 function Action({ section, children, className = '' }) {
   const href = safeHref(section.href);
-  return href ? <a className={`cyb-action ${className}`} href={href}>{children}</a> : null;
+  return <a className={`cyb-action ${className}`} href={href || '#'} aria-disabled={!href || undefined} onClick={!href ? event => event.preventDefault() : undefined}>{children}</a>;
 }
 function SectionContent({ section, model, products = [], addToCart, editText, booking, submitForm, catalog, pickup }) {
   const s = section.dataSource === 'catalog' && catalog ? { ...section,
@@ -66,7 +66,7 @@ function WebsiteForm({ section, submitForm }) {
     catch { setStatus('Could not send your message. Please try again.'); } finally { setBusy(false); }
   }}><label>Your name<input name="name" required maxLength={120} autoComplete="name" /></label><label>Email<input name="email" type="email" required autoComplete="email" /></label><label>Message<textarea name="message" required maxLength={4000} rows={4} /></label><button className="cyb-action" disabled={!submitForm || busy}>{busy ? 'Sending…' : 'Send inquiry'}</button>{!submitForm && <p className="cyb-note">Form preview. Submission is available on the published website when configured.</p>}<p role="status">{status}</p></form>;
 }
-export default function WebsiteRenderer({ model, products = [], addToCart, baseUrl = '', slug = '', onPageChange, booking, submitForm, catalog, pickup, device = 'auto' }) {
+export default function WebsiteRenderer({ model, products = [], addToCart, baseUrl = '', slug = '', onPageChange, booking, submitForm, catalog, pickup, device = 'auto', className = '', style, renderSection, editText }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [observedDevice, setObservedDevice] = useState('laptop');
   const rootRef = useRef(null);
@@ -89,8 +89,12 @@ export default function WebsiteRenderer({ model, products = [], addToCart, baseU
     description.content = page?.description || model.description || '';
     return () => { document.title = previousTitle; if(created) description.remove(); else description.content = previous; };
   }, [page?.seoTitle, page?.title, page?.description, model.brandName, model.description]);
-  return <div ref={rootRef} className={`cyb-site cyb-device-${actualDevice}`} style={{ background: model.backgroundColor || '#f5f2ea', color: model.textColor || '#25231f', '--cyb-primary': model.primaryColor || '#18243a', '--cyb-button-radius': model.buttonRadius || '0', fontFamily: model.bodyFont || 'Arial, sans-serif' }}>
+  return <div ref={rootRef} className={`cyb-site cyb-device-${actualDevice} ${className}`.trim()} style={{ background: model.backgroundColor || '#f5f2ea', color: model.textColor || '#25231f', '--cyb-primary': model.primaryColor || '#18243a', '--cyb-button-radius': model.buttonRadius || '0', fontFamily: model.bodyFont || 'Arial, sans-serif', ...style }}>
     <header className="cyb-nav"><a href={baseUrl || '#'} className="cyb-logo" onClick={onPageChange ? event => { event.preventDefault(); onPageChange(pages[0]); } : undefined}>{model.logo ? <Image src={model.logo} alt={model.brandName} /> : model.brandName}</a><button className="cyb-menu-toggle" aria-label="Toggle navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>Menu {menuOpen ? '−' : '+'}</button><nav className={menuOpen ? 'open' : ''} aria-label="Website pages">{pages.map(item => <a key={item.id} href={`${baseUrl}${item.slug ? `/${item.slug}` : ''}` || '#'} aria-current={page?.id === item.id ? 'page' : undefined} onClick={onPageChange ? event => { event.preventDefault(); onPageChange(item); setMenuOpen(false); } : undefined}>{item.title}</a>)}</nav>{addToCart && <a href="/cart" className="cyb-cart">Cart ↗</a>}</header>
-    <main>{page ? page.sections.map(section => <section key={section.id} id={section.anchor || section.id} className={`cyb-section cyb-type-${section.type}`} style={sectionStyle(section, actualDevice)}><WebsiteSection section={section} model={{...model,renderDevice:actualDevice}} products={products} addToCart={addToCart} booking={booking} submitForm={submitForm} catalog={catalog} pickup={pickup} /></section>) : <section className="cyb-section"><h1>Page not found</h1><a href={baseUrl}>Return home</a></section>}</main>
+    <main>{page ? page.sections.map(section => {
+      const content = <WebsiteSection section={section} model={{...model,renderDevice:actualDevice}} products={products} addToCart={addToCart} editText={editText} booking={booking} submitForm={submitForm} catalog={catalog} pickup={pickup} />;
+      const props = { section, content, device: actualDevice, style: sectionStyle(section, actualDevice) };
+      return renderSection ? renderSection(props) : <section key={section.id} id={section.anchor || section.id} className={`cyb-section cyb-type-${section.type}`} style={props.style}>{content}</section>;
+    }) : <section className="cyb-section"><h1>Page not found</h1><a href={baseUrl}>Return home</a></section>}</main>
   </div>;
 }
