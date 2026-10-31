@@ -1,4 +1,4 @@
-import { customBackendRequest } from '../services/customBackendSession';
+import { customBackendRequest } from '../services/customBackendSession.js';
 
 export async function businessCall(name, data = {}) {
   if (name === 'loadWebsiteDraft') { const result = await customBackendRequest('/websites/draft'); return result?.draft || null; }
