@@ -36,6 +36,7 @@ export async function customBackendRequest(path, options = {}) {
 
 export async function clearCustomBackendSession() {
   if (readCachedUser()) await customBackendRequest('/auth/logout', { method: 'POST' }).catch(() => {});
+  sessionStorage.removeItem('getcyb_session_token');
   sessionStorage.removeItem(cachedUserKey);
 }
 export async function getAppUser() {
@@ -46,6 +47,18 @@ export async function getAppUser() {
     return account;
   } catch (error) {
     if (error.status === 401 || error.status === 403) {
+      const legacyToken = sessionStorage.getItem('getcyb_session_token');
+      if (legacyToken) {
+        try {
+          const account = await customBackendRequest('/auth/migrate-session', { method: 'POST', body: JSON.stringify({ sessionToken: legacyToken }) });
+          sessionStorage.removeItem('getcyb_session_token');
+          account.uid = account.id;
+          cacheUser(account);
+          return account;
+        } catch {
+          sessionStorage.removeItem('getcyb_session_token');
+        }
+      }
       sessionStorage.removeItem(cachedUserKey);
       return null;
     }
