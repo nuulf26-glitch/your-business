@@ -55,6 +55,15 @@ describe('website draft and publish persistence', () => {
     expect(websiteVersion.create).toHaveBeenCalledWith({ data: { websiteId: 'website', snapshot: website.draft } });
     expect(website.draft).not.toHaveProperty('editorMode');
     expect(business.slug).toBe('lune');
+
+    const liveSnapshot = website.published;
+    const liveTimestamp = website.publishedAt;
+    await controller.saveDraft({ user: { id: 'owner' } } as any, { model: { ...nextDraft, sections: [{ id: 'hero', type: 'hero', title: 'Next unpublished edit' }] } } as any);
+    expect(website.draft.sections[0].title).toBe('Next unpublished edit');
+    expect(website.published).toBe(liveSnapshot);
+    expect(website.publishedAt).toBe(liveTimestamp);
+    const publicAfterDraftSave: any = await controller.publicSite({ params: { slug: 'lune' } } as any);
+    expect(publicAfterDraftSave.website.sections[0].title).toBe('Published design');
   });
 
   it('publishes the current design atomically even when no prior draft row exists', async () => {
