@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, Logger, ServiceUnavailableException, Headers } from '@nestjs/common';
-import { IsEmail, IsNumber, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn } from 'class-validator';
+import { IsEmail, IsNumber, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn, IsBoolean } from 'class-validator';
 import { Request, Response } from 'express';
 import * as argon2 from 'argon2';
 import { randomBytes, createHash } from 'node:crypto';
@@ -35,6 +35,15 @@ class Credentials {
   @IsString() @MinLength(12) @MaxLength(200) password!: string;
   @IsOptional() @IsString() @MaxLength(120) fullName?: string;
   @IsOptional() @IsString() @MaxLength(120) businessName?: string;
+  @IsOptional() @IsBoolean() acceptedTerms?: boolean;
+}
+class LoginCredentials {
+  @IsEmail() email!: string;
+  @IsString() @MinLength(1) @MaxLength(200) password!: string;
+}
+class GoogleSignInInput {
+  @IsString() @MinLength(20) @MaxLength(10000) idToken!: string;
+  @IsOptional() @IsBoolean() acceptedTerms?: boolean;
 }
 class StoreInput { @IsString() @MaxLength(120) name!: string; @IsString() @MaxLength(100) slug!: string; @IsString() category!: string; @IsObject() settings!: object; }
 class JsonInput { @IsObject() data!: Record<string, unknown>; }
@@ -68,7 +77,7 @@ function aiResponseText(data:any){return String(data.output_text||data.output?.f
 // Keep the session cookie host-only on the API origin. A configured parent
 // domain (for example getcyb.fit) causes browsers to reject it on Render's
 // staging hostname and can also be unnecessary when the API is a subdomain.
-const cookieOptions = (expires: Date) => {const sameSite=(process.env.COOKIE_SAME_SITE||'lax') as 'lax'|'strict'|'none';return {httpOnly:true,secure:process.env.NODE_ENV==='production'||sameSite==='none',sameSite,expires,path:'/'};};
+const cookieOptions = (expires: Date) => {const sameSite=(process.env.NODE_ENV==='production'?'none':process.env.COOKIE_SAME_SITE||'lax') as 'lax'|'strict'|'none';return {httpOnly:true,secure:process.env.NODE_ENV==='production'||sameSite==='none',sameSite,expires,path:'/'};};
 
 @Controller('auth')
 export class AuthController {
@@ -76,25 +85,68 @@ export class AuthController {
   constructor(private db: DbService, private mail:MailService) {}
   @Throttle({default:{limit:5,ttl:60_000}})
   @Post('signup') async signup(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
+    if (dto.acceptedTerms !== true) throw new BadRequestException('Accept the Terms of Service and Privacy Policy to create an account');
     const email = dto.email.trim().toLowerCase();
     if (await this.db.user.findUnique({ where:{email} })) throw new ConflictException('Account already exists');
     const trialEndsAt = new Date(Date.now()+14*864e5);
     const businessName = dto.businessName?.trim() || '';
     const slugBase = businessName.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,70) || 'business';
-    const user = await this.db.$transaction(async tx => {
-      const created = await tx.user.create({ data:{ email, fullName:dto.fullName?.trim() || null, passwordHash:await argon2.hash(dto.password), role:'OWNER', emailVerifiedAt:new Date() } });
-      await tx.subscription.create({data:{userId:created.id,trialEndsAt}});
-      await tx.business.create({data:{ownerId:created.id,name:businessName,slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
-      return created;
-    });
-    const sessionToken=await this.issueSession(user.id,res);
-    return { id:user.id, email:user.email, emailVerified:true, trialEndsAt:trialEndsAt.toISOString(), ...(process.env.AUTH_BEARER_ENABLED==='true'&&sessionToken?{accessToken:sessionToken}:{}) };
+    let user;
+    try {
+      user = await this.db.$transaction(async tx => {
+        const created = await tx.user.create({ data:{ email, fullName:dto.fullName?.trim() || null, passwordHash:await argon2.hash(dto.password), role:'OWNER', emailVerifiedAt:new Date() } });
+        await tx.termsConsent.create({data:{userId:created.id,termsVersion:'2026-10-31',privacyVersion:'2026-10-31'}});
+        await tx.subscription.create({data:{userId:created.id,trialEndsAt}});
+        await tx.business.create({data:{ownerId:created.id,name:businessName,slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
+        return created;
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('Account already exists');
+      throw error;
+    }
+    await this.issueSession(user.id,res);
+    return { id:user.id, email:user.email, emailVerified:true, trialEndsAt:trialEndsAt.toISOString() };
   }
   @Throttle({default:{limit:8,ttl:60_000}})
-  @Post('login') async login(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
+  @Post('login') async login(@Body() dto: LoginCredentials, @Res({ passthrough:true }) res: Response) {
     const user = await this.db.user.findUnique({ where:{ email:dto.email.trim().toLowerCase() } });
     if (!user?.passwordHash || !(await argon2.verify(user.passwordHash,dto.password))) throw new BadRequestException('Invalid email or password');
-    const sessionToken=await this.issueSession(user.id,res); return { id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt,...(process.env.AUTH_BEARER_ENABLED==='true'?{accessToken:sessionToken}:{}) };
+    await this.issueSession(user.id,res); return { id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt };
+  }
+  @Throttle({default:{limit:8,ttl:60_000}})
+  @Post('google') async googleSignIn(@Body() dto:GoogleSignInInput,@Res({passthrough:true}) res:Response) {
+    const clientId=process.env.GOOGLE_CLIENT_ID;
+    if(!clientId)throw new ServiceUnavailableException('Google sign-in is not configured');
+    let claims:any;
+    try {
+      const response=await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(dto.idToken)}`,{signal:AbortSignal.timeout(8000)});
+      if(!response.ok)throw new Error('rejected');
+      claims=await response.json();
+    } catch { throw new BadRequestException('Google sign-in could not be verified. Please try again.'); }
+    if(claims.aud!==clientId||!['accounts.google.com','https://accounts.google.com'].includes(claims.iss)||!claims.sub||Number(claims.exp)*1000<=Date.now()||!(claims.email_verified===true||claims.email_verified==='true'))
+      throw new BadRequestException('Google sign-in could not be verified. Please try again.');
+    const email=String(claims.email||'').trim().toLowerCase();
+    if(!/^\S+@\S+\.\S+$/.test(email))throw new BadRequestException('Google did not provide a verified email address.');
+    let user=await this.db.googleIdentity.findUnique({where:{subject:String(claims.sub)},include:{user:true}}).then((identity:any)=>identity?.user||null);
+    if(user){await this.issueSession(user.id,res);return {id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt};}
+    if(await this.db.user.findUnique({where:{email}}))throw new ConflictException('An account already exists. Sign in with email and password to access it.');
+    if(dto.acceptedTerms!==true)throw new BadRequestException('Accept the Terms of Service and Privacy Policy to create an account');
+    const trialEndsAt=new Date(Date.now()+14*864e5),fullName=String(claims.name||'').trim().slice(0,120)||null;
+    const slugBase=(fullName||email.split('@')[0]).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,70)||'business';
+    try {
+      user=await this.db.$transaction(async tx=>{
+        const created=await tx.user.create({data:{email,fullName,role:'OWNER',emailVerifiedAt:new Date()}});
+        await tx.googleIdentity.create({data:{userId:created.id,subject:String(claims.sub)}});
+        await tx.termsConsent.create({data:{userId:created.id,termsVersion:'2026-10-31',privacyVersion:'2026-10-31'}});
+        await tx.subscription.create({data:{userId:created.id,trialEndsAt}});
+        await tx.business.create({data:{ownerId:created.id,name:fullName||'',slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
+        return created;
+      });
+    } catch(error) {
+      if(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==='P2002')throw new ConflictException('This Google account is already registered. Please sign in again.');
+      throw error;
+    }
+    await this.issueSession(user.id,res);return {id:user.id,email:user.email,emailVerified:true,trialEndsAt:trialEndsAt.toISOString()};
   }
   @Throttle({default:{limit:6,ttl:60_000}})
   @Post('verify-email') async verifyEmail(@Body() dto:TokenInput) {
@@ -112,7 +164,7 @@ export class AuthController {
   @Throttle({default:{limit:3,ttl:60_000}})
   @Post('forgot-password') async forgotPassword(@Body() dto:EmailInput) {
     const user=await this.db.user.findUnique({where:{email:dto.email.trim().toLowerCase()}});
-    if(user) { try { await this.createEmailLink(user.id,user.email,'reset'); } catch(error) { this.logger.error('Password reset email delivery failed'); } }
+    if(user) { try { await this.createEmailLink(user.id,user.email,'reset'); } catch(error) { this.logger.error(JSON.stringify({event:'password_reset_email_failed',reason:error instanceof Error?error.message:'unknown'})); } }
     return {ok:true,message:'If the account exists, a password reset link will be sent.'};
   }
   @Throttle({default:{limit:5,ttl:60_000}})
@@ -120,22 +172,26 @@ export class AuthController {
     const record=await this.db.passwordResetToken.findUnique({where:{tokenHash:tokenHash(dto.token)}});
     if(!record||record.expiresAt<=new Date()) throw new BadRequestException('Password reset link is invalid or expired');
     const passwordHash=await argon2.hash(dto.password);
-    await this.db.$transaction([
-      this.db.user.update({where:{id:record.userId},data:{passwordHash}}),
-      this.db.passwordResetToken.deleteMany({where:{userId:record.userId}}),
-      this.db.session.deleteMany({where:{userId:record.userId}}),
-    ]);
+    const consumed=await this.db.$transaction(async tx=>{
+      const consumed=await tx.passwordResetToken.deleteMany({where:{tokenHash:tokenHash(dto.token),expiresAt:{gt:new Date()}}});
+      if(consumed.count!==1)return false;
+      await tx.user.update({where:{id:record.userId},data:{passwordHash}});
+      await tx.passwordResetToken.deleteMany({where:{userId:record.userId}});
+      await tx.session.deleteMany({where:{userId:record.userId}});
+      return true;
+    });
+    if(!consumed)throw new BadRequestException('Password reset link is invalid or expired');
     return {reset:true};
   }
   private async createEmailLink(userId:string,email:string,type:'verify'|'reset') {
-    const token=randomBytes(32).toString('base64url'),expiresAt=new Date(Date.now()+(type==='verify'?24:1)*3600_000),hash=tokenHash(token);
+    const token=randomBytes(32).toString('base64url'),expiresAt=new Date(Date.now()+(type==='verify'?24:0.5)*3600_000),hash=tokenHash(token);
     if(type==='verify') { await this.db.verificationToken.deleteMany({where:{userId}}); await this.db.verificationToken.create({data:{userId,tokenHash:hash,expiresAt}}); }
     else { await this.db.passwordResetToken.deleteMany({where:{userId}}); await this.db.passwordResetToken.create({data:{userId,tokenHash:hash,expiresAt}}); }
     await this.mail.sendAccountLink(email,token,type);
   }
-  private async issueSession(userId:string,res:Response) {
+  private async issueSession(userId:string,res:Response):Promise<void> {
     const token=randomBytes(32).toString('base64url'), expires=new Date(Date.now()+14*864e5);
-    await this.db.session.create({ data:{ userId, tokenHash:tokenHash(token), expiresAt:expires } }); res.cookie('getcyb_session',token,cookieOptions(expires)); return token;
+    await this.db.session.create({ data:{ userId, tokenHash:tokenHash(token), expiresAt:expires } }); res.cookie('getcyb_session',token,cookieOptions(expires));
   }
   @UseGuards(SessionGuard) @Get('me') async me(@Req() req:Request & {user:any}) {
     const subscription=await this.db.subscription.findUnique({where:{userId:req.user.id}});

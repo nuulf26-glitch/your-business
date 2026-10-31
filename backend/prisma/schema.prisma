@@ -20,6 +20,8 @@ model User {
   businesses Business[]
   verificationTokens VerificationToken[]
   passwordResetTokens PasswordResetToken[]
+  termsConsents TermsConsent[]
+  googleIdentity GoogleIdentity?
   subscriptions Subscription[]
   payments PaymentReference[]
 }
@@ -40,6 +42,22 @@ model PasswordResetToken {
   expiresAt DateTime
   createdAt DateTime @default(now())
   @@index([userId, expiresAt])
+}
+model TermsConsent {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  termsVersion String
+  privacyVersion String
+  acceptedAt DateTime @default(now())
+  @@index([userId, acceptedAt])
+}
+model GoogleIdentity {
+  id String @id @default(cuid())
+  userId String @unique
+  user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  subject String @unique
+  createdAt DateTime @default(now())
 }
 model Subscription {
   id String @id @default(cuid())

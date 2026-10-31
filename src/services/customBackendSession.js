@@ -15,7 +15,6 @@ function cacheUser(user) {
 export const cacheAppUser = cacheUser;
 
 export async function customBackendRequest(path, options = {}) {
-  const sessionToken = sessionStorage.getItem('getcyb_session_token');
   let response;
   try {
     response = await fetch(`${apiBase}${path}`, {
@@ -24,7 +23,7 @@ export async function customBackendRequest(path, options = {}) {
       // Keep the browser open long enough for the API's 50s provider deadline,
       // with a small buffer for server response handling.
       signal: options.signal || AbortSignal.timeout(path.includes('/ai/') ? 55000 : 45000),
-      headers: { 'Content-Type': 'application/json', ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}), ...(options.headers || {}) },
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     });
   } catch (error) {
     if (error.name === 'TimeoutError' || error.name === 'AbortError') throw new Error('The custom backend took too long to respond. Check your connection and try again.', { cause: error });
@@ -36,8 +35,7 @@ export async function customBackendRequest(path, options = {}) {
 }
 
 export async function clearCustomBackendSession() {
-  if (readCachedUser() || sessionStorage.getItem('getcyb_session_token')) await customBackendRequest('/auth/logout', { method: 'POST' }).catch(() => {});
-  sessionStorage.removeItem('getcyb_session_token');
+  if (readCachedUser()) await customBackendRequest('/auth/logout', { method: 'POST' }).catch(() => {});
   sessionStorage.removeItem(cachedUserKey);
 }
 export async function getAppUser() {
@@ -48,7 +46,6 @@ export async function getAppUser() {
     return account;
   } catch (error) {
     if (error.status === 401 || error.status === 403) {
-      sessionStorage.removeItem('getcyb_session_token');
       sessionStorage.removeItem(cachedUserKey);
       return null;
     }
