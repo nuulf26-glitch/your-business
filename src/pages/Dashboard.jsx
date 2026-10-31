@@ -8,6 +8,8 @@ import "../styles/dashboard.css";
 import { getOrders } from "../services/orderService";
 import { getCustomers } from "../services/customerService";
 import { getAppUser } from "../services/customBackendSession";
+import { loadWebsiteRecord } from "../editor/versionService";
+import { websitePublicationStatus } from "../editor/websiteStatus";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -25,6 +27,8 @@ function Dashboard() {
 const [customers, setCustomers] = useState([]);
 const [products, setProducts] = useState([]);
 const [userProfile, setUserProfile] = useState(null);
+  const [websiteRecord, setWebsiteRecord] = useState(null);
+  const [websiteStatus, setWebsiteStatus] = useState("Checking…");
   useEffect(() => {
     async function loadDashboardData() {
       try {
@@ -36,10 +40,15 @@ const [userProfile, setUserProfile] = useState(null);
           return;
         }
 
-        const currentStore = await getStore();
-        setStore(currentStore);
-        setProducts(await getProducts());
-        const [ordersData, customersData] = await Promise.all([getOrders(), getCustomers()]);
+        const [storeResult, websiteResult, productResult, ordersResult, customersResult] = await Promise.allSettled([getStore(), loadWebsiteRecord(), getProducts(), getOrders(), getCustomers()]);
+        if (storeResult.status === 'fulfilled') setStore(storeResult.value);
+        if (websiteResult.status === 'fulfilled') {
+          setWebsiteRecord(websiteResult.value);
+          setWebsiteStatus(websitePublicationStatus(websiteResult.value));
+        } else setWebsiteStatus('Unavailable');
+        if (productResult.status === 'fulfilled') setProducts(productResult.value);
+        const ordersData = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
+        const customersData = customersResult.status === 'fulfilled' ? customersResult.value : [];
         setOrders(ordersData);
         setCustomers(customersData);
 
@@ -54,7 +63,7 @@ const [userProfile, setUserProfile] = useState(null);
     loadDashboardData();
   }, []);
   const websiteSetup = store;
-  const editorData = store?.draftEditorData || store?.editorData;
+  const editorData = websiteRecord?.draft || store?.draftEditorData || store?.editorData;
   const businessName = editorData?.brandName || store?.businessName || store?.storeName || 'Your Business';
   const selectedTemplate = editorData?.template || store?.template || 'minimal';
   const metrics = useMemo(() => orderMetrics(orders), [orders]);
@@ -222,6 +231,13 @@ const [userProfile, setUserProfile] = useState(null);
       <p>
         Your GETCYB account is active until {new Date(userProfile.trialEndsAt).toLocaleDateString()}.
       </p>
+      <button
+        type="button"
+        className="dashboard-primary-button"
+        onClick={() => navigate("/platform-payment")}
+      >
+        Pay $246 once — lifetime access
+      </button>
     </>
   ) : (
     <>
@@ -380,10 +396,7 @@ const [userProfile, setUserProfile] = useState(null);
               <div>
                 <span>Status</span>
                 <strong>
-                  {localStorage.getItem("websitePublished") ===
-                  "true"
-                    ? "Published"
-                    : "Draft"}
+                  {websiteStatus}
                 </strong>
               </div>
 

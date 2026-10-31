@@ -20,6 +20,8 @@ model User {
   businesses Business[]
   verificationTokens VerificationToken[]
   passwordResetTokens PasswordResetToken[]
+  termsConsents TermsConsent[]
+  googleIdentity GoogleIdentity?
   subscriptions Subscription[]
   payments PaymentReference[]
 }
@@ -40,6 +42,22 @@ model PasswordResetToken {
   expiresAt DateTime
   createdAt DateTime @default(now())
   @@index([userId, expiresAt])
+}
+model TermsConsent {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  termsVersion String
+  privacyVersion String
+  acceptedAt DateTime @default(now())
+  @@index([userId, acceptedAt])
+}
+model GoogleIdentity {
+  id String @id @default(cuid())
+  userId String @unique
+  user User @relation(fields:[userId], references:[id], onDelete:Cascade)
+  subject String @unique
+  createdAt DateTime @default(now())
 }
 model Subscription {
   id String @id @default(cuid())
@@ -164,4 +182,20 @@ model LegacyDocument {
   data Json
   importedAt DateTime @default(now())
   @@index([collectionPath, sourceId])
+}
+
+// Metadata only. Binary media stays in persistent private object storage.
+model MediaAsset {
+  id String @id
+  ownerId String
+  contentType String
+  size Int
+  checksum String
+  objectKey String @unique
+  status String @default("PENDING")
+  width Int?
+  height Int?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([ownerId, status, expiresAt])
 }

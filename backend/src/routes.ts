@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, Logger, ServiceUnavailableException, Headers } from '@nestjs/common';
-import { IsEmail, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn } from 'class-validator';
+import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, Logger, ServiceUnavailableException, Headers, UnauthorizedException } from '@nestjs/common';
+import { IsEmail, IsNumber, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn, IsBoolean } from 'class-validator';
 import { Request, Response } from 'express';
 import * as argon2 from 'argon2';
 import { randomBytes, createHash } from 'node:crypto';
+import { MediaStorage, assertOwnedMedia } from './media-storage';
 import { getStore } from '@netlify/blobs';
 import { Throttle } from '@nestjs/throttler';
 import { DbService } from './database';
@@ -12,6 +13,8 @@ import { MailService } from './mail';
 import { publicWebsite, validateWebsite } from './website-policy';
 import { applyAiWebsiteOperations } from './ai-website';
 import { allocate, localParts } from './availability';
+
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
 @Controller('health')
 export class HealthController {
@@ -32,6 +35,18 @@ class Credentials {
   @IsString() @MinLength(12) @MaxLength(200) password!: string;
   @IsOptional() @IsString() @MaxLength(120) fullName?: string;
   @IsOptional() @IsString() @MaxLength(120) businessName?: string;
+  @IsOptional() @IsBoolean() acceptedTerms?: boolean;
+}
+class LoginCredentials {
+  @IsEmail() email!: string;
+  @IsString() @MinLength(1) @MaxLength(200) password!: string;
+}
+class GoogleSignInInput {
+  @IsString() @MinLength(20) @MaxLength(10000) idToken!: string;
+  @IsOptional() @IsBoolean() acceptedTerms?: boolean;
+}
+class LegacySessionInput {
+  @IsString() @MinLength(32) @MaxLength(200) sessionToken!: string;
 }
 class StoreInput { @IsString() @MaxLength(120) name!: string; @IsString() @MaxLength(100) slug!: string; @IsString() category!: string; @IsObject() settings!: object; }
 class JsonInput { @IsObject() data!: Record<string, unknown>; }
@@ -42,6 +57,7 @@ class TokenInput { @IsString() @MinLength(32) @MaxLength(200) token!: string; }
 class ResetInput extends TokenInput { @IsString() @MinLength(12) @MaxLength(200) password!: string; }
 class EmailInput { @IsEmail() email!: string; }
 class PayPalCaptureInput { @IsString() @MaxLength(100) orderId!: string; }
+class StripeSessionInput { @IsString() @MaxLength(200) sessionId!: string; }
 class OrderStatusInput { @IsString() @MaxLength(30) status!: string; }
 class CustomerStatusInput { @IsString() @MaxLength(30) status!: string; }
 class IdInput { @IsString() @MaxLength(120) id!: string; }
@@ -64,7 +80,7 @@ function aiResponseText(data:any){return String(data.output_text||data.output?.f
 // Keep the session cookie host-only on the API origin. A configured parent
 // domain (for example getcyb.fit) causes browsers to reject it on Render's
 // staging hostname and can also be unnecessary when the API is a subdomain.
-const cookieOptions = (expires: Date) => {const sameSite=(process.env.COOKIE_SAME_SITE||'lax') as 'lax'|'strict'|'none';return {httpOnly:true,secure:process.env.NODE_ENV==='production'||sameSite==='none',sameSite,expires,path:'/'};};
+const cookieOptions = (expires: Date) => {const sameSite=(process.env.NODE_ENV==='production'?'none':process.env.COOKIE_SAME_SITE||'lax') as 'lax'|'strict'|'none';return {httpOnly:true,secure:process.env.NODE_ENV==='production'||sameSite==='none',sameSite,expires,path:'/'};};
 
 @Controller('auth')
 export class AuthController {
@@ -72,25 +88,83 @@ export class AuthController {
   constructor(private db: DbService, private mail:MailService) {}
   @Throttle({default:{limit:5,ttl:60_000}})
   @Post('signup') async signup(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
+    if (dto.acceptedTerms !== true) throw new BadRequestException('Accept the Terms of Service and Privacy Policy to create an account');
     const email = dto.email.trim().toLowerCase();
     if (await this.db.user.findUnique({ where:{email} })) throw new ConflictException('Account already exists');
     const trialEndsAt = new Date(Date.now()+14*864e5);
     const businessName = dto.businessName?.trim() || '';
     const slugBase = businessName.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,70) || 'business';
-    const user = await this.db.$transaction(async tx => {
-      const created = await tx.user.create({ data:{ email, fullName:dto.fullName?.trim() || null, passwordHash:await argon2.hash(dto.password), role:'OWNER', emailVerifiedAt:new Date() } });
-      await tx.subscription.create({data:{userId:created.id,trialEndsAt}});
-      await tx.business.create({data:{ownerId:created.id,name:businessName,slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
-      return created;
-    });
-    const sessionToken=await this.issueSession(user.id,res);
-    return { id:user.id, email:user.email, emailVerified:true, trialEndsAt:trialEndsAt.toISOString(), ...(process.env.AUTH_BEARER_ENABLED==='true'&&sessionToken?{accessToken:sessionToken}:{}) };
+    let user;
+    try {
+      user = await this.db.$transaction(async tx => {
+        const created = await tx.user.create({ data:{ email, fullName:dto.fullName?.trim() || null, passwordHash:await argon2.hash(dto.password), role:'OWNER', emailVerifiedAt:new Date() } });
+        await tx.termsConsent.create({data:{userId:created.id,termsVersion:'2026-10-31',privacyVersion:'2026-10-31'}});
+        await tx.subscription.create({data:{userId:created.id,trialEndsAt}});
+        await tx.business.create({data:{ownerId:created.id,name:businessName,slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
+        return created;
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('Account already exists');
+      throw error;
+    }
+    await this.issueSession(user.id,res);
+    return { id:user.id, email:user.email, emailVerified:true, trialEndsAt:trialEndsAt.toISOString() };
   }
   @Throttle({default:{limit:8,ttl:60_000}})
-  @Post('login') async login(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
+  @Post('login') async login(@Body() dto: LoginCredentials, @Res({ passthrough:true }) res: Response) {
     const user = await this.db.user.findUnique({ where:{ email:dto.email.trim().toLowerCase() } });
     if (!user?.passwordHash || !(await argon2.verify(user.passwordHash,dto.password))) throw new BadRequestException('Invalid email or password');
-    const sessionToken=await this.issueSession(user.id,res); return { id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt,...(process.env.AUTH_BEARER_ENABLED==='true'?{accessToken:sessionToken}:{}) };
+    await this.issueSession(user.id,res); return { id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt };
+  }
+  @Throttle({default:{limit:5,ttl:60_000}})
+  @Post('migrate-session') async migrateLegacySession(@Body() dto:LegacySessionInput,@Res({passthrough:true}) res:Response) {
+    const now=new Date(),expires=new Date(now.getTime()+14*864e5),oldHash=tokenHash(dto.sessionToken),token=randomBytes(32).toString('base64url');
+    const rotated=await this.db.$transaction(async tx=>{
+      const old=await tx.session.findUnique({where:{tokenHash:oldHash},include:{user:true}});
+      if(!old||old.expiresAt<=now)return null;
+      const removed=await tx.session.deleteMany({where:{id:old.id,expiresAt:{gt:now}}});
+      if(removed.count!==1)return null;
+      await tx.session.create({data:{userId:old.userId,tokenHash:tokenHash(token),expiresAt:expires}});
+      return old.user;
+    });
+    if(!rotated)throw new UnauthorizedException('Session expired');
+    res.cookie('getcyb_session',token,cookieOptions(expires));
+    return {id:rotated.id,email:rotated.email,emailVerified:!!rotated.emailVerifiedAt,role:rotated.role};
+  }
+  @Throttle({default:{limit:8,ttl:60_000}})
+  @Post('google') async googleSignIn(@Body() dto:GoogleSignInInput,@Res({passthrough:true}) res:Response) {
+    const clientId=process.env.GOOGLE_CLIENT_ID;
+    if(!clientId)throw new ServiceUnavailableException('Google sign-in is not configured');
+    let claims:any;
+    try {
+      const response=await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(dto.idToken)}`,{signal:AbortSignal.timeout(8000)});
+      if(!response.ok)throw new Error('rejected');
+      claims=await response.json();
+    } catch { throw new BadRequestException('Google sign-in could not be verified. Please try again.'); }
+    if(claims.aud!==clientId||!['accounts.google.com','https://accounts.google.com'].includes(claims.iss)||!claims.sub||Number(claims.exp)*1000<=Date.now()||!(claims.email_verified===true||claims.email_verified==='true'))
+      throw new BadRequestException('Google sign-in could not be verified. Please try again.');
+    const email=String(claims.email||'').trim().toLowerCase();
+    if(!/^\S+@\S+\.\S+$/.test(email))throw new BadRequestException('Google did not provide a verified email address.');
+    let user=await this.db.googleIdentity.findUnique({where:{subject:String(claims.sub)},include:{user:true}}).then((identity:any)=>identity?.user||null);
+    if(user){await this.issueSession(user.id,res);return {id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt};}
+    if(await this.db.user.findUnique({where:{email}}))throw new ConflictException('An account already exists. Sign in with email and password to access it.');
+    if(dto.acceptedTerms!==true)throw new BadRequestException('Accept the Terms of Service and Privacy Policy to create an account');
+    const trialEndsAt=new Date(Date.now()+14*864e5),fullName=String(claims.name||'').trim().slice(0,120)||null;
+    const slugBase=(fullName||email.split('@')[0]).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,70)||'business';
+    try {
+      user=await this.db.$transaction(async tx=>{
+        const created=await tx.user.create({data:{email,fullName,role:'OWNER',emailVerifiedAt:new Date()}});
+        await tx.googleIdentity.create({data:{userId:created.id,subject:String(claims.sub)}});
+        await tx.termsConsent.create({data:{userId:created.id,termsVersion:'2026-10-31',privacyVersion:'2026-10-31'}});
+        await tx.subscription.create({data:{userId:created.id,trialEndsAt}});
+        await tx.business.create({data:{ownerId:created.id,name:fullName||'',slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
+        return created;
+      });
+    } catch(error) {
+      if(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==='P2002')throw new ConflictException('This Google account is already registered. Please sign in again.');
+      throw error;
+    }
+    await this.issueSession(user.id,res);return {id:user.id,email:user.email,emailVerified:true,trialEndsAt:trialEndsAt.toISOString()};
   }
   @Throttle({default:{limit:6,ttl:60_000}})
   @Post('verify-email') async verifyEmail(@Body() dto:TokenInput) {
@@ -108,7 +182,7 @@ export class AuthController {
   @Throttle({default:{limit:3,ttl:60_000}})
   @Post('forgot-password') async forgotPassword(@Body() dto:EmailInput) {
     const user=await this.db.user.findUnique({where:{email:dto.email.trim().toLowerCase()}});
-    if(user) { try { await this.createEmailLink(user.id,user.email,'reset'); } catch(error) { this.logger.error('Password reset email delivery failed'); } }
+    if(user) { try { await this.createEmailLink(user.id,user.email,'reset'); } catch(error) { this.logger.error(JSON.stringify({event:'password_reset_email_failed',reason:error instanceof Error?error.message:'unknown'})); } }
     return {ok:true,message:'If the account exists, a password reset link will be sent.'};
   }
   @Throttle({default:{limit:5,ttl:60_000}})
@@ -116,22 +190,26 @@ export class AuthController {
     const record=await this.db.passwordResetToken.findUnique({where:{tokenHash:tokenHash(dto.token)}});
     if(!record||record.expiresAt<=new Date()) throw new BadRequestException('Password reset link is invalid or expired');
     const passwordHash=await argon2.hash(dto.password);
-    await this.db.$transaction([
-      this.db.user.update({where:{id:record.userId},data:{passwordHash}}),
-      this.db.passwordResetToken.deleteMany({where:{userId:record.userId}}),
-      this.db.session.deleteMany({where:{userId:record.userId}}),
-    ]);
+    const consumed=await this.db.$transaction(async tx=>{
+      const consumed=await tx.passwordResetToken.deleteMany({where:{tokenHash:tokenHash(dto.token),expiresAt:{gt:new Date()}}});
+      if(consumed.count!==1)return false;
+      await tx.user.update({where:{id:record.userId},data:{passwordHash}});
+      await tx.passwordResetToken.deleteMany({where:{userId:record.userId}});
+      await tx.session.deleteMany({where:{userId:record.userId}});
+      return true;
+    });
+    if(!consumed)throw new BadRequestException('Password reset link is invalid or expired');
     return {reset:true};
   }
   private async createEmailLink(userId:string,email:string,type:'verify'|'reset') {
-    const token=randomBytes(32).toString('base64url'),expiresAt=new Date(Date.now()+(type==='verify'?24:1)*3600_000),hash=tokenHash(token);
+    const token=randomBytes(32).toString('base64url'),expiresAt=new Date(Date.now()+(type==='verify'?24:0.5)*3600_000),hash=tokenHash(token);
     if(type==='verify') { await this.db.verificationToken.deleteMany({where:{userId}}); await this.db.verificationToken.create({data:{userId,tokenHash:hash,expiresAt}}); }
     else { await this.db.passwordResetToken.deleteMany({where:{userId}}); await this.db.passwordResetToken.create({data:{userId,tokenHash:hash,expiresAt}}); }
     await this.mail.sendAccountLink(email,token,type);
   }
-  private async issueSession(userId:string,res:Response) {
+  private async issueSession(userId:string,res:Response):Promise<void> {
     const token=randomBytes(32).toString('base64url'), expires=new Date(Date.now()+14*864e5);
-    await this.db.session.create({ data:{ userId, tokenHash:tokenHash(token), expiresAt:expires } }); res.cookie('getcyb_session',token,cookieOptions(expires)); return token;
+    await this.db.session.create({ data:{ userId, tokenHash:tokenHash(token), expiresAt:expires } }); res.cookie('getcyb_session',token,cookieOptions(expires));
   }
   @UseGuards(SessionGuard) @Get('me') async me(@Req() req:Request & {user:any}) {
     const subscription=await this.db.subscription.findUnique({where:{userId:req.user.id}});
@@ -254,8 +332,8 @@ export class ProductController {
   constructor(private db:DbService){}
   private async business(userId:string){const b=await this.db.business.findFirst({where:{ownerId:userId}});if(!b)throw new NotFoundException('Create a business first');return b;}
   @Get() async list(@Req() req:Request & {user:any}) {const b=await this.business(req.user.id);return this.db.product.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'}});}
-  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const name=String(dto.data.name||'').trim();if(!name)throw new BadRequestException('Product name required');return this.db.product.create({data:{businessId:b.id,name,data:dto.data as any}});}
-  @Put(':id') async update(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');const merged={...(prior.data as Record<string,unknown>),...dto.data};const name=String(merged.name||prior.name).trim();if(!name)throw new BadRequestException('Product name required');const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{name,data:merged as any}});if(!result.count)throw new NotFoundException('Product not found');return this.db.product.findUnique({where:{id}});}
+  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const name=String(dto.data.name||'').trim();if(!name)throw new BadRequestException('Product name required');await assertOwnedMedia(this.db,req.user.id,dto.data);return this.db.product.create({data:{businessId:b.id,name,data:dto.data as any}});}
+  @Put(':id') async update(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');await assertOwnedMedia(this.db,req.user.id,dto.data);const merged={...(prior.data as Record<string,unknown>),...dto.data};const name=String(merged.name||prior.name).trim();if(!name)throw new BadRequestException('Product name required');const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{name,data:merged as any}});if(!result.count)throw new NotFoundException('Product not found');return this.db.product.findUnique({where:{id}});}
   @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.business(req.user.id);const result=await this.db.product.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Product not found');return {deleted:true};}
 }
 
@@ -267,10 +345,10 @@ export class PublicProductController {
     const rows=await this.db.product.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:300});
     return rows.filter(row=>(row.data as any)?.status!=='hidden').map(row=>{
       const data=row.data as Record<string,unknown>;
-      return {id:row.id,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};
+      return {id:row.id,storeUrl:business.slug,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,images:data.images,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};
     });
   }
-  @Get('item/:id') async one(@Req() req:Request){const id=String(req.params['id']||'');const row=await this.db.product.findUnique({where:{id},include:{business:{include:{website:true}}}});if(!row||!row.business.website?.published||(row.data as any)?.status==='hidden')throw new NotFoundException('Product not found');const data=row.data as Record<string,unknown>;return {id:row.id,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};}
+  @Get('item/:id') async one(@Req() req:Request){const id=String(req.params['id']||'');const row=await this.db.product.findUnique({where:{id},include:{business:{include:{website:true}}}});if(!row||!row.business.website?.published||(row.data as any)?.status==='hidden')throw new NotFoundException('Product not found');const data=row.data as Record<string,unknown>;return {id:row.id,storeUrl:row.business.slug,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,images:data.images,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};}
 }
 
 @Controller('customers')
@@ -305,7 +383,7 @@ export class OrderController {
 @Controller('public/orders')
 export class PublicOrderController {
   constructor(private db:DbService){}
-  @Post() async create(@Body() dto:JsonInput){const data=dto.data as Record<string,any>;const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===item.id),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||(product.data as any)?.status==='hidden')throw new BadRequestException('A product in this order is unavailable');const p=product.data as any,price=Number(p.salePrice||p.sellingPrice||p.price||0);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');return {...item,id:product.id,name:product.name,price,quantity};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),shipping=subtotal>=300?0:25,amount=subtotal+shipping;const normalized={...data,items,subtotal,shipping,total:amount,currency:'USD',status:'New',paymentStatus:'Pending',createdAt:new Date().toISOString()};const order=await this.db.$transaction(async tx=>{const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:'USD',data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0)+amount};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;});return {...(order.data as object),id:order.id,status:order.status,createdAt:order.createdAt};}
+  @Post() async create(@Body() dto:JsonInput){const data=dto.data as Record<string,any>;const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===String(item.id||item.productId||'')),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||(product.data as any)?.status==='hidden')throw new BadRequestException('A product in this order is unavailable');const p=product.data as any,price=Number(p.salePrice||p.sellingPrice||p.price||0);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');return {...item,id:product.id,name:product.name,price,quantity};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),shipping=subtotal>=300?0:25,amount=subtotal+shipping;const normalized={...data,items,subtotal,shipping,total:amount,currency:'USD',status:'New',paymentStatus:'Pending',createdAt:new Date().toISOString()};const order=await this.db.$transaction(async tx=>{const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:'USD',data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0)+amount};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;});return {...(order.data as object),id:order.id,status:order.status,createdAt:order.createdAt};}
   @Post(':id/cash-on-delivery') async setCashOnDelivery(@Req() req:Request,@Body() dto:JsonInput){const id=String(req.params['id']);const row=await this.db.order.findUnique({where:{id}});if(!row||row.status!=='new')throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...(dto.data||{}),paymentMethod:'cash',paymentStatus:'Cash on delivery'};await this.db.order.update({where:{id},data:{data:data as any}});return {ok:true};}
 }
 
@@ -353,35 +431,44 @@ export class WebsiteController {
     const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};
   }
   @UseGuards(SessionGuard) @Get('draft') async draft(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});return b?.website||null;}
-  @UseGuards(SessionGuard) @Put('draft') async saveDraft(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');const model=validateWebsite(dto.model,false);return this.db.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any},update:{draft:model as any,revision:{increment:1}}});}
-  @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)throw new NotFoundException('Website draft not found');const model=validateWebsite(dto.model,true);return this.db.$transaction(async tx=>{const site=await tx.website.update({where:{id:b.website!.id},data:{draft:model as any,published:publicWebsite(model) as any,publishedAt:new Date(),revision:{increment:1}}});const version=await tx.websiteVersion.create({data:{websiteId:site.id,snapshot:site.draft as any}});return {published:true,revision:site.revision,slug:b.slug,versionId:version.id};});}
+  @UseGuards(SessionGuard) @Put('draft') async saveDraft(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');const model=validateWebsite(dto.model,false);await assertOwnedMedia(this.db,req.user.id,model);return this.db.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any},update:{draft:model as any,revision:{increment:1}}});}
+  @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business before publishing');const model=validateWebsite(dto.model,true);await assertOwnedMedia(this.db,req.user.id,model);return this.db.$transaction(async tx=>{const publishedAt=new Date();const site=await tx.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any,published:publicWebsite(model) as any,publishedAt},update:{draft:model as any,published:publicWebsite(model) as any,publishedAt,revision:{increment:1}}});const version=await tx.websiteVersion.create({data:{websiteId:site.id,snapshot:site.draft as any}});return {published:true,revision:site.revision,slug:b.slug,versionId:version.id};});}
   @UseGuards(SessionGuard) @Post('unpublish') async unpublish(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');return this.db.website.updateMany({where:{businessId:b.id},data:{published:Prisma.DbNull,publishedAt:null}});}
   @UseGuards(SessionGuard) @Get('versions') async versions(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)return [];return (await this.db.websiteVersion.findMany({where:{websiteId:b.website.id},orderBy:{createdAt:'desc'},take:10})).map(({snapshot,createdAt,...version})=>({...version,model:snapshot,publishedAt:createdAt}));}
   @UseGuards(SessionGuard) @Post('restore/:id') async restore(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)throw new NotFoundException('Website not found');const version=await this.db.websiteVersion.findFirst({where:{id:String(req.params['id']),websiteId:b.website.id}});if(!version)throw new NotFoundException('Version not found');const model=validateWebsite(version.snapshot,false);return this.db.website.update({where:{businessId:b.id},data:{draft:model as any,revision:{increment:1}}});}
   @Get('public/:slug') async publicSite(@Req() req:Request){const slug=String(req.params['slug']||'');const business=await this.db.business.findUnique({where:{slug}});if(!business)throw new NotFoundException('Website not found');const site=await this.db.website.findUnique({where:{businessId:business.id}});return {business:{name:business.name,slug:business.slug,category:business.category},website:site?.published||null,published:!!site?.published};}
 }
 
+class MediaUploadInput {
+  @IsString() @IsIn(['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm']) contentType!: string;
+  @IsNumber() size!: number;
+  @IsString() @MaxLength(44) checksum!: string;
+}
+
 @Controller('uploads')
 export class UploadController {
+  constructor(private mediaStorage: MediaStorage) {}
+  @UseGuards(SessionGuard) @Get('status') status() { return this.mediaStorage.status(); }
+  @UseGuards(SessionGuard) @Post('authorize') authorize(@Req() req: Request & {user:any}, @Body() dto: MediaUploadInput) { return this.mediaStorage.authorize(req.user.id, dto); }
+  @UseGuards(SessionGuard) @Post('complete/:id') complete(@Req() req: Request & {user:any}) { return this.mediaStorage.complete(req.user.id, String(req.params['id'])); }
+  @Throttle({default:{limit:600,ttl:60_000}})
+  @Get('media/:id') async media(@Req() req: Request, @Res() response: Response) { response.setHeader('Cache-Control','no-store'); response.setHeader('Cross-Origin-Resource-Policy','cross-origin'); return response.redirect(307, await this.mediaStorage.publicUrl(String(req.params['id']))); }
+
   @UseGuards(SessionGuard)
   @Post() async upload(@Req() req:Request & {user:any},@Headers('content-type') contentType:string,@Req() request:Request,@Res() response:Response) {
-    const allowed=['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','video/quicktime'];
-    if(!allowed.includes(contentType))throw new BadRequestException('Unsupported media type');
     const bytes=Buffer.isBuffer(request.body)?request.body:Buffer.alloc(0);
-    if(bytes.length<1||bytes.length>5*1024*1024)throw new BadRequestException('Media files must be 5 MB or smaller');
-    const key=`businesses/${req.user.id}/${randomBytes(18).toString('hex')}`;
-    const store=getStore('getcyb-assets');
-    const image=new ArrayBuffer(bytes.length);new Uint8Array(image).set(bytes);
-    await store.set(key,image,{metadata:{owner:req.user.id,contentType}});
-    return response.status(201).json({key,publicUrl:`/api/v1/uploads/${key}`});
+    if(bytes.length<1||bytes.length>MAX_UPLOAD_BYTES)throw new BadRequestException('Media files must be 4 MB or smaller on this legacy upload endpoint. Use direct uploads for larger files.');
+    const result=await this.mediaStorage.uploadSmall(req.user.id,contentType,bytes);
+    return response.status(201).json(result);
   }
   @Get(['businesses/:owner/:name', ':owner/:name']) async read(@Req() req:Request,@Res() response:Response) {
     const owner=String(req.params['owner']||''),name=String(req.params['name']||'');
     if(!/^[a-zA-Z0-9_-]{1,120}$/.test(owner)||!/^[a-f0-9]{36}$/.test(name))throw new NotFoundException('Image not found');
-    const key=`businesses/${owner}/${name}`,store=getStore('getcyb-assets');
+    const key=`businesses/${owner}/${name}`,store=legacyMediaStore();
     const metadata=await store.getMetadata(key);
     if(!metadata)throw new NotFoundException('Image not found');
     const image=await store.get(key,{type:'arrayBuffer'});
+    response.setHeader('Cross-Origin-Resource-Policy','cross-origin');
     response.setHeader('Content-Type',String(metadata.metadata.contentType||'application/octet-stream'));
     response.setHeader('Cache-Control','public, max-age=31536000, immutable');
     return response.status(200).send(Buffer.from(image));
@@ -421,5 +508,72 @@ export class PayPalController {
       this.db.subscription.upsert({where:{userId:req.user.id},create:{userId:req.user.id,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}}),
     ]);
     return {success:true,status:'COMPLETED',orderId:capture.id};
+  }
+}
+
+function legacyMediaStore() {
+  try { return process.env.NETLIFY_BLOBS_SITE_ID && process.env.NETLIFY_BLOBS_TOKEN ? getStore({name:'getcyb-assets',siteID:process.env.NETLIFY_BLOBS_SITE_ID,token:process.env.NETLIFY_BLOBS_TOKEN}) : getStore('getcyb-assets'); } catch { throw new ServiceUnavailableException('Legacy media storage is unavailable on this API. Use the updated direct upload flow or configure legacy Netlify Blobs access.'); }
+}
+
+
+@Controller('payments/stripe')
+@UseGuards(SessionGuard)
+export class StripeController {
+  constructor(private db:DbService){}
+  private async stripeRequest(path:string, init:RequestInit={}) {
+    const key=process.env.STRIPE_SECRET_KEY;
+    if(!key)throw new BadRequestException('Stripe is not configured');
+    let response:globalThis.Response;
+    try { response=await fetch(`https://api.stripe.com/v1${path}`,{...init,headers:{Authorization:`Bearer ${key}`,...(init.headers||{})},signal:AbortSignal.timeout(20000)}); }
+    catch { throw new ServiceUnavailableException('Stripe could not be reached. Please try again.'); }
+    const body=await response.json().catch(()=>({})) as any;
+    if(!response.ok) {
+      Logger.error(JSON.stringify({status:response.status,code:body.error?.code||'unknown',type:body.error?.type||'unknown'}),'Stripe');
+      throw new BadRequestException('Stripe could not complete the payment request. Please try again.');
+    }
+    return body;
+  }
+  @Post('checkout-sessions') async createCheckoutSession(@Req() req:Request & {user:any}) {
+    const amount=process.env.STRIPE_BASIC_AMOUNT||'24600',currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
+    if(!/^\d+$/.test(amount)||Number(amount)<50||!/^[a-z]{3}$/.test(currency))throw new BadRequestException('Stripe price configuration is invalid');
+    let appUrl:string;
+    try { const parsed=new URL(process.env.PUBLIC_APP_URL||'https://getcyb.fit'); if(!['https:','http:'].includes(parsed.protocol))throw new Error(); appUrl=parsed.origin; }
+    catch { throw new BadRequestException('Stripe return URL configuration is invalid'); }
+    const form=new URLSearchParams({
+      mode:'payment',
+      success_url:`${appUrl}/platform-payment?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:`${appUrl}/platform-payment?stripe_cancelled=1`,
+      client_reference_id:req.user.id,
+      'metadata[userId]':req.user.id,
+      'metadata[intent]':'PLATFORM_ACCESS',
+      'line_items[0][price_data][currency]':currency,
+      'line_items[0][price_data][unit_amount]':amount,
+      'line_items[0][price_data][product_data][name]':Number(amount)===100?'CYB Stripe Test Payment':'CYB Lifetime Access',
+      'line_items[0][price_data][product_data][description]':Number(amount)===100?'Temporary staging payment verification':'One-time payment for lifetime access to CYB',
+      'line_items[0][quantity]':'1',
+    });
+    const session=await this.stripeRequest('/checkout/sessions',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:form.toString()});
+    if(!session.id||!session.url)throw new ServiceUnavailableException('Stripe did not return a checkout link. Please try again.');
+    await this.db.paymentReference.create({data:{provider:'stripe',providerOrderId:session.id,status:'PENDING',amountCents:Number(amount),currency:currency.toUpperCase(),userId:req.user.id,metadata:{intent:'PLATFORM_ACCESS'}}});
+    return {url:session.url};
+  }
+  @Post('confirm-checkout') async confirmCheckout(@Req() req:Request & {user:any},@Body() dto:StripeSessionInput) {
+    const payment=await this.db.paymentReference.findUnique({where:{providerOrderId:dto.sessionId}});
+    if(!payment||payment.provider!=='stripe'||payment.userId!==req.user.id)throw new NotFoundException('Stripe checkout session not found');
+    if(payment.status==='COMPLETED')return {success:true,status:'COMPLETED'};
+    if(payment.status!=='PENDING')throw new BadRequestException('Stripe checkout session cannot be confirmed');
+    const session=await this.stripeRequest(`/checkout/sessions/${encodeURIComponent(dto.sessionId)}`);
+    const valid=session.mode==='payment'&&session.payment_status==='paid'&&session.client_reference_id===req.user.id&&session.metadata?.userId===req.user.id&&session.metadata?.intent==='PLATFORM_ACCESS'&&session.currency===payment.currency.toLowerCase()&&session.amount_total===payment.amountCents;
+    if(!valid)throw new BadRequestException('Stripe payment verification failed');
+    await this.db.$transaction(async tx=>{
+      const updated=await tx.paymentReference.updateMany({where:{id:payment.id,status:'PENDING'},data:{status:'COMPLETED',providerCaptureId:dto.sessionId,metadata:{intent:'PLATFORM_ACCESS',stripeSessionId:dto.sessionId,paymentIntentId:session.payment_intent||null}}});
+      if(!updated.count) {
+        const current=await tx.paymentReference.findUnique({where:{id:payment.id}});
+        if(current?.status==='COMPLETED')return;
+        throw new BadRequestException('Stripe payment is already being confirmed');
+      }
+      await tx.subscription.upsert({where:{userId:req.user.id},create:{userId:req.user.id,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}});
+    });
+    return {success:true,status:'COMPLETED'};
   }
 }

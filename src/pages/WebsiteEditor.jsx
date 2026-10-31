@@ -1,8 +1,8 @@
 import { EDITOR_MODES, editorMode } from "../editor/editorState";
 import { groupSections, ungroupSections, mediaAssets } from "../editor/structure";
-import { publishSnapshot, websiteVersions, loadWebsiteDraft, saveWebsiteDraft, unpublishWebsite } from "../editor/versionService";
-import WebsiteRenderer, { WebsiteSection } from "../editor/WebsiteRenderer";
-import { sectionStyle } from "../editor/sectionStyle";
+import { publishSnapshot, websiteVersions, loadWebsiteRecord, saveWebsiteDraft, unpublishWebsite } from "../editor/versionService";
+import { websitePublicationStatus } from "../editor/websiteStatus";
+import WebsiteRenderer from "../editor/WebsiteRenderer";
 import { websitePages, changePageSections, addWebsitePage, pageSlug, reorderPage } from "../editor/pages";
 import { DESIGN_COLLECTIONS, collectionSections, collectionWebsite } from "../editor/collections";
 
@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { getStore } from "../services/storeService";
 import { getProducts, updateProduct } from "../services/productService";
 import { uploadProductImage } from "../services/imageService";
+import { isSupportedImageFile } from "../media/uploadPolicy.js";
 import AiDesigner from "../components/AiDesigner";
 import EditorProductForm from '../components/EditorProductForm';
 import MediaFields from '../media/MediaFields';
@@ -216,7 +217,7 @@ function migrateLegacyEditor(raw) {
 }
 
 function isImageFile(file) {
-  return ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file?.type) && file.size > 0 && file.size <= 5 * 1024 * 1024;
+  return isSupportedImageFile(file);
 }
 
 export default function WebsiteEditor() {
@@ -250,6 +251,7 @@ export default function WebsiteEditor() {
   const [showAiDesigner, setShowAiDesigner] = useState(false);
   const [publishUrl, setPublishUrl] = useState("");
   const [status, setStatus] = useState("Saved");
+  const [publicationStatus, setPublicationStatus] = useState('Checking…');
   const [saving, setSaving] = useState(false);
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
@@ -271,20 +273,26 @@ export default function WebsiteEditor() {
     async function loadEditor() {
       try {
         setLoadNotice("");
-        const [storeResult, productsResult, draftResult] = await Promise.allSettled([getStore(), getProducts(), loadWebsiteDraft()]);
+        const [storeResult, productsResult, draftResult] = await Promise.allSettled([getStore(), getProducts(), loadWebsiteRecord()]);
         if (!active) return;
-        if (storeResult.status === "rejected") throw storeResult.reason;
-        if (draftResult.status === "rejected") throw draftResult.reason;
-        const store = storeResult.value;
-        const privateDraft = draftResult.value;
+        let cached = null;
+        try { cached = JSON.parse(localStorage.getItem(cacheKey) || 'null'); } catch { /* Ignore corrupt recovery data. */ }
+        const store = storeResult.status === 'fulfilled' ? storeResult.value : null;
+        const draftFailed = draftResult.status === 'rejected';
+        if (draftFailed) setPublicationStatus('Unavailable');
+        if (draftFailed && !(cached?.dirty && cached?.model && window.confirm('The saved website could not be reached. Restore this device’s unsaved changes while you retry?'))) throw draftResult.reason;
+        const websiteRecord = draftFailed ? null : draftResult.value;
+        const privateDraft = websiteRecord?.draft || null;
+        if (!draftFailed) setPublicationStatus(websitePublicationStatus(websiteRecord));
         const productList = productsResult.status === "fulfilled" ? productsResult.value : [];
-        if (privateDraft || store?.editorData || store?.sections || store?.elements) {
+        if (draftFailed && cached?.dirty && cached?.model) {
+          const next = migrateLegacyEditor(cached.model);
+          setModel(next); setSavedSections(next.savedSections || []); setSelectedId(next.sections[0]?.id || null); setStatus('Unsaved');
+          setLoadNotice(`Your saved website could not be loaded: ${draftResult.reason?.message || 'temporary connection error'}. Your device copy is open; retry before saving.`);
+        } else if (privateDraft || store?.editorData || store?.sections || store?.elements) {
           let next = migrateLegacyEditor(privateDraft || store);
           let recovered = false;
-          try {
-            const cached = JSON.parse(localStorage.getItem(cacheKey) || 'null');
-            if (cached?.dirty && cached.model && window.confirm('Restore unsaved changes from this device?')) { next = migrateLegacyEditor(cached.model); recovered = true; }
-          } catch { /* A damaged device cache never prevents loading the cloud draft. */ }
+          if (cached?.dirty && cached.model && window.confirm('Restore unsaved changes from this device?')) { next = migrateLegacyEditor(cached.model); recovered = true; }
           setModel(next);
           setSavedSections(next.savedSections || []);
           setSelectedId(next.sections[0]?.id || null);
@@ -298,6 +306,7 @@ export default function WebsiteEditor() {
           const reason = productsResult.reason;
           setLoadNotice(`Your website loaded, but products could not be loaded${reason?.message ? `: ${reason.message}` : "."}`);
         }
+        if (storeResult.status === 'rejected' && !draftFailed) setLoadNotice(current => current || `Your website loaded, but business details could not be refreshed: ${storeResult.reason?.message || 'temporary connection error'}.`);
         setLoaded(true);
       } catch (error) {
         console.error("Could not load website editor data:", error);
@@ -315,7 +324,7 @@ export default function WebsiteEditor() {
   useEffect(() => { currentModel.current = model; }, [model]);
   useEffect(() => () => clearTimeout(toastTimer.current), []);
   useEffect(() => {
-    const warn = event => { if(status === 'Unsaved' || status === 'Save failed') { event.preventDefault(); event.returnValue=''; } };
+    const warn = event => { if(['Unsaved', 'Saving…', 'Save failed'].includes(status)) { event.preventDefault(); event.returnValue=''; } };
     window.addEventListener('beforeunload',warn);
     return () => window.removeEventListener('beforeunload',warn);
   },[status]);
@@ -338,12 +347,14 @@ export default function WebsiteEditor() {
     }
     const { recordHistory = true, message } = options;
     if (recordHistory) {
-      setUndoStack((previous) => [...previous, clone(model)].slice(-60));
+      setUndoStack((previous) => [...previous, clone(currentModel.current)].slice(-60));
       setRedoStack([]);
     }
+    currentModel.current = nextModel;
     setModel(nextModel);
     setSavedSections(nextModel.savedSections || []);
     setStatus("Unsaved");
+    setPublicationStatus(current => current === 'Published' || current === 'Unpublished changes' ? 'Unpublished changes' : current === 'Checking…' ? current : 'Draft');
     if (message) showToast(message);
   }
 
@@ -419,13 +430,25 @@ export default function WebsiteEditor() {
     const galleryIndex = Number(event.target.dataset.index || 0);
     event.target.value = "";
     if (!file || !sectionId) return;
-    if (!isImageFile(file)) { showToast("Choose a JPG, PNG, WEBP or GIF image smaller than 5 MB."); return; }
+    if (!isImageFile(file)) { showToast("Choose a JPG, PNG, WEBP or GIF image up to 20 MB."); return; }
     setStatus("Uploading image…");
     try {
-      const url = await uploadProductImage(file);
-      if (slot === "gallery") {
-        const images = [...(selected.images || ["", "", ""])]; images[galleryIndex] = url; updateSection({ images });
-      } else { commit({ ...model, sections: visibleSections.map(item => {if(item.id!==sectionId)return item;const media=mediaItems(item);const first=media.findIndex(entry=>entry.type==='image');const uploaded={id:crypto.randomUUID(),type:'image',url,width:100,unit:'%',height:'',fit:'cover'};if(first>=0)media[first]={...media[first],url};else media.push(uploaded);return {...item,image:url,media};}) }); }
+      const url = await uploadProductImage(file,{onProgress:state=>setStatus(state.phase==='verifying'?'Checking image…':`Uploading image ${state.percent}%`)});
+      const latest = currentModel.current;
+      const targetPage = websitePages(latest).find(page => page.sections.some(item => item.id === sectionId));
+      if (!targetPage) return;
+      const sections = targetPage.sections.map(item => {
+        if (item.id !== sectionId || item.locked) return item;
+        if (slot === 'gallery') {
+          const images = [...(item.images || [])]; images[galleryIndex] = url;
+          return {...item,images,media:images.filter(Boolean).map((image,index)=>({id:`gallery-${index}`,type:'image',url:image,width:100,unit:'%',fit:'cover'}))};
+        }
+        const media = mediaItems(item), first = media.findIndex(entry=>entry.type==='image');
+        if (first >= 0) media[first] = {...media[first],url};
+        else media.push({id:crypto.randomUUID(),type:'image',url,width:100,unit:'%',height:'',fit:'cover'});
+        return {...item,image:url,media};
+      });
+      commit(changePageSections(latest,targetPage.id,sections));
       setStatus("Unsaved"); showToast("Image updated");
     } catch (error) {
       console.error("Image upload failed:", error); setStatus("Image upload failed"); showToast(error?.message || "Image upload failed. Check your connection and try again.");
@@ -459,10 +482,10 @@ export default function WebsiteEditor() {
   async function publishWebsite() {
     setSaving(true); setStatus("Publishing…");
     try {
-      const existingStore = await getStore(); const payload = editorPayload();
-      if (!existingStore?.storeUrl) throw new Error("Finish Store Setup before publishing.");
+      const payload = editorPayload();
       const slug = await publishSnapshot(payload);
-      setPublishUrl(`${window.location.origin}/store/${slug}`); setStatus("Published"); setShowPublish(true);
+      if (!slug) throw new Error("The website was saved, but the server did not return its public address. Refresh and check the website status before trying again.");
+      setPublishUrl(`${window.location.origin}/store/${slug}`); setStatus("Published"); setPublicationStatus('Published'); setShowPublish(true);
     } catch (error) {
       console.error("Could not publish website:", error); setStatus("Publish failed"); showToast(error.message || "Could not publish your website");
     } finally { setSaving(false); }
@@ -473,9 +496,9 @@ export default function WebsiteEditor() {
     if (original?.locked || original?.[field] === value) return;
     commit({ ...model, sections: visibleSections.map(section => section.id === id ? { ...section, [field]: value } : section) });
   }
-  function renderSection(section) {
+  function renderSection({ section, content, style }) {
     const editable = !section.locked;
-    return <section key={section.id} id={section.anchor || section.id} className={`cyb-section editor-section ${selectedId === section.id ? 'selected' : ''}`} style={sectionStyle(section, device)} onClick={event => {
+    return <section key={section.id} id={section.anchor || section.id} className={`cyb-section cyb-type-${section.type} editor-section ${selectedId === section.id ? 'selected' : ''}`} style={style} onClick={event => {
       if (event.target.closest("a")) event.preventDefault();
       setSelectedId(section.id);
       if (section.locked || !["hero", "about", "photo"].includes(section.type)) return;
@@ -485,7 +508,7 @@ export default function WebsiteEditor() {
       if (heroImageArea || aboutImageArea || photoImageArea) event.currentTarget.querySelector('input[data-cyb-image-upload]')?.click();
     }} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); moveDraggedSection(section.id); }}>
       <div className="editor-section-label"><span>{section.label} {section.locked ? '· Locked' : ''}</span>{editable && <button type="button" draggable aria-label={`Move ${section.label}`} onDragStart={() => setDraggedId(section.id)} onDragEnd={() => setDraggedId(null)}>⠿</button>}</div>
-      <WebsiteSection section={section} model={{...model,renderDevice:device}} products={products} editText={editText} />
+      {content}
       {["hero", "about", "photo"].includes(section.type) && !section.locked && <input data-cyb-image-upload type="file" accept="image/*" aria-label={`Upload image for ${section.label}`} style={{ display: "none" }} onChange={event => uploadImage(event, "image", section.id)} />}
     </section>;
   }
@@ -524,7 +547,7 @@ export default function WebsiteEditor() {
       {selected.type === "product" && <label className="property-field"><span>Price (USD)</span><input value={selected.price ?? ""} onChange={(event) => updateSection({ price: event.target.value })} /></label>}
       {selected.type === "chat" && <label className="property-field"><span>Business email</span><input type="email" value={selected.email || ""} onChange={(event) => updateSection({ email: event.target.value })} placeholder="hello@yourbusiness.com" /></label>}
       {selected.type === "reviews" && <EditableReviewItems items={selected.items || []} onChange={items => updateSection({ items })} />}
-      <MediaFields key={selected.id} items={mediaItems(selectedProduct || selected)} onBusyChange={setMediaUploading} disabled={selected.locked || mediaUploading} onChange={async media=>{if(selectedProduct){const updated={...selectedProduct,media,imageUrl:primaryImage(media)};setProducts(current=>current.map(item=>item.id===updated.id?updated:item));setProductMediaSaving(count=>count+1);const save=productMediaQueue.current.catch(()=>{}).then(()=>updateProduct(updated.id,updated));productMediaQueue.current=save;try{await save;}catch(error){showToast('Product media was not saved: '+error.message);}finally{setProductMediaSaving(count=>count-1);}return;}updateSection({media,image:primaryImage(media),images:media.filter(item=>item.type==='image').map(item=>item.url)});}}/>
+      <MediaFields key={selected.id} items={mediaItems(selectedProduct || selected)} onBusyChange={setMediaUploading} disabled={selected.locked} onChange={async media=>{if(selectedProduct){const updated={...selectedProduct,media,imageUrl:primaryImage(media)};setProducts(current=>current.map(item=>item.id===updated.id?updated:item));setProductMediaSaving(count=>count+1);const save=productMediaQueue.current.catch(()=>{}).then(()=>updateProduct(updated.id,updated));productMediaQueue.current=save;try{await save;}catch(error){showToast('Product media was not saved: '+error.message);throw error;}finally{setProductMediaSaving(count=>count-1);}return;}updateSection({media,image:primaryImage(media),images:media.filter(item=>item.type==='image').map(item=>item.url)});}}/>
       {['product','collection'].includes(selected.type) && <button type="button" className="add-repeater" onClick={()=>setProductForm({product:null,insert:selected.type==='product'?'replace':'none'})}>＋ Create product here</button>}
       {selected.type==='product' && <button type="button" className="add-repeater" onClick={()=>{const product=products.find(item=>item.id===selected.productId||item.legacyId===selected.productId);if(product)setProductForm({product,insert:'replace'});else setShowProductPicker(true);}}>Edit product details & media</button>}
       {['services','menu','gallery'].includes(selected.type) && <label className="property-field"><span>Content source</span><select value={selected.dataSource || 'custom'} onChange={event => updateSection({ dataSource: event.target.value })}><option value="custom">Custom section content</option><option value="catalog">Business workspace</option></select></label>}
@@ -557,7 +580,7 @@ export default function WebsiteEditor() {
   return <div className={`getcyb-editor editor-mode-${mode} editor-mobile-${mobilePanel}`}>
     <header className="getcyb-editor-topbar">
       <div className="editor-brand"><span className="editor-brand-mark">C</span><strong>CYB</strong></div>
-      <div className="editor-project"><input aria-label="Business name" value={model.brandName} onChange={(event) => updateModelField("brandName", event.target.value || "Your Business")} /><span className={`save-state ${status === "Saved" || status === "Published" ? "saved" : ""}`}>{status}</span></div>
+      <div className="editor-project"><input aria-label="Business name" value={model.brandName} onChange={(event) => updateModelField("brandName", event.target.value || "Your Business")} /><span className="save-state saved">{publicationStatus}</span><span className={`save-state ${status === "Saved" || status === "Published" ? "saved" : ""}`}>{status}</span></div>
       <div className="topbar-spacer" />
       <label className="editor-mode-picker"><span>Editing mode</span><select aria-label="Editing mode" value={mode} onChange={event => switchMode(event.target.value)}>{EDITOR_MODES.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <div className="history-controls"><button type="button" onClick={undo} disabled={!undoStack.length} aria-label="Undo">↶</button><button type="button" onClick={redo} disabled={!redoStack.length} aria-label="Redo">↷</button></div>
@@ -573,17 +596,17 @@ export default function WebsiteEditor() {
         <details className="editor-more-tools"><summary>More tools</summary>{[['elements','Elements'],['products','Products'],['collections','Templates & reusable sections'],['history','Published versions'],['layers','Layers'],['design','Brand & design']].map(([id,label]) => <button type="button" key={id} onClick={() => setActiveTab(id)}>{label}</button>)}</details></nav>
         <div className="editor-side-content">
           {activeTab === "assets" && <><div className="side-heading"><span>Media library</span><p>Images already used in this website. Select a photo section, then choose an image.</p></div><div className="editor-assets">{mediaAssets(model).map(url => <button type="button" key={url} onClick={() => selected ? updateSection({image:url}) : showToast('Select a section first')}><img src={url} alt="Website asset" loading="lazy" /></button>)}</div>{!mediaAssets(model).length && <p className="empty-copy">Upload your first image from section properties or Brand Kit.</p>}</>}
-          {activeTab === "history" && <><div className="side-heading"><span>Published versions</span><p>Restore a version as a draft. Publish separately when ready.</p></div><button type="button" className="topbar-action" onClick={async () => { try { setVersions(await websiteVersions()); } catch(error) { showToast(error.message); } }}>Load latest 10 versions</button><div className="page-list">{versions.map(version => <div key={version.id}><button type="button" onClick={() => { commit(migrateLegacyEditor(version.model)); setActivePageId(websitePages(version.model)[0].id); showToast('Version restored as draft'); }}>{new Date(version.publishedAt).toLocaleString()}</button></div>)}</div><button type="button" className="topbar-action" disabled={saving} onClick={async () => { if (!window.confirm('Unpublish this website? Your saved content stays available.')) return; setSaving(true); try { await unpublishWebsite(); showToast('Website unpublished'); } catch(error) { showToast(error.message); } finally { setSaving(false); } }}>Unpublish website</button></>}
+          {activeTab === "history" && <><div className="side-heading"><span>Published versions</span><p>Restore a version as a draft. Publish separately when ready.</p></div><button type="button" className="topbar-action" onClick={async () => { try { setVersions(await websiteVersions()); } catch(error) { showToast(error.message); } }}>Load latest 10 versions</button><div className="page-list">{versions.map(version => <div key={version.id}><button type="button" onClick={() => { commit(migrateLegacyEditor(version.model)); setActivePageId(websitePages(version.model)[0].id); showToast('Version restored as draft'); }}>{new Date(version.publishedAt).toLocaleString()}</button></div>)}</div><button type="button" className="topbar-action" disabled={saving} onClick={async () => { if (!window.confirm('Unpublish this website? Your saved content stays available.')) return; setSaving(true); try { await unpublishWebsite(); setPublicationStatus('Draft'); showToast('Website unpublished'); } catch(error) { showToast(error.message); } finally { setSaving(false); } }}>Unpublish website</button></>}
           {activeTab === "pages" && <><div className="side-heading"><span>Website pages</span><p>Every page shares your brand and navigation.</p></div><div className="page-list">{pages.map((page, index) => <div key={page.id}><button type="button" className={activePage.id === page.id ? 'active' : ''} onClick={() => choosePage(page)}>{page.title}<small>/{page.slug}</small></button>{index > 0 && <button type="button" aria-label={`Delete ${page.title}`} onClick={() => { if (window.confirm(`Delete ${page.title}? Undo can restore it.`)) { commit({ ...model, pages: pages.filter(item => item.id !== page.id) }); choosePage(pages[0]); } }}>×</button>}</div>)}</div><label className="property-field"><span>New page name</span><input value={newPageTitle} onChange={event => setNewPageTitle(event.target.value)} /></label><button type="button" className="topbar-action" onClick={addPage}>Add page</button><div className="property-divider" /><label className="property-field"><span>Page name</span><input value={activePage.title} onChange={event => commit({ ...model, pages: pages.map(page => page.id === activePage.id ? { ...page, title: event.target.value } : page) })} /></label>{activePage.id !== pages[0].id && <><label className="property-field"><span>Page address</span><input value={activePage.slug} onChange={event => { const slug = pageSlug(event.target.value); if (pages.some(page => page.id !== activePage.id && page.slug === slug)) return showToast('This page address is already used'); commit({ ...model, pages: pages.map(page => page.id === activePage.id ? { ...page, slug } : page) }); }} /></label><button type="button" className="topbar-action" onClick={() => commit(reorderPage(model,activePage.id,-1))}>Move page up</button><button type="button" className="topbar-action" onClick={() => commit(reorderPage(model,activePage.id,1))}>Move page down</button></>}<label className="property-field"><span>Page title (SEO)</span><input value={activePage.seoTitle || ''} onChange={event => commit({ ...model, pages: pages.map(page => page.id === activePage.id ? { ...page, seoTitle: event.target.value } : page) })} /></label><label className="property-field"><span>Meta description</span><textarea value={activePage.description || ''} onChange={event => commit({ ...model, pages: pages.map(page => page.id === activePage.id ? { ...page, description: event.target.value } : page) })} /></label></>}
           {activeTab === "layers" && <><div className="side-heading"><span>Layers</span><p>Drag to reorder. Move buttons also work on touch devices.</p></div><div className="property-actions"><button type="button" onClick={() => { try { commit({...model,sections:groupSections(visibleSections,selectedLayers,createId('group'))});setSelectedLayers([]); } catch(error) {showToast(error.message);} }}>Group selected</button><button type="button" disabled={selected?.type !== 'group'} onClick={() => {try {commit({...model,sections:ungroupSections(visibleSections,selected.id)});}catch(error){showToast(error.message);}}}>Ungroup</button></div><div className="page-list">{visibleSections.map(section => <div key={section.id} draggable={!section.locked} onDragStart={() => setDraggedId(section.id)} onDragOver={event => event.preventDefault()} onDrop={event => { event.preventDefault(); moveDraggedSection(section.id); }}><input type="checkbox" aria-label={`Select ${section.label} for grouping`} checked={selectedLayers.includes(section.id)} onChange={event=>setSelectedLayers(event.target.checked?[...selectedLayers,section.id]:selectedLayers.filter(id=>id!==section.id))}/><button type="button" onClick={() => setSelectedId(section.id)}>{section.label}<small>{section.title?.slice(0,35)} {section.locked ? '🔒' : ''}</small></button></div>)}</div><button className="topbar-action" type="button" disabled={!selected} onClick={() => { setCopiedSection(clone(selected)); showToast('Section copied'); }}>Copy</button><button className="topbar-action" type="button" disabled={!copiedSection} onClick={() => commit({ ...model, sections: [...visibleSections, { ...clone(copiedSection), id: createId(copiedSection.type) }] })}>Paste</button></>}
           {activeTab === "collections" && <><div className="side-heading"><span>Your reusable sections</span></div><button type="button" className="topbar-action" disabled={!selected} onClick={() => { const next = [...savedSections, { ...clone(selected), id: createId('saved') }]; commit({ ...model, savedSections: next }); }}>Save selected section</button><div className="page-list">{savedSections.map(section => <div key={section.id}><button type="button" onClick={() => commit({ ...model, sections: [...visibleSections, { ...clone(section), id: createId(section.type) }] })}>{section.title || section.label}</button></div>)}</div><div className="side-heading"><span>Design Collections</span><p>Mix original sections. Keep your own brand.</p></div><div className="collection-list">{DESIGN_COLLECTIONS.map(collection => <button type="button" key={collection.id} style={{ background: collection.paper, color: collection.ink }} onClick={() => setCollectionPreview(collection)}><small>{collection.category} / {collection.variant}</small><strong>{collection.title}</strong><span>{collection.name} ↗</span></button>)}</div></>}
           {activeTab === "sections" && <><div className="side-heading"><span>Add section</span><p>Build a complete business website.</p></div><div className="section-library">{SECTION_LIBRARY.map((item) => <button type="button" key={item.type} onClick={() => addSection(item.type)}><span className="library-thumbnail"><i /><i /><b /></span><span><strong>{item.label}</strong><small>{item.description}</small></span><em>＋</em></button>)}</div></>}
           {activeTab === "elements" && <><div className="side-heading"><span>Add element</span><p>Use these anywhere in your website.</p></div><div className="element-library">{ELEMENT_LIBRARY.map((item) => <button type="button" key={item.type} onClick={() => addSection(item.type)}><b>＋</b>{item.label}</button>)}</div></>}
           {activeTab === "products" && <><div className="side-heading"><span>Your products</span><p>Choose a real product to show on your website.</p></div><button type="button" className="add-real-product" onClick={() => setShowProductPicker(true)}>＋ Add product section</button><div className="side-product-list">{products.length ? products.map((product) => <button type="button" key={product.id} onClick={() => addProduct(product)}><span className="side-product-image" style={product.imageUrl || product.image ? { backgroundImage: `url(${product.imageUrl || product.image})` } : undefined} /><span><strong>{product.name}</strong><small>{money(product.sellingPrice)}</small></span><em>＋</em></button>) : <p className="empty-copy">No products yet. Add one from your Products page first.</p>}</div></>}
-          {activeTab === "design" && <><div className="side-heading"><span>Brand kit</span><p>Set a consistent identity across every page.</p></div><label className="property-field"><span>Brand logo</span><input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={async event => { const file = event.target.files?.[0]; if (!isImageFile(file)) return showToast('Choose a JPG, PNG, WEBP or GIF image smaller than 5 MB.'); try { const logo = await uploadProductImage(file); updateModelField('logo',logo); } catch(error) { showToast(error.message); } }} /></label><label className="property-field"><span>Body font</span><select value={model.bodyFont || 'Arial'} onChange={event => updateModelField('bodyFont',event.target.value)}>{FONTS.map(font => <option key={font}>{font}</option>)}</select></label><label className="property-field"><span>Global heading font</span><select value={model.headingFont || 'Georgia'} onChange={event => { const font=event.target.value; const nextPages=pages.map(page=>({...page,sections:page.sections.map(section=>({...section,style:{...section.style,fontFamily:font}}))})); commit({...model,headingFont:font,pages:nextPages,sections:nextPages[0].sections}); }}>{FONTS.map(font => <option key={font}>{font}</option>)}</select></label><label className="property-field"><span>Button shape</span><select value={model.buttonRadius || '0'} onChange={event => updateModelField('buttonRadius',event.target.value)}><option value="0">Square</option><option value="6px">Soft</option><option value="40px">Pill</option></select></label><div className="side-heading"><span>Design</span><p>Set the base look of your website.</p></div><label className="design-field"><span>Primary colour</span><div className="colour-input"><input type="color" value={cleanColor(model.primaryColor)} onChange={(event) => updateGlobalColor("primaryColor", event.target.value)} /><input value={model.primaryColor} onChange={(event) => updateGlobalColor("primaryColor", event.target.value)} /></div></label><label className="design-field"><span>Background colour</span><div className="colour-input"><input type="color" value={cleanColor(model.backgroundColor, "#f7f2eb")} onChange={(event) => updateGlobalColor("backgroundColor", event.target.value)} /><input value={model.backgroundColor} onChange={(event) => updateGlobalColor("backgroundColor", event.target.value)} /></div></label><p className="recent-label">Recently used</p><div className="recent-colours">{model.recentColors.map((color) => <button key={color} type="button" aria-label={`Use ${color} as primary colour`} style={{ backgroundColor: color }} onClick={() => updateGlobalColor("primaryColor", color)} />)}</div><div className="design-note">These colors change your customer website. CYB keeps its beige, white and black workspace.</div></>}
+          {activeTab === "design" && <><div className="side-heading"><span>Brand kit</span><p>Set a consistent identity across every page.</p></div><label className="property-field"><span>Brand logo</span><input type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={async event => { const file = event.target.files?.[0]; if (!isImageFile(file)) return showToast('Choose a JPG, PNG, WEBP or GIF image up to 20 MB.'); try { const logo = await uploadProductImage(file); commit({...currentModel.current,logo}); } catch(error) { showToast(error.message); } }} /></label><label className="property-field"><span>Body font</span><select value={model.bodyFont || 'Arial'} onChange={event => updateModelField('bodyFont',event.target.value)}>{FONTS.map(font => <option key={font}>{font}</option>)}</select></label><label className="property-field"><span>Global heading font</span><select value={model.headingFont || 'Georgia'} onChange={event => { const font=event.target.value; const nextPages=pages.map(page=>({...page,sections:page.sections.map(section=>({...section,style:{...section.style,fontFamily:font}}))})); commit({...model,pages:nextPages,sections:nextPages[0].sections}); }}>{FONTS.map(font => <option key={font}>{font}</option>)}</select></label><label className="property-field"><span>Button shape</span><select value={model.buttonRadius || '0'} onChange={event => updateModelField('buttonRadius',event.target.value)}><option value="0">Square</option><option value="6px">Soft</option><option value="40px">Pill</option></select></label><div className="side-heading"><span>Design</span><p>Set the base look of your website.</p></div><label className="design-field"><span>Primary colour</span><div className="colour-input"><input type="color" value={cleanColor(model.primaryColor)} onChange={(event) => updateGlobalColor("primaryColor", event.target.value)} /><input value={model.primaryColor} onChange={(event) => updateGlobalColor("primaryColor", event.target.value)} /></div></label><label className="design-field"><span>Background colour</span><div className="colour-input"><input type="color" value={cleanColor(model.backgroundColor, "#f7f2eb")} onChange={(event) => updateGlobalColor("backgroundColor", event.target.value)} /><input value={model.backgroundColor} onChange={(event) => updateGlobalColor("backgroundColor", event.target.value)} /></div></label><p className="recent-label">Recently used</p><div className="recent-colours">{model.recentColors.map((color) => <button key={color} type="button" aria-label={`Use ${color} as primary colour`} style={{ backgroundColor: color }} onClick={() => updateGlobalColor("primaryColor", color)} />)}</div><div className="design-note">These colors change your customer website. CYB keeps its beige, white and black workspace.</div></>}
         </div>
       </aside>
-      <main className="editor-canvas-wrap"><div className="canvas-meta"><span><b>Live preview</b> · click a section to edit it</span><label>Zoom <select aria-label="Canvas zoom" value={zoom} onChange={event => setZoom(Number(event.target.value))}>{[50,75,100,125].map(value => <option key={value} value={value}>{value}%</option>)}</select> · {canvasSize}</label></div><div className={`website-canvas cyb-site cyb-device-${device} ${device}`} style={{ backgroundColor: model.backgroundColor, color: model.textColor, '--cyb-primary': model.primaryColor, '--cyb-button-radius': model.buttonRadius || '0', fontFamily: model.bodyFont || 'Arial', zoom: zoom / 100 }}><header className="cyb-nav"><span className="cyb-logo">{model.brandName}</span><nav>{pages.map(page => <button type="button" key={page.id} onClick={() => choosePage(page)}>{page.title}</button>)}</nav></header>{visibleSections.map(section => renderSection(section))}</div><div className={`section-drop-zone${draggedId ? " active" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!draggedId) return; const moved = visibleSections.find((section) => section.id === draggedId); if (!moved || moved.locked) return; const next = [...visibleSections.filter((section) => section.id !== draggedId), moved]; commit({ ...model, sections: next }, { message: "Section moved to bottom" }); setDraggedId(null); }}>Drop a section here to move it to the bottom</div></main>
+      <main className="editor-canvas-wrap"><div className="canvas-meta"><span><b>Live preview</b> · click a section to edit it</span><label>Zoom <select aria-label="Canvas zoom" value={zoom} onChange={event => setZoom(Number(event.target.value))}>{[50,75,100,125].map(value => <option key={value} value={value}>{value}%</option>)}</select> · {canvasSize}</label></div><div className={`website-canvas ${device}`}><WebsiteRenderer model={model} products={products} slug={activePage.slug} device={device} onPageChange={choosePage} editText={editText} renderSection={renderSection} className="editor-renderer" style={{ zoom: zoom / 100 }} /></div><div className={`section-drop-zone${draggedId ? " active" : ""}`} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (!draggedId) return; const moved = visibleSections.find((section) => section.id === draggedId); if (!moved || moved.locked) return; const next = [...visibleSections.filter((section) => section.id !== draggedId), moved]; commit({ ...model, sections: next }, { message: "Section moved to bottom" }); setDraggedId(null); }}>Drop a section here to move it to the bottom</div></main>
       <aside className="editor-properties-panel"><div className="properties-top"><span>Properties</span><small>{selected ? "Selected" : "Nothing selected"}</small></div>{propertiesPanel()}</aside>
     </div>
     {showProductPicker && <div className="editor-modal-backdrop" role="presentation" onMouseDown={() => setShowProductPicker(false)}><section className="editor-modal" role="dialog" aria-modal="true" aria-labelledby="product-picker-title" onMouseDown={(event) => event.stopPropagation()}><button className="modal-close" type="button" onClick={() => setShowProductPicker(false)} aria-label="Close">×</button><p className="modal-kicker">Your products</p><h2 id="product-picker-title">What product do you want to add?</h2><p>Create a new product here or choose one from Products.</p><button type="button" className="add-real-product" onClick={()=>{setShowProductPicker(false);setProductForm({product:null,insert:"add"});}}>＋ Create new product</button><div className="picker-products">{products.length ? products.map((product) => <button type="button" key={product.id} onClick={() => addProduct(product)}><span className="picker-product-image" style={product.imageUrl || product.image ? { backgroundImage: `url(${product.imageUrl || product.image})` } : undefined} /><span><strong>{product.name}</strong><small>{product.description || "No description yet"}</small></span><b>{money(product.sellingPrice)}</b></button>) : <div className="empty-picker">No products yet. Choose Create new product above to add your first one.</div>}</div></section></div>}

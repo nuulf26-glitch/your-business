@@ -7,8 +7,9 @@ export class MailService {
   private getTransporter() {
     if (this.transporter) return this.transporter;
     const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD } = process.env;
-    if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASSWORD || !process.env.MAIL_FROM) {
-      throw new ServiceUnavailableException('Email delivery is not configured');
+    const missing = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD'].filter(key => !process.env[key]?.trim());
+    if (missing.length) {
+      throw new ServiceUnavailableException(`Email delivery is not configured (missing: ${missing.join(', ')})`);
     }
     this.transporter = nodemailer.createTransport({
       host: SMTP_HOST, port: Number(SMTP_PORT), secure: Number(SMTP_PORT) === 465,

@@ -2,8 +2,9 @@ import { customBackendRequest } from '../services/customBackendSession';
 
 export async function businessCall(name, data = {}) {
   if (name === 'loadWebsiteDraft') { const result = await customBackendRequest('/websites/draft'); return result?.draft || null; }
+  if (name === 'loadWebsiteRecord') return customBackendRequest('/websites/draft');
   if (name === 'saveWebsiteDraft') return customBackendRequest('/websites/draft', { method: 'PUT', body: JSON.stringify({ model: data.model }) });
-  if (name === 'publishWebsiteSnapshot') { await customBackendRequest('/websites/draft', { method: 'PUT', body: JSON.stringify({ model: data.model }) }); return customBackendRequest('/websites/publish', { method: 'POST', body: JSON.stringify({ model: data.model }) }); }
+  if (name === 'publishWebsiteSnapshot') return customBackendRequest('/websites/publish', { method: 'POST', body: JSON.stringify({ model: data.model }) });
   if (name === 'listWebsiteVersions') return customBackendRequest('/websites/versions');
   if (name === 'unpublishWebsite') return customBackendRequest('/websites/unpublish', { method: 'POST' });
   if (name === 'loadPublishedWebsite') {
