@@ -1,17 +1,20 @@
 import { WebsiteController } from '../src/routes';
 
 describe('website draft and publish persistence', () => {
-  function createFixture() {
+  function createFixture(withWebsite = true) {
     const published = { brandName: 'LUNE', sections: [{ id: 'live-hero', type: 'hero', title: 'Live version' }] };
-    const website: any = { id: 'website', businessId: 'business', draft: published, published, revision: 1, publishedAt: new Date('2026-01-01T00:00:00Z') };
+    const website: any = withWebsite ? { id: 'website', businessId: 'business', draft: published, published, revision: 1, publishedAt: new Date('2026-01-01T00:00:00Z') } : {};
     const business = { id: 'business', ownerId: 'owner', slug: 'lune', name: 'LUNE', category: 'retail', website };
     const websiteVersion = { create: jest.fn().mockResolvedValue({ id: 'version-1' }) };
     const tx = {
-      website: { update: jest.fn(async ({ data }: any) => {
-        website.draft = data.draft;
-        website.published = data.published;
-        website.publishedAt = data.publishedAt;
-        if (data.revision?.increment) website.revision += data.revision.increment;
+      website: { upsert: jest.fn(async ({ create, update }: any) => {
+        if (!withWebsite && create) Object.assign(website, { id: 'website', businessId: 'business', revision: 1, ...create });
+        if (withWebsite && update) {
+          website.draft = update.draft;
+          website.published = update.published;
+          website.publishedAt = update.publishedAt;
+          if (update.revision?.increment) website.revision += update.revision.increment;
+        }
         return website;
       }) },
       websiteVersion,
@@ -54,10 +57,21 @@ describe('website draft and publish persistence', () => {
     expect(business.slug).toBe('lune');
   });
 
+  it('publishes the current design atomically even when no prior draft row exists', async () => {
+    const { controller, website, websiteVersion, db } = createFixture(false);
+    const model = { editorVersion: 2, brandName: 'NEW', sections: [{ id: 'hero', type: 'hero', title: 'First publish' }] };
+    await controller.publish({ user: { id: 'owner' } } as any, { model } as any);
+    expect(website.published.sections[0].title).toBe('First publish');
+    expect(website.draft.sections[0].title).toBe('First publish');
+    expect(website.publishedAt).toBeInstanceOf(Date);
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    expect(websiteVersion.create).toHaveBeenCalledWith({ data: { websiteId: 'website', snapshot: website.draft } });
+  });
+
   it('does not let a different account save or publish this business website', async () => {
     const { controller, db } = createFixture();
     await expect(controller.saveDraft({ user: { id: 'another-owner' } } as any, { model: { brandName: 'Injected', sections: [] } } as any)).rejects.toThrow('Create a business first');
-    await expect(controller.publish({ user: { id: 'another-owner' } } as any, { model: { brandName: 'Injected', sections: [{ id: 'hero', type: 'hero' }] } } as any)).rejects.toThrow('Website draft not found');
+    await expect(controller.publish({ user: { id: 'another-owner' } } as any, { model: { brandName: 'Injected', sections: [{ id: 'hero', type: 'hero' }] } } as any)).rejects.toThrow('Create a business before publishing');
     expect(db.website.upsert).not.toHaveBeenCalled();
     expect(db.$transaction).not.toHaveBeenCalled();
   });

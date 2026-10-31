@@ -31,7 +31,7 @@ export async function customBackendRequest(path, options = {}) {
     throw new Error(error instanceof Error ? error.message : 'The custom backend could not be reached.', { cause: error });
   }
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) { const message = response.status === 401 && path.includes('/ai/') ? 'Your session expired. Sign in again, then retry the prompt shown here.' : result.message || 'The request could not be completed.'; const error = new Error(message); error.status = response.status; throw error; }
+  if (!response.ok) { const message = response.status === 401 || response.status === 403 ? (path.includes('/ai/') ? 'Your session expired. Sign in again, then retry the prompt shown here.' : 'Your session expired. Sign in again to continue editing.') : result.message || 'The request could not be completed.'; const error = new Error(message); error.status = response.status; throw error; }
   return result;
 }
 
