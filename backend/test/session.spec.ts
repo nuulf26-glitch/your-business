@@ -151,6 +151,18 @@ describe('backend critical operations', () => {
     expect(db.session.findUnique).not.toHaveBeenCalled();
   });
 
+  it('rotates an existing browser bearer session into an HttpOnly cookie session', async () => {
+    const old={id:'session-1',userId:'u-1',expiresAt:new Date(Date.now()+60_000),user:{id:'u-1',email:'owner@example.com',emailVerifiedAt:new Date(),role:'OWNER'}};
+    const tx:any={session:{findUnique:jest.fn().mockResolvedValue(old),deleteMany:jest.fn().mockResolvedValue({count:1}),create:jest.fn().mockResolvedValue({})}};
+    const db:any={$transaction:jest.fn(callback=>callback(tx))},res:any={cookie:jest.fn()},previous=process.env.NODE_ENV;process.env.NODE_ENV='production';
+    const result=await new AuthController(db,{} as any).migrateLegacySession({sessionToken:'legacy-session-token-value-1234567890'} as any,res);
+    if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
+    expect(result).toEqual({id:'u-1',email:'owner@example.com',emailVerified:true,role:'OWNER'});
+    expect(tx.session.deleteMany).toHaveBeenCalledWith({where:{id:'session-1',expiresAt:expect.objectContaining({gt:expect.any(Date)})}});
+    expect(tx.session.create.mock.calls[0][0].data.tokenHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(res.cookie).toHaveBeenCalledWith('getcyb_session',expect.any(String),expect.objectContaining({httpOnly:true,secure:true}));
+  });
+
   it('rejects expired session cookies', async () => {
     const db:any={session:{findUnique:jest.fn().mockResolvedValue({expiresAt:new Date(Date.now()-1000),user:{id:'u-1'}})}};
     const req:any={cookies:{getcyb_session:'expired-token'}};

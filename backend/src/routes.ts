@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, Logger, ServiceUnavailableException, Headers } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, Logger, ServiceUnavailableException, Headers, UnauthorizedException } from '@nestjs/common';
 import { IsEmail, IsNumber, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn, IsBoolean } from 'class-validator';
 import { Request, Response } from 'express';
 import * as argon2 from 'argon2';
@@ -44,6 +44,9 @@ class LoginCredentials {
 class GoogleSignInInput {
   @IsString() @MinLength(20) @MaxLength(10000) idToken!: string;
   @IsOptional() @IsBoolean() acceptedTerms?: boolean;
+}
+class LegacySessionInput {
+  @IsString() @MinLength(32) @MaxLength(200) sessionToken!: string;
 }
 class StoreInput { @IsString() @MaxLength(120) name!: string; @IsString() @MaxLength(100) slug!: string; @IsString() category!: string; @IsObject() settings!: object; }
 class JsonInput { @IsObject() data!: Record<string, unknown>; }
@@ -112,6 +115,21 @@ export class AuthController {
     const user = await this.db.user.findUnique({ where:{ email:dto.email.trim().toLowerCase() } });
     if (!user?.passwordHash || !(await argon2.verify(user.passwordHash,dto.password))) throw new BadRequestException('Invalid email or password');
     await this.issueSession(user.id,res); return { id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt };
+  }
+  @Throttle({default:{limit:5,ttl:60_000}})
+  @Post('migrate-session') async migrateLegacySession(@Body() dto:LegacySessionInput,@Res({passthrough:true}) res:Response) {
+    const now=new Date(),expires=new Date(now.getTime()+14*864e5),oldHash=tokenHash(dto.sessionToken),token=randomBytes(32).toString('base64url');
+    const rotated=await this.db.$transaction(async tx=>{
+      const old=await tx.session.findUnique({where:{tokenHash:oldHash},include:{user:true}});
+      if(!old||old.expiresAt<=now)return null;
+      const removed=await tx.session.deleteMany({where:{id:old.id,expiresAt:{gt:now}}});
+      if(removed.count!==1)return null;
+      await tx.session.create({data:{userId:old.userId,tokenHash:tokenHash(token),expiresAt:expires}});
+      return old.user;
+    });
+    if(!rotated)throw new UnauthorizedException('Session expired');
+    res.cookie('getcyb_session',token,cookieOptions(expires));
+    return {id:rotated.id,email:rotated.email,emailVerified:!!rotated.emailVerifiedAt,role:rotated.role};
   }
   @Throttle({default:{limit:8,ttl:60_000}})
   @Post('google') async googleSignIn(@Body() dto:GoogleSignInInput,@Res({passthrough:true}) res:Response) {
