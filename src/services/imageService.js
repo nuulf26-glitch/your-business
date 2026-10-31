@@ -2,8 +2,7 @@ import { validateMediaFile } from '../media/uploadPolicy.js';
 const baseUrl = (import.meta.env.VITE_CUSTOM_BACKEND_URL || '').replace(/\/$/, '');
 const active = new WeakMap(), tickets = new WeakMap(), completed = new WeakMap();
 async function api(path, body, signal) {
-  const token = sessionStorage.getItem('getcyb_session_token');
-  const response = await fetch(`${baseUrl}/api/v1/uploads${path}`, { method: 'POST', credentials: 'include', signal: signal || AbortSignal.timeout(90000), headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body || {}) });
+  const response = await fetch(`${baseUrl}/api/v1/uploads${path}`, { method: 'POST', credentials: 'include', signal: signal || AbortSignal.timeout(90000), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(response.status === 401 ? 'Your session expired. Sign in again; your design is still here.' : (Array.isArray(result.message) ? result.message.join(' ') : result.message) || 'Upload failed. Please retry.');
