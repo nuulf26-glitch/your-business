@@ -347,7 +347,10 @@ export default function WebsiteEditor() {
     }
     const { recordHistory = true, message } = options;
     if (recordHistory) {
-      setUndoStack((previous) => [...previous, clone(currentModel.current)].slice(-60));
+      // Capture before replacing the ref. React may run the state updater later,
+      // after currentModel.current already points at nextModel.
+      const previousModel = clone(currentModel.current);
+      setUndoStack((previous) => [...previous, previousModel].slice(-60));
       setRedoStack([]);
     }
     currentModel.current = nextModel;
