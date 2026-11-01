@@ -39,7 +39,7 @@ describe('opaque session token storage', () => {
 describe('backend critical operations', () => {
   it('requires explicit terms acceptance before creating an account', async () => {
     const db:any={user:{findUnique:jest.fn().mockResolvedValue(null),create:jest.fn()}};
-    await expect(new AuthController(db,{} as any).signup({email:'owner@example.com',password:'a-secure-password',acceptedTerms:false} as any,{cookie:jest.fn()} as any)).rejects.toThrow('Accept the Terms');
+    await expect(new AuthController(db,{} as any).signup({cookies:{}} as any,{email:'owner@example.com',password:'a-secure-password',acceptedTerms:false} as any,{cookie:jest.fn()} as any)).rejects.toThrow('Accept the Terms');
     expect(db.user.findUnique).not.toHaveBeenCalled();
   });
 
@@ -74,9 +74,9 @@ describe('backend critical operations', () => {
     const tx:any={user:{create:jest.fn().mockResolvedValue(user)},termsConsent:{create:jest.fn().mockResolvedValue({})},subscription:{create:jest.fn().mockResolvedValue({})},business:{create:jest.fn().mockResolvedValue({})}};
     const db:any={user:{findUnique:jest.fn().mockResolvedValue(null)},$transaction:jest.fn(async callback=>callback(tx)),verificationToken:{deleteMany:jest.fn().mockResolvedValue({}),create:jest.fn().mockResolvedValue({})},session:{create:jest.fn().mockResolvedValue({})}};
     const mail:any={sendAccountLink:jest.fn().mockResolvedValue(undefined)};
-    const res:any={cookie:jest.fn()};
+    const res:any={cookie:jest.fn(),clearCookie:jest.fn()};
     const previous=process.env.NODE_ENV;process.env.NODE_ENV='test';
-    const result=await new AuthController(db,mail).signup({email:' OWNER@example.com ',password:'a-secure-password',acceptedTerms:true} as any,res);
+    const result=await new AuthController(db,mail).signup({cookies:{}} as any,{email:' OWNER@example.com ',password:'a-secure-password',acceptedTerms:true} as any,res);
     if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
     expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({email:'owner@example.com'})}));
     expect(tx.subscription.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({userId:'u-1'})}));
