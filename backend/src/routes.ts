@@ -298,9 +298,6 @@ export class BusinessController {
     const result=await this.db.businessRecord.updateMany({where:{id:String(req.params['id']),businessId:business.id,type},data:{status:dto.status}});
     if(!result.count)throw new NotFoundException('Business record not found');
     return {success:true};
-Warning: truncated output (original token count: 4998)
-Total output lines: 100
-
   }
   @UseGuards(SessionGuard) @Put('mine') async save(@Req() req:Request & {user:any},@Body() dto:StoreInput) {
     if(!/^[a-z0-9-]{1,100}$/.test(dto.slug)) throw new BadRequestException('Slug must use lowercase letters, numbers, and hyphens');
@@ -335,7 +332,35 @@ export class PublicBusinessController {
 
 @Controller('products')
 @UseGuards(SessionGuard)
-export class Pro…998 tokens truncated…new NotFoundException('Create a business first');return this.db.customer.create({data:{businessId:b.id,data:dto.data as any}});}
+export class ProductController {
+  constructor(private db:DbService){}
+  private async business(userId:string){const b=await this.db.business.findFirst({where:{ownerId:userId}});if(!b)throw new NotFoundException('Create a business first');return b;}
+  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.business(req.user.id);return this.db.product.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'}});}
+  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const name=String(dto.data.name||'').trim();if(!name)throw new BadRequestException('Product name required');await assertOwnedMedia(this.db,req.user.id,dto.data);return this.db.product.create({data:{businessId:b.id,name,data:dto.data as any}});}
+  @Put(':id') async update(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');await assertOwnedMedia(this.db,req.user.id,dto.data);const merged={...(prior.data as Record<string,unknown>),...dto.data};const name=String(merged.name||prior.name).trim();if(!name)throw new BadRequestException('Product name required');const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{name,data:merged as any}});if(!result.count)throw new NotFoundException('Product not found');return this.db.product.findUnique({where:{id}});}
+  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.business(req.user.id);const result=await this.db.product.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Product not found');return {deleted:true};}
+}
+
+@Controller('public/products')
+export class PublicProductController {
+  constructor(private db:DbService){}
+  @Get(':slug') async list(@Req() req:Request){
+    const slug=String(req.params['slug']||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Website not found');
+    const rows=await this.db.product.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:300});
+    return rows.filter(row=>(row.data as any)?.status!=='hidden').map(row=>{
+      const data=row.data as Record<string,unknown>;
+      return {id:row.id,storeUrl:business.slug,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,images:data.images,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};
+    });
+  }
+  @Get('item/:id') async one(@Req() req:Request){const id=String(req.params['id']||'');const row=await this.db.product.findUnique({where:{id},include:{business:{include:{website:true}}}});if(!row||!row.business.website?.published||(row.data as any)?.status==='hidden')throw new NotFoundException('Product not found');const data=row.data as Record<string,unknown>;return {id:row.id,storeUrl:row.business.slug,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,images:data.images,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};}
+}
+
+@Controller('customers')
+@UseGuards(SessionGuard)
+export class CustomerController {
+  constructor(private db:DbService){}
+  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)return [];return this.db.customer.findMany({where:{businessId:b.id},orderBy:{id:'desc'}});}
+  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');return this.db.customer.create({data:{businessId:b.id,data:dto.data as any}});}
   @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:CustomerStatusInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const customer=await this.db.customer.findFirst({where:{id,businessId:b.id}});if(!customer)throw new NotFoundException('Customer not found');const data={...(customer.data as Record<string,unknown>),status:dto.status};return this.db.customer.update({where:{id},data:{data:data as any}});}
   @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const result=await this.db.customer.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Customer not found');return {deleted:true};}
 }
@@ -373,9 +398,6 @@ export class WebsiteController {
   @UseGuards(SessionGuard) @Get('ai/status') async aiStatus(){return {available:Boolean(process.env.OPENAI_API_KEY?.trim()),usageLimited:false};}
   @UseGuards(SessionGuard) @Post('ai/design') async aiDesign(@Req() req:Request & {user:any},@Body() dto:AiPromptInput){
     const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('AI design is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');
-Warning: truncated output (original token count: 4393)
-Total output lines: 100
-
     const modelName=process.env.OPENAI_MODEL||'gpt-4o-mini';
     const isModify=dto.mode==='modify';
     const currentModel=isModify?validateWebsite(dto.model,false):null;
@@ -406,7 +428,11 @@ Total output lines: 100
     const draft=validateWebsite({editorVersion:2,...safeGenerated,pages:[{id:'home',slug:'',title:'Home',sections:sections.map((section:any,index:number)=>({...section,id:`ai-${Date.now()}-${index}`,style:{fontFamily:section.type==='hero'?'Georgia':'Arial',fontSize:section.type==='hero'?56:28,color:safeGenerated.textColor||'#171513'}}))}]},true);
     return {model:draft};
   }
-  @UseGuards(SessionGuard) @Post('ai/help') async aiHelp(@Req() req:Request & {user:any},@Body() dto:AiHelpInput){const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('CYB AI …393 tokens truncated…ral website-building process. Do not claim to see or change a visitor’s account or website. If a question needs account-specific details, tell them to sign in. If you are unsure about a CYB feature, say so instead of guessing.',input:`Visitor context: ${context}\nQuestion: ${dto.message}`},apiKey,'AI help');
+  @UseGuards(SessionGuard) @Post('ai/help') async aiHelp(@Req() req:Request & {user:any},@Body() dto:AiHelpInput){const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('CYB AI help is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');const context=JSON.stringify(dto.context||{}).slice(0,4000);const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB website-builder guide. Explain steps simply, help users understand the editor, and answer questions about designing their website. When users want design changes, direct them to the Edit my website tab, where their request will be applied as an editable change. Never claim to perform changes in this help chat. Keep the answer concise and do not invent features.',input:`Current website and recent conversation context: ${context}\nUser question: ${dto.message}`},apiKey,'AI help');const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};}
+  @Post('public/ai/help') async publicAiHelp(@Body() dto:AiHelpInput){
+    const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('CYB AI help is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');
+    const context=JSON.stringify(dto.context||{}).slice(0,4000);
+    const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB guide for visitors who have not created an account yet. Answer concise questions about CYB, starting a website, and the general website-building process. Do not claim to see or change a visitor’s account or website. If a question needs account-specific details, tell them to sign in. If you are unsure about a CYB feature, say so instead of guessing.',input:`Visitor context: ${context}\nQuestion: ${dto.message}`},apiKey,'AI help');
     const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};
   }
   @UseGuards(SessionGuard) @Get('draft') async draft(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});return b?.website||null;}
