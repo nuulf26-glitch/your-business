@@ -18,9 +18,10 @@ describe('Try CYB preview',()=>{
     expect(cookie).toHaveLength(43);
     expect(row.tokenHash).toBe(tokenHash(cookie));
     const request={cookies:{cyb_preview:cookie}} as any;
-    const first=await controller.generate(request,{prompt:'Create a luxury skincare store in beige.'} as any);
+    const first=await controller.generate(request,{prompt:'Create a luxury skincare store in beige. Brand name Luma.'} as any);
     expect(first.generated).toBe(true);
     expect((first.model as any).pages[0].sections.some((section:any)=>section.type==='hero')).toBe(true);
+    expect((first.model as any).brandName).toBe('Luma');
     const original=(first.model as any).brandName;
     const retry=await controller.generate(request,{prompt:'Create a different coffee shop.'} as any);
     expect((retry.model as any).brandName).toBe(original);
