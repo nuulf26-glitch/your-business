@@ -114,6 +114,21 @@ describe('backend critical operations', () => {
     expect(result).toEqual({ok:true,message:'If the account exists, a password reset link will be sent.'});
   });
 
+  it('logs successful reset submission without logging the recipient or reset token', async () => {
+    const email='createyourbusiness6@gmail.com';
+    const db:any={user:{findUnique:jest.fn().mockResolvedValue({id:'u-1',email})},passwordResetToken:{deleteMany:jest.fn().mockResolvedValue({count:0}),create:jest.fn().mockResolvedValue({})}};
+    const mail:any={sendAccountLink:jest.fn().mockResolvedValue(undefined)};
+    const controller:any=new AuthController(db,mail);
+    const log=jest.spyOn(controller.logger,'log').mockImplementation(()=>undefined);
+    const result=await controller.forgotPassword({email} as any);
+    expect(result).toEqual({ok:true,message:'If the account exists, a password reset link will be sent.'});
+    expect(mail.sendAccountLink).toHaveBeenCalledWith(email,expect.any(String),'reset');
+    const logged=log.mock.calls.map(call=>String(call[0])).join('\n');
+    expect(logged).toContain('password_reset_email_submitted');
+    expect(logged).not.toContain(email);
+    expect(logged).not.toContain(mail.sendAccountLink.mock.calls[0][1]);
+  });
+
   it('does not consume an expired password-reset token', async () => {
     const db:any={passwordResetToken:{findUnique:jest.fn().mockResolvedValue({userId:'u-1',expiresAt:new Date(Date.now()-1000)})},$transaction:jest.fn()};
     await expect(new AuthController(db,{} as any).resetPassword({token:'c'.repeat(43),password:'a-new-secure-password'} as any)).rejects.toThrow('invalid or expired');
