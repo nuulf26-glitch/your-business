@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, Logger, ServiceUnavailableException, Headers, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, ForbiddenException, Logger, ServiceUnavailableException, Headers, UnauthorizedException } from '@nestjs/common';
 import { IsEmail, IsNumber, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn, IsBoolean } from 'class-validator';
 import { Request, Response } from 'express';
 import * as argon2 from 'argon2';
@@ -91,7 +91,7 @@ export class AuthController {
   private logger=new Logger(AuthController.name);
   constructor(private db: DbService, private mail:MailService) {}
   @Throttle({default:{limit:5,ttl:60_000}})
-  @Post('signup') async signup(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
+  @Post('signup') async signup(@Req() req:Request, @Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
     if (dto.acceptedTerms !== true) throw new BadRequestException('Accept the Terms of Service and Privacy Policy to create an account');
     const email = dto.email.trim().toLowerCase();
     if (await this.db.user.findUnique({ where:{email} })) throw new ConflictException('Account already exists');
@@ -104,7 +104,15 @@ export class AuthController {
         const created = await tx.user.create({ data:{ email, fullName:dto.fullName?.trim() || null, passwordHash:await argon2.hash(dto.password), role:'OWNER', emailVerifiedAt:new Date() } });
         await tx.termsConsent.create({data:{userId:created.id,termsVersion:'2026-10-31',privacyVersion:'2026-10-31'}});
         await tx.subscription.create({data:{userId:created.id,trialEndsAt}});
-        await tx.business.create({data:{ownerId:created.id,name:businessName,slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
+        const business=await tx.business.create({data:{ownerId:created.id,name:businessName,slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
+        const previewToken=String((req as any).cookies?.cyb_preview||'');
+        if(previewToken.length>=32){
+          const preview=await tx.trialPreview.findFirst({where:{tokenHash:tokenHash(previewToken),expiresAt:{gt:new Date()},generatedAt:{not:null},claimedUserId:null}});
+          if(preview?.draft){
+            await tx.website.update({where:{businessId:business.id},data:{draft:validateWebsite(preview.draft,false) as any}});
+            await tx.trialPreview.update({where:{id:preview.id},data:{claimedUserId:created.id}});
+          }
+        }
         return created;
       });
     } catch (error) {
@@ -112,6 +120,7 @@ export class AuthController {
       throw error;
     }
     await this.issueSession(user.id,res);
+    res.clearCookie('cyb_preview',{path:'/'});
     return { id:user.id, email:user.email, emailVerified:true, trialEndsAt:trialEndsAt.toISOString() };
   }
   @Throttle({default:{limit:8,ttl:60_000}})
@@ -406,12 +415,56 @@ export class PublicOrderController {
   @Post(':id/cash-on-delivery') async setCashOnDelivery(@Req() req:Request,@Body() dto:JsonInput){const id=String(req.params['id']);const row=await this.db.order.findUnique({where:{id}});if(!row||row.status!=='new')throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...(dto.data||{}),paymentMethod:'cash',paymentStatus:'Cash on delivery'};await this.db.order.update({where:{id},data:{data:data as any}});return {ok:true};}
 }
 
+function deterministicTrialWebsite(prompt:string){
+  const clean=prompt.trim().replace(/\s+/g,' ').slice(0,1200),lower=clean.toLowerCase();
+  const kind=lower.includes('skin')||lower.includes('beauty')?'skincare':lower.includes('coffee')||lower.includes('cafe')?'coffee':lower.includes('fashion')||lower.includes('clothing')?'fashion':lower.includes('fitness')||lower.includes('gym')?'wellness':'studio';
+  const profiles:Record<string,any>={
+    skincare:{name:'ATELIER BOTANIQUE',eyebrow:'SKINCARE · MADE WITH INTENTION',title:'A softer ritual. A brighter kind of care.',body:'Thoughtful formulas and everyday rituals, created to make caring for your skin feel beautifully simple.',accent:'#9b765a',image:'https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?auto=format&fit=crop&w=1200&q=85',offer:'The daily ritual',items:['Gentle by design','Made for everyday','Care that feels considered']},
+    coffee:{name:'SUNDAY ROAST',eyebrow:'SMALL BATCH · SLOW MORNINGS',title:'Make room for a better cup.',body:'Carefully sourced coffee, roasted in small batches and made for the moments worth slowing down for.',accent:'#76543d',image:'https://images.unsplash.com/photo-1442512595331-e89e73853f31?auto=format&fit=crop&w=1200&q=85',offer:'From our roastery',items:['Thoughtful sourcing','Roasted in small batches','A ritual worth keeping']},
+    fashion:{name:'FORME STUDIO',eyebrow:'CONSIDERED WARDROBE · EST. 2026',title:'Fewer pieces. More ways to be you.',body:'A considered collection of modern essentials, made to move with you and stay in your wardrobe for years.',accent:'#7c6653',image:'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1200&q=85',offer:'The essentials edit',items:['Easy, timeless silhouettes','Designed for repeat wear','A quieter kind of statement']},
+    wellness:{name:'STILL FORM',eyebrow:'MOVEMENT · WELLNESS · BALANCE',title:'Find your own kind of strong.',body:'A welcoming space to move with purpose, build a lasting practice and feel more at home in your body.',accent:'#547060',image:'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=1200&q=85',offer:'Move at your pace',items:['Classes for every level','Guidance that meets you here','Progress without pressure']},
+    studio:{name:'FORM & FIELD',eyebrow:'INDEPENDENT BUSINESS · MADE PERSONAL',title:'Good work deserves a beautiful home.',body:'A clear, considered introduction to your business, your approach and the work you are proud to share.',accent:'#776b5e',image:'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=85',offer:'A little about us',items:['Thoughtful, personal service','Made around what matters','Here to help you begin']}
+  };
+  const p=profiles[kind],requested=clean.match(/(?:called|named|brand(?:\s+name)?\s*(?:is|:|=))\s+[“"']?([A-Za-z][A-Za-z0-9 &'’-]{1,32})/i)?.[1]?.trim(),brandName=requested?requested.replace(/\s+(with|that|and|featuring|using)\s+.*$/i,'').slice(0,32):p.name;
+  const sections=[
+    {id:'preview-hero',type:'hero',variant:'luxury',eyebrow:p.eyebrow,title:p.title,body:p.body,buttonText:'Explore the collection',href:'#preview-offer',image:p.image,alt:`Editorial ${kind} preview`},
+    {id:'preview-intro',type:'about',eyebrow:'A MORE PERSONAL APPROACH',title:p.offer,body:p.body,image:p.image,alt:`${kind} studio`},
+    {id:'preview-values',type:'services',title:'Made to feel like you.',body:'A few things that guide everything we do.',items:p.items},
+    {id:'preview-offer',type:'collection',title:'The thoughtful edit',body:'A preview of how your offer can come to life. Add your real products and details when you make your website yours.',limit:3},
+    {id:'preview-faq',type:'faq',title:'A few good questions',body:'Clear answers help people feel at home.',items:[{question:'What makes this different?',answer:'A considered approach, shaped around what you need.'},{question:'How do I get started?',answer:'Tell us what you are looking for and we will help you take the next step.'}]},
+    {id:'preview-footer',type:'footer',title:brandName,body:'A little more care in every detail.'}
+  ];
+  const dark=/\b(black|dark|midnight|charcoal)\b/.test(lower),primaryColor=/\b(green|sage|olive)\b/.test(lower)?'#647261':/\b(blue|navy)\b/.test(lower)?'#35465e':p.accent;
+  return {editorVersion:2,brandName,description:p.body,tagline:p.eyebrow,backgroundColor:dark?'#211f1d':'#f7f3ec',textColor:dark?'#f4efe8':'#28231f',primaryColor:dark?'#c9a785':primaryColor,bodyFont:'Arial, sans-serif',headingFont:/\b(sans|modern|minimalist)\b/.test(lower)?'DM Sans, Arial, sans-serif':'Georgia, serif',buttonRadius:'0px',pages:[{id:'home',slug:'',title:'Home',sections}]};
+}
+
+@Controller('try')
+export class TrialPreviewController {
+  constructor(private db:DbService){}
+  private cookie(res:Response,token:string){res.cookie('cyb_preview',token,{httpOnly:true,secure:true,sameSite:'none',path:'/',maxAge:7*864e5});}
+  @Throttle({default:{limit:12,ttl:60_000}})
+  @Post('session') async session(@Req() req:Request,@Res({passthrough:true}) res:Response){
+    await this.db.trialPreview.deleteMany({where:{expiresAt:{lte:new Date()}}});
+    const token=String((req as any).cookies?.cyb_preview||'');
+    if(token.length>=32){const found=await this.db.trialPreview.findFirst({where:{tokenHash:tokenHash(token),expiresAt:{gt:new Date()},claimedUserId:null}});if(found){this.cookie(res,token);return {expiresAt:found.expiresAt.toISOString(),generated:!!found.generatedAt};}}
+    const next=randomBytes(32).toString('base64url'),expiresAt=new Date(Date.now()+7*864e5);
+    await this.db.trialPreview.create({data:{tokenHash:tokenHash(next),expiresAt}});this.cookie(res,next);return {expiresAt:expiresAt.toISOString(),generated:false};
+  }
+  @Throttle({default:{limit:5,ttl:60_000}})
+  @Get('preview') async getPreview(@Req() req:Request){const token=String((req as any).cookies?.cyb_preview||'');if(token.length<32)throw new UnauthorizedException('Start a free preview first.');const row=await this.db.trialPreview.findFirst({where:{tokenHash:tokenHash(token),expiresAt:{gt:new Date()},claimedUserId:null}});if(!row)throw new NotFoundException('This preview has expired. Start a new preview to continue.');return {model:row.draft,generated:!!row.generatedAt,expiresAt:row.expiresAt.toISOString()};}
+  @Throttle({default:{limit:5,ttl:60_000}})
+  @Post('generate') async generate(@Req() req:Request,@Body() dto:AiPromptInput){const token=String((req as any).cookies?.cyb_preview||'');if(token.length<32)throw new UnauthorizedException('Start a free preview first.');const hash=tokenHash(token),prior=await this.db.trialPreview.findFirst({where:{tokenHash:hash,expiresAt:{gt:new Date()},claimedUserId:null}});if(!prior)throw new NotFoundException('This preview has expired. Start a new preview to continue.');if(prior.generatedAt)return {model:prior.draft,generated:true,expiresAt:prior.expiresAt.toISOString()};const model=validateWebsite(deterministicTrialWebsite(dto.prompt),false),result=await this.db.trialPreview.updateMany({where:{id:prior.id,generatedAt:null,expiresAt:{gt:new Date()},claimedUserId:null},data:{draft:model as any,prompt:dto.prompt.trim().slice(0,1200),generatedAt:new Date()}});if(!result.count){const latest=await this.db.trialPreview.findUnique({where:{id:prior.id}});if(latest?.draft)return {model:latest.draft,generated:true,expiresAt:latest.expiresAt.toISOString()};throw new ConflictException('The free preview has already been used.');}return {model,generated:true,expiresAt:prior.expiresAt.toISOString()};}
+  @Throttle({default:{limit:30,ttl:60_000}})
+  @Put('draft') async save(@Req() req:Request,@Body() dto:WebsiteInput){const token=String((req as any).cookies?.cyb_preview||'');if(token.length<32)throw new UnauthorizedException('Start a free preview first.');const model=validateWebsite(dto.model,false),result=await this.db.trialPreview.updateMany({where:{tokenHash:tokenHash(token),expiresAt:{gt:new Date()},generatedAt:{not:null},claimedUserId:null},data:{draft:model as any}});if(!result.count)throw new NotFoundException('This preview has expired or is no longer available.');return {saved:true};}
+}
+
 @Controller('websites')
 export class WebsiteController {
   constructor(private db:DbService){}
   private async businessFor(req:Request & {user:any}){const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)throw new NotFoundException('Create a business first');return business;}
+  private async requirePaidPublishing(userId:string){const access=await this.db.subscription.findUnique({where:{userId}});if(access?.status!=='ACTIVE'||access.billingType!=='ONE_TIME')throw new ForbiddenException('Activate CYB Lifetime Access before publishing your website. Your draft is saved.');}
   @UseGuards(SessionGuard) @Get('ai/status') async aiStatus(){return {available:Boolean(process.env.OPENAI_API_KEY?.trim()),usageLimited:false};}
-  @UseGuards(SessionGuard) @Post('ai/design') async aiDesign(@Req() req:Request & {user:any},@Body() dto:AiPromptInput){
+  @UseGuards(SessionGuard) @Throttle({default:{limit:8,ttl:60_000}}) @Post('ai/design') async aiDesign(@Req() req:Request & {user:any},@Body() dto:AiPromptInput){
     const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('AI design is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');
     const modelName=process.env.OPENAI_MODEL||'gpt-4o-mini';
     const isModify=dto.mode==='modify';
@@ -444,7 +497,7 @@ export class WebsiteController {
     return {model:draft};
   }
   @UseGuards(SessionGuard) @Post('ai/help') async aiHelp(@Req() req:Request & {user:any},@Body() dto:AiHelpInput){const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('CYB AI help is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');const context=JSON.stringify(dto.context||{}).slice(0,4000);const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB website-builder guide. Explain steps simply, help users understand the editor, and answer questions about designing their website. When users want design changes, direct them to the Edit my website tab, where their request will be applied as an editable change. Never claim to perform changes in this help chat. Keep the answer concise and do not invent features.',input:`Current website and recent conversation context: ${context}\nUser question: ${dto.message}`},apiKey,'AI help');const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};}
-  @Post('public/ai/help') async publicAiHelp(@Body() dto:AiHelpInput){
+  @Throttle({default:{limit:5,ttl:60_000}}) @Post('public/ai/help') async publicAiHelp(@Body() dto:AiHelpInput){
     const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('CYB AI help is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');
     const context=JSON.stringify(dto.context||{}).slice(0,4000);
     const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB guide for visitors who have not created an account yet. Answer concise questions about CYB, starting a website, and the general website-building process. Do not claim to see or change a visitor’s account or website. If a question needs account-specific details, tell them to sign in. If you are unsure about a CYB feature, say so instead of guessing.',input:`Visitor context: ${context}\nQuestion: ${dto.message}`},apiKey,'AI help');
@@ -460,7 +513,7 @@ export class WebsiteController {
     return {status,hasDraft:!!website?.draft,hasPublished,hasPublishedAt,changedPathCount:paths.length,changedPaths:paths.slice(0,80),truncated:paths.length>80};
   }
   @UseGuards(SessionGuard) @Put('draft') async saveDraft(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');const model=validateWebsite(dto.model,false);await assertOwnedMedia(this.db,req.user.id,model);return this.db.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any},update:{draft:model as any,revision:{increment:1}}});}
-  @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business before publishing');const model=validateWebsite(dto.model,true);await assertOwnedMedia(this.db,req.user.id,model);return this.db.$transaction(async tx=>{const publishedAt=new Date();const site=await tx.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any,published:publicWebsite(model) as any,publishedAt},update:{draft:model as any,published:publicWebsite(model) as any,publishedAt,revision:{increment:1}}});const version=await tx.websiteVersion.create({data:{websiteId:site.id,snapshot:site.draft as any}});return {published:true,revision:site.revision,slug:b.slug,versionId:version.id};});}
+  @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business before publishing');await this.requirePaidPublishing(req.user.id);const model=validateWebsite(dto.model,true);await assertOwnedMedia(this.db,req.user.id,model);return this.db.$transaction(async tx=>{const publishedAt=new Date();const site=await tx.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any,published:publicWebsite(model) as any,publishedAt},update:{draft:model as any,published:publicWebsite(model) as any,publishedAt,revision:{increment:1}}});const version=await tx.websiteVersion.create({data:{websiteId:site.id,snapshot:site.draft as any}});return {published:true,revision:site.revision,slug:b.slug,versionId:version.id};});}
   @UseGuards(SessionGuard) @Post('unpublish') async unpublish(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');return this.db.website.updateMany({where:{businessId:b.id},data:{published:Prisma.DbNull,publishedAt:null}});}
   @UseGuards(SessionGuard) @Get('versions') async versions(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)return [];return (await this.db.websiteVersion.findMany({where:{websiteId:b.website.id},orderBy:{createdAt:'desc'},take:10})).map(({snapshot,createdAt,...version})=>({...version,model:snapshot,publishedAt:createdAt}));}
   @UseGuards(SessionGuard) @Post('restore/:id') async restore(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)throw new NotFoundException('Website not found');const version=await this.db.websiteVersion.findFirst({where:{id:String(req.params['id']),websiteId:b.website.id}});if(!version)throw new NotFoundException('Version not found');const model=validateWebsite(version.snapshot,false);return this.db.website.update({where:{businessId:b.id},data:{draft:model as any,revision:{increment:1}}});}

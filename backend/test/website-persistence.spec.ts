@@ -21,6 +21,7 @@ describe('website draft and publish persistence', () => {
       websiteVersion,
     };
     const db: any = {
+      subscription: { findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE', billingType: 'ONE_TIME' }) },
       business: {
         findFirst: jest.fn(async ({ where }: any) => where.ownerId === 'owner' ? business : null),
         findUnique: jest.fn(async ({ where }: any) => where.slug === business.slug ? business : null),

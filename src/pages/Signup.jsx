@@ -38,7 +38,7 @@ async function handleSignup(event) {
       setLoading(true);
 
       await register(email.trim(), password, { fullName: fullName.trim(), businessName: businessName.trim(), acceptedTerms });
-      navigate("/dashboard", { replace: true });
+      navigate(new URLSearchParams(window.location.search).get("activate") === "1" ? "/platform-payment" : "/dashboard", { replace: true });
     } catch (signupError) {
       if (signupError.status === 409 || signupError.code === "auth/email-already-in-use") {
         setError("An account already exists with this email.");
@@ -78,7 +78,7 @@ async function handleSignup(event) {
           <div className="auth-benefits">
             <div>
               <span>01</span>
-              <p>14-day free trial</p>
+              <p>Private website preview</p>
             </div>
 
             <div>
@@ -109,9 +109,9 @@ async function handleSignup(event) {
 
             <h2>Start building your website</h2>
 
-            <p>
-              Enter your details below. You can customize everything after
-              creating your account.
+              <p>
+              Enter your details to keep your saved website preview. You can
+              complete account activation in the secure checkout.
             </p>
           </div>
 
