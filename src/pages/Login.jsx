@@ -123,6 +123,7 @@ await login(email.trim(), password);
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="name@example.com"
                 autoComplete="email"
+                required
               />
             </div>
 
@@ -141,6 +142,7 @@ await login(email.trim(), password);
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder="Enter your password"
                   autoComplete="current-password"
+                  required
                 />
 
                 <button
