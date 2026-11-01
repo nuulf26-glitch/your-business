@@ -1,5 +1,6 @@
 import { OriginGuard, SessionGuard, tokenHash } from '../src/session';
 import { AuthController, BusinessController, HealthController, OrderController } from '../src/routes';
+import { MailService } from '../src/mail';
 import { publicWebsite, validateWebsite } from '../src/website-policy';
 import * as argon2 from 'argon2';
 
@@ -112,6 +113,29 @@ describe('backend critical operations', () => {
     const db:any={user:{findUnique:jest.fn().mockResolvedValue(null)}};
     const result=await new AuthController(db,{} as any).forgotPassword({email:'unknown@example.com'} as any);
     expect(result).toEqual({ok:true,message:'If the account exists, a password reset link will be sent.'});
+  });
+
+  it('logs a staging-only unknown-account outcome without logging the email', async () => {
+    const previous=process.env.PUBLIC_APP_URL;process.env.PUBLIC_APP_URL='https://getcyb-staging-web.onrender.com';
+    const controller:any=new AuthController({user:{findUnique:jest.fn().mockResolvedValue(null)}} as any,{} as any);
+    const log=jest.spyOn(controller.logger,'log').mockImplementation(()=>undefined);
+    const result=await controller.forgotPassword({email:'createyourbusiness6@gmail.com'} as any);
+    if(previous===undefined)delete process.env.PUBLIC_APP_URL;else process.env.PUBLIC_APP_URL=previous;
+    expect(result.ok).toBe(true);
+    expect(log.mock.calls.map(call=>String(call[0])).join('\n')).toContain('password_reset_account_not_found');
+    expect(log.mock.calls.map(call=>String(call[0])).join('\n')).not.toContain('createyourbusiness6@gmail.com');
+  });
+
+  it('requires an authenticated staging session for mail diagnostics and hides values', async () => {
+    const previous=process.env.PUBLIC_APP_URL;process.env.PUBLIC_APP_URL='https://getcyb-staging-web.onrender.com';
+    const result={configured:true,missing:[],gmailHost:true,supportedPort:true,smtpUserConfigured:true,passwordConfigured:true,mailFromConfigured:true,authenticated:true,failure:null};
+    const mail:any={verifySmtp:jest.fn().mockResolvedValue(result)};
+    const controller:any=new AuthController({} as any,mail);
+    await expect(controller.stagingMailDiagnostic()).resolves.toEqual(result);
+    expect(mail.verifySmtp).toHaveBeenCalledTimes(1);
+    process.env.PUBLIC_APP_URL='https://getcyb.fit';
+    await expect(controller.stagingMailDiagnostic()).rejects.toThrow('Not Found');
+    if(previous===undefined)delete process.env.PUBLIC_APP_URL;else process.env.PUBLIC_APP_URL=previous;
   });
 
   it('logs successful reset submission without logging the recipient or reset token', async () => {

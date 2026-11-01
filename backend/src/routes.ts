@@ -184,9 +184,24 @@ export class AuthController {
     return {ok:true};
   }
   @Throttle({default:{limit:3,ttl:60_000}})
+  @UseGuards(SessionGuard) @Get('staging-mail-diagnostic') async stagingMailDiagnostic() {
+    if (!stagingDiagnosticsEnabled()) throw new NotFoundException();
+    return this.mail.verifySmtp();
+  }
+  @Throttle({default:{limit:3,ttl:60_000}})
   @Post('forgot-password') async forgotPassword(@Body() dto:EmailInput) {
     const user=await this.db.user.findUnique({where:{email:dto.email.trim().toLowerCase()}});
-    if(user) { try { await this.createEmailLink(user.id,user.email,'reset'); this.logger.log(JSON.stringify({event:'password_reset_email_submitted',type:'reset'})); } catch(error) { this.logger.error(JSON.stringify({event:'password_reset_email_failed',reason:error instanceof Error?error.message:'unknown'})); } }
+    if(user) {
+      try { await this.createEmailLink(user.id,user.email,'reset'); this.logger.log(JSON.stringify({event:'password_reset_email_submitted',type:'reset'})); }
+      catch(error) {
+        const code=typeof error==='object'&&error&&'code' in error?String(error.code):'';
+        const responseCode=typeof error==='object'&&error&&'responseCode' in error?Number(error.responseCode):undefined;
+        const reason=error instanceof ServiceUnavailableException?error.message:code==='EAUTH'||(responseCode!==undefined&&responseCode>=530&&responseCode<=539)?'SMTP authentication failed':['ECONNECTION','ETIMEDOUT','ENOTFOUND','ESOCKET'].includes(code)?'SMTP connection failed':'SMTP submission failed';
+        this.logger.error(JSON.stringify({event:'password_reset_email_failed',reason,code:code||undefined,responseCode}));
+      }
+    } else if(stagingDiagnosticsEnabled()) {
+      this.logger.log(JSON.stringify({event:'password_reset_account_not_found',type:'reset'}));
+    }
     return {ok:true,message:'If the account exists, a password reset link will be sent.'};
   }
   @Throttle({default:{limit:5,ttl:60_000}})
