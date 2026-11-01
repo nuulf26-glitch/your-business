@@ -11,7 +11,7 @@ import { Prisma } from '@prisma/client';
 import { SessionGuard, tokenHash } from './session';
 import { MailService } from './mail';
 import { publicWebsite, validateWebsite } from './website-policy';
-import { applyAiWebsiteOperations } from './ai-website';
+import { applyAiWebsiteOperations, normalizeGeneratedWebsite } from './ai-website';
 import { allocate, localParts } from './availability';
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
@@ -415,12 +415,13 @@ export class WebsiteController {
       if(!currentModel)throw new BadRequestException('Choose a website to edit first.');
       try{return applyAiWebsiteOperations(currentModel,generated,dto.prompt);}catch(error){if(error instanceof BadRequestException)throw error;throw new ServiceUnavailableException('AI returned an edit that could not be safely applied. Your current website was not changed. Please try a more specific request.');}
     }
-    const sections=Array.isArray(generated.sections)?generated.sections:[];const generatedSectionTypes=new Set(['hero','about','services','collection','gallery','faq','reviews','contact','footer']);if(sections.length<4||sections.length>10||!sections.some((section:any)=>section.type==='hero')||!sections.some((section:any)=>section.type==='footer')||sections.some((section:any)=>!generatedSectionTypes.has(section?.type)))throw new ServiceUnavailableException('AI returned an incomplete design. Please try again.');
+    const rawSections=Array.isArray(generated.sections)?generated.sections:[];const generatedSectionTypes=new Set(['hero','about','services','collection','gallery','faq','reviews','contact','footer']);if(rawSections.length<4||rawSections.length>10||!rawSections.some((section:any)=>section?.type==='hero')||!rawSections.some((section:any)=>section?.type==='footer')||rawSections.some((section:any)=>!section||typeof section!=='object'||Array.isArray(section)||!generatedSectionTypes.has(section.type)))throw new ServiceUnavailableException('AI returned an incomplete design. Please try again.');
+    const safeGenerated=normalizeGeneratedWebsite(generated);const sections=safeGenerated.sections;
     for(const section of sections){
       if(section.type==='reviews')section.items=[{name:'Customer name',quote:'Add a real customer review here.'}];
       if(section.type==='gallery'&&/\b(images?|photos?|pictures?)\b/i.test(dto.prompt))section.imagePlaceholderCount=Math.max(1,Math.min(8,Number.isInteger(section.imagePlaceholderCount)?section.imagePlaceholderCount:3));
     }
-    const draft=validateWebsite({editorVersion:2,...generated,pages:[{id:'home',slug:'',title:'Home',sections:sections.map((section:any,index:number)=>({...section,id:`ai-${Date.now()}-${index}`,style:{fontFamily:section.type==='hero'?'Georgia':'Arial',fontSize:section.type==='hero'?56:28,color:generated.textColor||'#171513'}}))}]},true);
+    const draft=validateWebsite({editorVersion:2,...safeGenerated,pages:[{id:'home',slug:'',title:'Home',sections:sections.map((section:any,index:number)=>({...section,id:`ai-${Date.now()}-${index}`,style:{fontFamily:section.type==='hero'?'Georgia':'Arial',fontSize:section.type==='hero'?56:28,color:safeGenerated.textColor||'#171513'}}))}]},true);
     return {model:draft};
   }
   @UseGuards(SessionGuard) @Post('ai/help') async aiHelp(@Req() req:Request & {user:any},@Body() dto:AiHelpInput){const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('CYB AI help is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');const context=JSON.stringify(dto.context||{}).slice(0,4000);const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB website-builder guide. Explain steps simply, help users understand the editor, and answer questions about designing their website. When users want design changes, direct them to the Edit my website tab, where their request will be applied as an editable change. Never claim to perform changes in this help chat. Keep the answer concise and do not invent features.',input:`Current website and recent conversation context: ${context}\nUser question: ${dto.message}`},apiKey,'AI help');const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};}
