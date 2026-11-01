@@ -126,6 +126,8 @@ async function handleSignup(event) {
                 onChange={(event) => setBusinessName(event.target.value)}
                 placeholder="Your business name"
                 autoComplete="organization"
+                required
+                maxLength={120}
               />
             </div>
 
@@ -139,6 +141,8 @@ async function handleSignup(event) {
                 onChange={(event) => setFullName(event.target.value)}
                 placeholder="Your full name"
                 autoComplete="name"
+                required
+                maxLength={120}
               />
             </div>
 
@@ -152,6 +156,7 @@ async function handleSignup(event) {
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="name@example.com"
                 autoComplete="email"
+                required
               />
             </div>
 
@@ -166,6 +171,9 @@ async function handleSignup(event) {
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder="At least 12 characters"
                   autoComplete="new-password"
+                  required
+                  minLength={12}
+                  maxLength={200}
                 />
 
                 <button
