@@ -1,6 +1,6 @@
 import { EDITOR_MODES, editorMode } from "../editor/editorState";
 import { groupSections, ungroupSections, mediaAssets } from "../editor/structure";
-import { publishSnapshot, websiteVersions, loadWebsiteRecord, saveWebsiteDraft, unpublishWebsite } from "../editor/versionService";
+import { publishSnapshot, websiteVersions, loadWebsiteRecord, loadPublicationDiagnostic, saveWebsiteDraft, unpublishWebsite } from "../editor/versionService";
 import { websitePublicationStatus } from "../editor/websiteStatus";
 import WebsiteRenderer from "../editor/WebsiteRenderer";
 import { websitePages, changePageSections, addWebsitePage, pageSlug, reorderPage } from "../editor/pages";
@@ -252,6 +252,7 @@ export default function WebsiteEditor() {
   const [publishUrl, setPublishUrl] = useState("");
   const [status, setStatus] = useState("Saved");
   const [publicationStatus, setPublicationStatus] = useState('Checking…');
+  const [publicationDiagnostic, setPublicationDiagnostic] = useState(null);
   const [saving, setSaving] = useState(false);
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
@@ -273,8 +274,9 @@ export default function WebsiteEditor() {
     async function loadEditor() {
       try {
         setLoadNotice("");
-        const [storeResult, productsResult, draftResult] = await Promise.allSettled([getStore(), getProducts(), loadWebsiteRecord()]);
+        const [storeResult, productsResult, draftResult, diagnosticResult] = await Promise.allSettled([getStore(), getProducts(), loadWebsiteRecord(), loadPublicationDiagnostic()]);
         if (!active) return;
+        if (diagnosticResult.status === 'fulfilled') setPublicationDiagnostic(diagnosticResult.value);
         let cached = null;
         try { cached = JSON.parse(localStorage.getItem(cacheKey) || 'null'); } catch { /* Ignore corrupt recovery data. */ }
         const store = storeResult.status === 'fulfilled' ? storeResult.value : null;
@@ -583,7 +585,7 @@ export default function WebsiteEditor() {
   return <div className={`getcyb-editor editor-mode-${mode} editor-mobile-${mobilePanel}`}>
     <header className="getcyb-editor-topbar">
       <div className="editor-brand"><span className="editor-brand-mark">C</span><strong>CYB</strong></div>
-      <div className="editor-project"><input aria-label="Business name" value={model.brandName} onChange={(event) => updateModelField("brandName", event.target.value || "Your Business")} /><span className="save-state saved">{publicationStatus}</span><span className={`save-state ${status === "Saved" || status === "Published" ? "saved" : ""}`}>{status}</span></div>
+      <div className="editor-project"><input aria-label="Business name" value={model.brandName} onChange={(event) => updateModelField("brandName", event.target.value || "Your Business")} /><span className="save-state saved">{publicationStatus}</span>{publicationDiagnostic?.changedPathCount > 0 && <details className="publication-diagnostic"><summary>Inspect {publicationDiagnostic.changedPathCount} saved difference{publicationDiagnostic.changedPathCount===1?'':'s'}</summary><p>Field paths only; website content is not included.</p><ul>{publicationDiagnostic.changedPaths.map((path,index)=><li key={`${path}-${index}`}><code>{path}</code></li>)}</ul>{publicationDiagnostic.truncated&&<p>Additional paths omitted.</p>}</details>}<span className={`save-state ${status === "Saved" || status === "Published" ? "saved" : ""}`}>{status}</span></div>
       <div className="topbar-spacer" />
       <label className="editor-mode-picker"><span>Editing mode</span><select aria-label="Editing mode" value={mode} onChange={event => switchMode(event.target.value)}>{EDITOR_MODES.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       <div className="history-controls"><button type="button" onClick={undo} disabled={!undoStack.length} aria-label="Undo">↶</button><button type="button" onClick={redo} disabled={!redoStack.length} aria-label="Redo">↷</button></div>

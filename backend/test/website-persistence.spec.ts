@@ -1,4 +1,5 @@
 import { WebsiteController } from '../src/routes';
+import { publicationDifferencePaths } from '../src/website-policy';
 
 describe('website draft and publish persistence', () => {
   function createFixture(withWebsite = true) {
@@ -74,5 +75,56 @@ describe('website draft and publish persistence', () => {
     await expect(controller.publish({ user: { id: 'another-owner' } } as any, { model: { brandName: 'Injected', sections: [{ id: 'hero', type: 'hero' }] } } as any)).rejects.toThrow('Create a business before publishing');
     expect(db.website.upsert).not.toHaveBeenCalled();
     expect(db.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('reports only persisted public field paths for the signed-in owner on staging', async () => {
+    const { controller, website, db } = createFixture();
+    website.draft = { brandName: 'LUNE', sections: [{ id: 'hero', type: 'hero', title: 'Private draft copy' }], privateNote: 'do not return' };
+    website.published = { brandName: 'LUNE', sections: [{ id: 'hero', type: 'hero', title: 'Live copy' }] };
+    const previous = process.env.PUBLIC_APP_URL;
+    process.env.PUBLIC_APP_URL = 'https://getcyb-staging-web.onrender.com';
+    try {
+      const result = await controller.publicationDiagnostic({ user: { id: 'owner' } } as any);
+      expect(result).toEqual({ status: 'Unpublished changes', hasDraft: true, hasPublished: true, hasPublishedAt: true, changedPathCount: 1, changedPaths: ['sections[0].title'], truncated: false });
+      expect(JSON.stringify(result)).not.toContain('Private draft copy');
+      expect(JSON.stringify(result)).not.toContain('Live copy');
+      expect(JSON.stringify(result)).not.toContain('do not return');
+      expect(db.business.findFirst).toHaveBeenCalledWith({ where: { ownerId: 'owner' } });
+    } finally {
+      if (previous === undefined) delete process.env.PUBLIC_APP_URL; else process.env.PUBLIC_APP_URL = previous;
+    }
+  });
+
+  it('does not expose publication diagnostics outside the staging host', async () => {
+    const { controller, db } = createFixture();
+    const previous = process.env.PUBLIC_APP_URL;
+    process.env.PUBLIC_APP_URL = 'https://getcyb.fit';
+    try {
+      await expect(controller.publicationDiagnostic({ user: { id: 'owner' } } as any)).rejects.toThrow();
+      expect(db.business.findFirst).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env.PUBLIC_APP_URL; else process.env.PUBLIC_APP_URL = previous;
+    }
+  });
+
+  it('does not diagnose another account website', async () => {
+    const { controller, db } = createFixture();
+    const previous = process.env.PUBLIC_APP_URL;
+    process.env.PUBLIC_APP_URL = 'https://getcyb-staging-web.onrender.com';
+    try {
+      await expect(controller.publicationDiagnostic({ user: { id: 'another-owner' } } as any)).rejects.toThrow('Create a business first');
+      expect(db.website.findUnique).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env.PUBLIC_APP_URL; else process.env.PUBLIC_APP_URL = previous;
+    }
+  });
+
+  it('ignores section aliases and JSON object key order but detects actual public content changes', () => {
+    const published = { brandName: 'LUNE', pages: [{ id: 'home', sections: [{ id: 'hero', style: { color: '#000', fontSize: 56 }, title: 'Live' }] }] };
+    const same = { pages: [{ sections: [{ title: 'Live', style: { fontSize: 56, color: '#000' }, id: 'hero' }], id: 'home' }], sections: [{ id: 'compat', title: 'legacy alias' }], brandName: 'LUNE' };
+    expect(publicationDifferencePaths(same, published)).toEqual([]);
+    const changed = { ...same, pages: [{ ...same.pages[0], sections: [{ ...same.pages[0].sections[0], title: 'Draft' }] }] };
+    expect(publicationDifferencePaths(changed, published)).toEqual(['pages[0].sections[0].title']);
+    expect(publicationDifferencePaths({ brandName: 'LUNE', sections: [] }, { brandName: 'LUNE', sections: 'not-an-array' as any })).toEqual(['sections']);
   });
 });

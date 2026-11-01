@@ -3,6 +3,7 @@ import { customBackendRequest } from '../services/customBackendSession';
 export async function businessCall(name, data = {}) {
   if (name === 'loadWebsiteDraft') { const result = await customBackendRequest('/websites/draft'); return result?.draft || null; }
   if (name === 'loadWebsiteRecord') return customBackendRequest('/websites/draft');
+  if (name === 'publicationDiagnostic') return customBackendRequest('/websites/publication-diagnostic');
   if (name === 'saveWebsiteDraft') return customBackendRequest('/websites/draft', { method: 'PUT', body: JSON.stringify({ model: data.model }) });
   if (name === 'publishWebsiteSnapshot') return customBackendRequest('/websites/publish', { method: 'POST', body: JSON.stringify({ model: data.model }) });
   if (name === 'listWebsiteVersions') return customBackendRequest('/websites/versions');

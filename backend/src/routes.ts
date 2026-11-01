@@ -10,11 +10,15 @@ import { DbService } from './database';
 import { Prisma } from '@prisma/client';
 import { SessionGuard, tokenHash } from './session';
 import { MailService } from './mail';
-import { publicWebsite, validateWebsite } from './website-policy';
+import { publicWebsite, publicationDifferencePaths, validateWebsite } from './website-policy';
 import { applyAiWebsiteOperations, normalizeGeneratedWebsite } from './ai-website';
 import { allocate, localParts } from './availability';
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+function stagingDiagnosticsEnabled(){
+  try { const app=new URL(process.env.PUBLIC_APP_URL||''); return app.protocol==='https:'&&app.hostname==='getcyb-staging-web.onrender.com'; }
+  catch { return false; }
+}
 
 @Controller('health')
 export class HealthController {
@@ -182,7 +186,7 @@ export class AuthController {
   @Throttle({default:{limit:3,ttl:60_000}})
   @Post('forgot-password') async forgotPassword(@Body() dto:EmailInput) {
     const user=await this.db.user.findUnique({where:{email:dto.email.trim().toLowerCase()}});
-    if(user) { try { await this.createEmailLink(user.id,user.email,'reset'); } catch(error) { this.logger.error(JSON.stringify({event:'password_reset_email_failed',reason:error instanceof Error?error.message:'unknown'})); } }
+    if(user) { try { await this.createEmailLink(user.id,user.email,'reset'); this.logger.log(JSON.stringify({event:'password_reset_email_submitted',type:'reset'})); } catch(error) { this.logger.error(JSON.stringify({event:'password_reset_email_failed',reason:error instanceof Error?error.message:'unknown'})); } }
     return {ok:true,message:'If the account exists, a password reset link will be sent.'};
   }
   @Throttle({default:{limit:5,ttl:60_000}})
@@ -432,6 +436,14 @@ export class WebsiteController {
     const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};
   }
   @UseGuards(SessionGuard) @Get('draft') async draft(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});return b?.website||null;}
+  @UseGuards(SessionGuard) @Get('publication-diagnostic') async publicationDiagnostic(@Req() req:Request & {user:any}) {
+    if(!stagingDiagnosticsEnabled())throw new NotFoundException();
+    const business=await this.businessFor(req),website=await this.db.website.findUnique({where:{businessId:business.id}});
+    const paths=publicationDifferencePaths(website?.draft as any,website?.published as any);
+    const hasPublished=!!website?.published,hasPublishedAt=!!website?.publishedAt;
+    const status=!hasPublished||!hasPublishedAt?'Draft':paths.length?'Unpublished changes':'Published';
+    return {status,hasDraft:!!website?.draft,hasPublished,hasPublishedAt,changedPathCount:paths.length,changedPaths:paths.slice(0,80),truncated:paths.length>80};
+  }
   @UseGuards(SessionGuard) @Put('draft') async saveDraft(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');const model=validateWebsite(dto.model,false);await assertOwnedMedia(this.db,req.user.id,model);return this.db.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any},update:{draft:model as any,revision:{increment:1}}});}
   @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business before publishing');const model=validateWebsite(dto.model,true);await assertOwnedMedia(this.db,req.user.id,model);return this.db.$transaction(async tx=>{const publishedAt=new Date();const site=await tx.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any,published:publicWebsite(model) as any,publishedAt},update:{draft:model as any,published:publicWebsite(model) as any,publishedAt,revision:{increment:1}}});const version=await tx.websiteVersion.create({data:{websiteId:site.id,snapshot:site.draft as any}});return {published:true,revision:site.revision,slug:b.slug,versionId:version.id};});}
   @UseGuards(SessionGuard) @Post('unpublish') async unpublish(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');return this.db.website.updateMany({where:{businessId:b.id},data:{published:Prisma.DbNull,publishedAt:null}});}
