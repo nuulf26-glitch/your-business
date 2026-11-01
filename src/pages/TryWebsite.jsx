@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import WebsiteRenderer from '../editor/WebsiteRenderer';
 import { customBackendRequest } from '../services/customBackendSession';
+import { updatePreviewBrandName } from '../services/trialPreviewPolicy';
 import '../styles/tryWebsite.css';
 
 const SAMPLE_PROMPT = 'Create a luxury skincare store with a minimalist beige design, elegant typography, a product section, and a professional homepage.';
@@ -103,7 +104,7 @@ export default function TryWebsite() {
       <section className="try-workspace">
         <aside className="try-controls">
           <div className="try-controls-head"><span className="try-kicker">YOUR PREVIEW</span><h1>Make it yours.</h1><p>Changes save automatically and stay private. This preview cannot be published.</p></div>
-          <label className="try-field">Business name<input maxLength={80} value={model.brandName || ''} onChange={e => {setModel(current => ({...current, brandName:e.target.value}));markDirty();}}/></label>
+          <label className="try-field">Business name<input maxLength={80} value={model.brandName || ''} onChange={e => {setModel(current => updatePreviewBrandName(current,e.target.value));markDirty();}}/></label>
           <label className="try-field">Homepage headline<input maxLength={140} value={hero?.title || ''} onChange={e => hero && setField(hero.id,'title',e.target.value)}/></label>
           <label className="try-field">Main button label<input maxLength={60} value={hero?.buttonText || ''} onChange={e => hero && setField(hero.id,'buttonText',e.target.value)}/></label>
           <label className="try-field">Introductory text<textarea maxLength={300} rows={3} value={hero?.body || ''} onChange={e => hero && setField(hero.id,'body',e.target.value)}/></label>
