@@ -1,4 +1,4 @@
-const baseUrl = (import.meta.env.VITE_CUSTOM_BACKEND_URL || '').replace(/\/$/, '');
+const baseUrl = (import.meta.env?.VITE_CUSTOM_BACKEND_URL || '').replace(/\/$/, '');
 const apiBase = `${baseUrl}/api/v1`;
 const cachedUserKey = 'getcyb_session_user';
 
