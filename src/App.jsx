@@ -30,6 +30,7 @@ const Shipping = lazy(() => import("./pages/Shipping"));
 const Settings = lazy(() => import("./pages/Settings"));
 const TemplatePreview = lazy(() => import("./pages/TemplatePreview"));
 const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
+const StagingMailDiagnostics = lazy(() => import("./pages/StagingMailDiagnostics"));
 const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
 const ResetCustomPassword = lazy(() => import("./pages/ResetCustomPassword"));
 function App() {
@@ -41,6 +42,7 @@ function App() {
       <Route path="/design-preview" element={<DesignPreview />} />
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/staging-mail-diagnostics" element={<ProtectedRoute><StagingMailDiagnostics /></ProtectedRoute>} />
       <Route path="/verify-email" element={<VerifyEmail />} />
       <Route path="/reset-password" element={<ResetCustomPassword />} />
       <Route path="/signup" element={<Signup />} />
