@@ -29,18 +29,27 @@ const [products, setProducts] = useState([]);
 const [userProfile, setUserProfile] = useState(null);
   const [websiteRecord, setWebsiteRecord] = useState(null);
   const [websiteStatus, setWebsiteStatus] = useState("Checking…");
+  const [dashboardLoadState, setDashboardLoadState] = useState("loading");
+  const [dashboardRetryCount, setDashboardRetryCount] = useState(0);
   useEffect(() => {
+    let active = true;
+
     async function loadDashboardData() {
+      setDashboardLoadState("loading");
       try {
         const user = await getAppUser();
+        if (!active) return;
         setUserProfile(user || null);
         if (!user) {
-          setOrders([]);
-          setCustomers([]);
+          navigate("/login", { replace: true });
           return;
         }
 
         const [storeResult, websiteResult, productResult, ordersResult, customersResult] = await Promise.allSettled([getStore(), loadWebsiteRecord(), getProducts(), getOrders(), getCustomers()]);
+        if (!active) return;
+        const failedResult = [storeResult, websiteResult, productResult, ordersResult, customersResult].find((result) => result.status === "rejected");
+        if (failedResult) throw failedResult.reason;
+
         if (storeResult.status === 'fulfilled') setStore(storeResult.value);
         if (websiteResult.status === 'fulfilled') {
           setWebsiteRecord(websiteResult.value);
@@ -51,17 +60,20 @@ const [userProfile, setUserProfile] = useState(null);
         const customersData = customersResult.status === 'fulfilled' ? customersResult.value : [];
         setOrders(ordersData);
         setCustomers(customersData);
+        setDashboardLoadState("ready");
 
       } catch (error) {
         console.error(
           "Could not load dashboard data:",
           error
         );
+        if (active) setDashboardLoadState("error");
       }
     }
 
     loadDashboardData();
-  }, []);
+    return () => { active = false; };
+  }, [dashboardRetryCount, navigate]);
   const websiteSetup = store;
   const editorData = websiteRecord?.draft || store?.draftEditorData || store?.editorData;
   const businessName = editorData?.brandName || store?.businessName || store?.storeName || 'Your Business';
@@ -178,7 +190,22 @@ const [userProfile, setUserProfile] = useState(null);
         </div>
       </aside>
 
-      <main className="dashboard-main">
+      <main className="dashboard-main" aria-busy={dashboardLoadState === "loading"}>
+        {dashboardLoadState === "loading" ? (
+          <div className="dashboard-load-state" role="status" aria-live="polite">
+            <span className="dashboard-loading-indicator" aria-hidden="true" />
+            <p>Loading your business dashboard…</p>
+          </div>
+        ) : dashboardLoadState === "error" ? (
+          <div className="dashboard-load-state dashboard-load-error" role="alert">
+            <h1>We couldn’t load your dashboard.</h1>
+            <p>Your business data is unchanged. Check your connection and try again.</p>
+            <button type="button" className="dashboard-primary-button" onClick={() => setDashboardRetryCount((count) => count + 1)}>
+              Try again
+            </button>
+          </div>
+        ) : (
+          <>
         <header className="dashboard-header">
           <div>
             <span>Business dashboard</span>
@@ -534,6 +561,8 @@ const [userProfile, setUserProfile] = useState(null);
             </button>
           </article>
         </section>
+          </>
+        )}
       </main>
     </div>
   );
