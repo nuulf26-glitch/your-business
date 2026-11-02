@@ -3,6 +3,31 @@ import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { tokenHash } from '../src/session';
 
 describe('Try CYB preview',()=>{
+  it.each([
+    ['professional consulting company','Make your next move with confidence.','Explore our approach'],
+    ['creative portfolio','A considered home for your creative work.','Explore the work'],
+  ])('creates a service-focused preview for a %s',async(prompt,headline,buttonText)=>{
+    let cookie='';
+    const row:any={id:'preview-category',tokenHash:'',draft:null,prompt:null,generatedAt:null,claimedUserId:null,expiresAt:new Date(Date.now()+864e5)};
+    const db:any={trialPreview:{
+      deleteMany:jest.fn().mockResolvedValue({count:0}),
+      create:jest.fn(async({data}:any)=>{Object.assign(row,data);return row;}),
+      findFirst:jest.fn(async({where}:any)=>where.tokenHash===row.tokenHash&&row.expiresAt>new Date()?row:null),
+      updateMany:jest.fn(async({data}:any)=>{if(row.generatedAt&&data.generatedAt)return {count:0};Object.assign(row,data);return {count:1};}),
+    }};
+    const controller=new TrialPreviewController(db);
+    await controller.session({cookies:{}} as any,{cookie:(_name:string,value:string)=>{cookie=value;}} as any);
+    const result=await controller.generate({cookies:{cyb_preview:cookie}} as any,{prompt:`Create a ${prompt} called North Star.`} as any);
+    const sections=(result.model as any).pages[0].sections;
+    const hero=sections.find((section:any)=>section.type==='hero');
+    const offer=sections.find((section:any)=>section.id==='preview-offer');
+    expect(hero.title).toBe(headline);
+    expect(hero.buttonText).toBe(buttonText);
+    expect(offer.type).toBe('services');
+    expect(offer.items.length).toBeGreaterThan(0);
+    expect(sections.some((section:any)=>section.type==='reviews'||section.type==='collection')).toBe(false);
+  });
+
   it('creates one deterministic draft, saves edits server-side, and returns the same draft on retry',async()=>{
     let cookie='';
     const row:any={id:'preview-1',tokenHash:'',draft:null,prompt:null,generatedAt:null,claimedUserId:null,expiresAt:new Date(Date.now()+864e5)};
