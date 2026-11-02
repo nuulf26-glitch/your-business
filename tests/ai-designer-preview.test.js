@@ -8,7 +8,7 @@ const [designerSource, editorSource] = await Promise.all([
 ]);
 
 test("AI edit previews receive the account products so product sections resolve", () => {
-  assert.match(editorSource, /<AiDesigner model=\\{model\\} products=\\{products\\}/);
-  assert.match(designerSource, /AiDesigner\\(\\{[^\\n]*products\\s*=\\s*\\[\\]/);
-  assert.match(designerSource, /<WebsiteRenderer model=\\{pendingModel\\} products=\\{products\\}/);
+  assert.match(editorSource, /<AiDesigner model=\{model\} products=\{products\}/);
+  assert.match(designerSource, /AiDesigner\(\{[^\n]*products\s*=\s*\[\]/);
+  assert.match(designerSource, /<WebsiteRenderer model=\{pendingModel\} products=\{products\}/);
 });
