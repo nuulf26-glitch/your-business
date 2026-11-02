@@ -64,8 +64,8 @@ model Subscription {
   userId String @unique
   user User @relation(fields:[userId], references:[id], onDelete:Cascade)
   plan String @default("BASIC")
-  status String @default("TRIALING")
-  billingType String @default("TRIAL")
+  status String @default("INACTIVE")
+  billingType String @default("ONE_TIME")
   trialEndsAt DateTime
   currentPeriodEndsAt DateTime?
   createdAt DateTime @default(now())

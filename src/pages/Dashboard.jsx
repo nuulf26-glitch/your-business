@@ -251,28 +251,13 @@ const [userProfile, setUserProfile] = useState(null);
         Your Business platform is unlocked.
       </p>
     </>
-  ) : userProfile?.trialActive ? (
-    <>
-      <span>Account status</span>
-      <h2>14-day free trial active ✅</h2>
-      <p>
-        Your GETCYB account is active until {new Date(userProfile.trialEndsAt).toLocaleDateString()}.
-      </p>
-      <button
-        type="button"
-        className="dashboard-primary-button"
-        onClick={() => navigate("/platform-payment")}
-      >
-        Pay $246 once — lifetime access
-      </button>
-    </>
   ) : (
     <>
-      <span>Account inactive</span>
-      <h2>Activate your account</h2>
+      <span>Account status</span>
+      <h2>Your account is ready</h2>
       <p>
-        Complete your payment to unlock your website builder,
-        store, and dashboard features.
+        Your draft is saved. Activate CYB Lifetime Access with a one-time
+        $246 payment to publish your website and unlock the full platform.
       </p>
 
       <button
@@ -280,7 +265,7 @@ const [userProfile, setUserProfile] = useState(null);
         className="dashboard-primary-button"
         onClick={() => navigate("/platform-payment")}
       >
-        Pay Now
+        Activate for $246 — one-time
       </button>
     </>
   )}

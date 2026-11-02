@@ -43,12 +43,12 @@ describe('backend critical operations', () => {
     expect(db.user.findUnique).not.toHaveBeenCalled();
   });
 
-  it('reports an active free trial to the dashboard session', async () => {
+  it('does not report a subscription trial as account activation', async () => {
     const trialEndsAt=new Date(Date.now()+24*60*60_000);
     const db:any={subscription:{findUnique:jest.fn().mockResolvedValue({status:'TRIALING',trialEndsAt})}};
     const result=await new AuthController(db,{} as any).me({user:{id:'owner-1',email:'owner@example.com',emailVerifiedAt:new Date(),role:'OWNER'}} as any);
     expect(db.subscription.findUnique).toHaveBeenCalledWith({where:{userId:'owner-1'}});
-    expect(result).toEqual(expect.objectContaining({paid:false,trialActive:true,trialEndsAt:trialEndsAt.toISOString()}));
+    expect(result).toEqual(expect.objectContaining({paid:false,trialActive:false,trialEndsAt:null}));
   });
 
   it('loads business records only for the signed-in owner and requested type', async () => {
@@ -69,7 +69,7 @@ describe('backend critical operations', () => {
     await expect(health.readiness()).rejects.toThrow('Service Unavailable');
   });
 
-  it('creates a 14-day trial and account without requiring email verification', async () => {
+  it('creates an unactivated lifetime account without a trial', async () => {
     const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:new Date()};
     const tx:any={user:{create:jest.fn().mockResolvedValue(user)},termsConsent:{create:jest.fn().mockResolvedValue({})},subscription:{create:jest.fn().mockResolvedValue({})},business:{create:jest.fn().mockResolvedValue({})}};
     const db:any={user:{findUnique:jest.fn().mockResolvedValue(null)},$transaction:jest.fn(async callback=>callback(tx)),verificationToken:{deleteMany:jest.fn().mockResolvedValue({}),create:jest.fn().mockResolvedValue({})},session:{create:jest.fn().mockResolvedValue({})}};
@@ -79,12 +79,12 @@ describe('backend critical operations', () => {
     const result=await new AuthController(db,mail).signup({cookies:{}} as any,{email:' OWNER@example.com ',password:'a-secure-password',acceptedTerms:true} as any,res);
     if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
     expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({email:'owner@example.com'})}));
-    expect(tx.subscription.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({userId:'u-1'})}));
+    expect(tx.subscription.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({userId:'u-1',status:'INACTIVE',billingType:'ONE_TIME',trialEndsAt:expect.any(Date)})}));
     expect(tx.termsConsent.create).toHaveBeenCalledWith(expect.objectContaining({data:{userId:'u-1',termsVersion:'2026-10-31',privacyVersion:'2026-10-31'}}));
     expect(mail.sendAccountLink).not.toHaveBeenCalled();
     expect(tx.user.create.mock.calls[0][0].data.emailVerifiedAt).toBeInstanceOf(Date);
     expect(result.emailVerified).toBe(true);
-    expect(result.trialEndsAt).toBeTruthy();
+    expect(result).not.toHaveProperty('trialEndsAt');
   });
 
   it('allows a valid login when the account email is not verified', async () => {
