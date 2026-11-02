@@ -4,9 +4,12 @@ import { tokenHash } from '../src/session';
 
 describe('Try CYB preview',()=>{
   it.each([
-    ['professional consulting company','Make your next move with confidence.','Explore our approach'],
-    ['creative portfolio','A considered home for your creative work.','Explore the work'],
-  ])('creates a service-focused preview for a %s',async(prompt,headline,buttonText)=>{
+    ['luxury skincare brand','Luma','A softer ritual. A brighter kind of care.','Explore the collection','collection'],
+    ['modern fashion boutique','Mode Studio','Fewer pieces. More ways to be you.','Explore the collection','collection'],
+    ['minimalist coffee shop','Sunday Roast','Make room for a better cup.','Explore the collection','collection'],
+    ['professional consulting company','North Star','Make your next move with confidence.','Explore our approach','services'],
+    ['creative portfolio','Mira Studio','A considered home for your creative work.','Explore the work','services'],
+  ])('creates a relevant preview for a %s',async(prompt,brandName,headline,buttonText,offerType)=>{
     let cookie='';
     const row:any={id:'preview-category',tokenHash:'',draft:null,prompt:null,generatedAt:null,claimedUserId:null,expiresAt:new Date(Date.now()+864e5)};
     const db:any={trialPreview:{
@@ -17,15 +20,16 @@ describe('Try CYB preview',()=>{
     }};
     const controller=new TrialPreviewController(db);
     await controller.session({cookies:{}} as any,{cookie:(_name:string,value:string)=>{cookie=value;}} as any);
-    const result=await controller.generate({cookies:{cyb_preview:cookie}} as any,{prompt:`Create a ${prompt} called North Star.`} as any);
+    const result=await controller.generate({cookies:{cyb_preview:cookie}} as any,{prompt:`Create a ${prompt} called ${brandName}.`} as any);
     const sections=(result.model as any).pages[0].sections;
     const hero=sections.find((section:any)=>section.type==='hero');
     const offer=sections.find((section:any)=>section.id==='preview-offer');
+    expect((result.model as any).brandName).toBe(brandName);
     expect(hero.title).toBe(headline);
     expect(hero.buttonText).toBe(buttonText);
-    expect(offer.type).toBe('services');
-    expect(offer.items.length).toBeGreaterThan(0);
-    expect(sections.some((section:any)=>section.type==='reviews'||section.type==='collection')).toBe(false);
+    expect(offer.type).toBe(offerType);
+    if(offerType==='services') expect(offer.items.length).toBeGreaterThan(0);
+    expect(sections.some((section:any)=>section.type==='reviews')).toBe(false);
   });
 
   it('creates one deterministic draft, saves edits server-side, and returns the same draft on retry',async()=>{
