@@ -12,7 +12,7 @@ function Payment() {
   const navigate = useNavigate();
 
   const [order] = useState(readPendingOrder);
-  const [paymentMethod, setPaymentMethod] = useState("cash");
+  const paymentMethod = "cash";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -66,11 +66,7 @@ if (order.backendId) {
     try {
       setLoading(true);
 
-      if (paymentMethod === "paypal") { setError("PayPal checkout for store orders is not configured yet."); return; }
-
-     if (paymentMethod === "cash") {
-  await completeOrder("Cash on delivery", "New");
-}
+      await completeOrder("Cash on delivery", "New");
 
     } catch (paymentError) {
       console.error("Payment failed:", paymentError);
@@ -126,7 +122,7 @@ if (order.backendId) {
           <h1>Complete your payment</h1>
 
           <p>
-            Choose your payment method and review your order.
+              Pay cash on delivery and review your order.
           </p>
         </div>
 
@@ -135,40 +131,11 @@ if (order.backendId) {
             <div className="payment-card-heading">
               <span>Payment method</span>
 
-              <h2>How would you like to pay?</h2>
+              <h2>Cash on delivery</h2>
             </div>
 
             <div className="payment-options">
-              <button
-                type="button"
-                className="payment-option payment-option-unavailable"
-                disabled
-              >
-                <div className="payment-option-icon">P</div>
-
-                <div>
-                  <strong>PayPal · unavailable</strong>
-
-                  <p>
-                    Online card and PayPal payments are not enabled for this store yet.
-                  </p>
-                </div>
-
-                <span className="payment-radio">
-                  —
-                </span>
-              </button>
-
-              <button
-                type="button"
-                className={`payment-option ${
-                  paymentMethod === "cash" ? "selected" : ""
-                }`}
-                onClick={() => {
-                  setPaymentMethod("cash");
-                  setError("");
-                }}
-              >
+              <div className="payment-option selected">
                 <div className="payment-option-icon">C</div>
 
                 <div>
@@ -180,9 +147,9 @@ if (order.backendId) {
                 </div>
 
                 <span className="payment-radio">
-                  {paymentMethod === "cash" ? "✓" : ""}
+                  ✓
                 </span>
-              </button>
+              </div>
             </div>
 
             {error && (
@@ -197,11 +164,7 @@ if (order.backendId) {
               onClick={handlePayment}
               disabled={loading}
             >
-              {loading
-                ? "Processing..."
-                : paymentMethod === "cash"
-                  ? "Confirm cash on delivery"
-                  : `Pay USD ${Number(order.total || 0).toFixed(2)}`}
+              {loading ? "Processing..." : "Confirm cash on delivery"}
             </button>
           </section>
 
