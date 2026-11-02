@@ -71,8 +71,8 @@ async function handleSignup(event) {
           </h1>
 
           <p>
-            Create your store, customize your design, add products, and start
-            accepting orders from one simple platform.
+            Create your website, customize its design, showcase your services
+            or products, and manage customer inquiries or orders in one place.
           </p>
 
           <div className="auth-benefits">
@@ -110,8 +110,9 @@ async function handleSignup(event) {
             <h2>Start building your website</h2>
 
               <p>
-              Enter your details to keep your saved website preview. You can
-              complete account activation in the secure checkout.
+              Enter your details to keep your saved website preview. CYB Lifetime
+              Access is a one-time $246 payment through Stripe. You can review
+              the payment before confirming secure checkout.
             </p>
           </div>
 
