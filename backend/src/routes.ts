@@ -95,7 +95,7 @@ export class AuthController {
     if (dto.acceptedTerms !== true) throw new BadRequestException('Accept the Terms of Service and Privacy Policy to create an account');
     const email = dto.email.trim().toLowerCase();
     if (await this.db.user.findUnique({ where:{email} })) throw new ConflictException('Account already exists');
-    const trialEndsAt = new Date(Date.now()+14*864e5);
+    const activationStartedAt = new Date();
     const businessName = dto.businessName?.trim() || '';
     const slugBase = businessName.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,70) || 'business';
     let user;
@@ -103,7 +103,7 @@ export class AuthController {
       user = await this.db.$transaction(async tx => {
         const created = await tx.user.create({ data:{ email, fullName:dto.fullName?.trim() || null, passwordHash:await argon2.hash(dto.password), role:'OWNER', emailVerifiedAt:new Date() } });
         await tx.termsConsent.create({data:{userId:created.id,termsVersion:'2026-10-31',privacyVersion:'2026-10-31'}});
-        await tx.subscription.create({data:{userId:created.id,trialEndsAt}});
+        await tx.subscription.create({data:{userId:created.id,plan:'BASIC',status:'INACTIVE',billingType:'ONE_TIME',trialEndsAt:activationStartedAt}});
         const business=await tx.business.create({data:{ownerId:created.id,name:businessName,slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
         const previewToken=String((req as any).cookies?.cyb_preview||'');
         if(previewToken.length>=32){
@@ -121,7 +121,7 @@ export class AuthController {
     }
     await this.issueSession(user.id,res);
     res.clearCookie('cyb_preview',{path:'/'});
-    return { id:user.id, email:user.email, emailVerified:true, trialEndsAt:trialEndsAt.toISOString() };
+    return { id:user.id, email:user.email, emailVerified:true };
   }
   @Throttle({default:{limit:8,ttl:60_000}})
   @Post('login') async login(@Body() dto: LoginCredentials, @Res({ passthrough:true }) res: Response) {
@@ -162,14 +162,14 @@ export class AuthController {
     if(user){await this.issueSession(user.id,res);return {id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt};}
     if(await this.db.user.findUnique({where:{email}}))throw new ConflictException('An account already exists. Sign in with email and password to access it.');
     if(dto.acceptedTerms!==true)throw new BadRequestException('Accept the Terms of Service and Privacy Policy to create an account');
-    const trialEndsAt=new Date(Date.now()+14*864e5),fullName=String(claims.name||'').trim().slice(0,120)||null;
+    const activationStartedAt=new Date(),fullName=String(claims.name||'').trim().slice(0,120)||null;
     const slugBase=(fullName||email.split('@')[0]).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,70)||'business';
     try {
       user=await this.db.$transaction(async tx=>{
         const created=await tx.user.create({data:{email,fullName,role:'OWNER',emailVerifiedAt:new Date()}});
         await tx.googleIdentity.create({data:{userId:created.id,subject:String(claims.sub)}});
         await tx.termsConsent.create({data:{userId:created.id,termsVersion:'2026-10-31',privacyVersion:'2026-10-31'}});
-        await tx.subscription.create({data:{userId:created.id,trialEndsAt}});
+        await tx.subscription.create({data:{userId:created.id,plan:'BASIC',status:'INACTIVE',billingType:'ONE_TIME',trialEndsAt:activationStartedAt}});
         await tx.business.create({data:{ownerId:created.id,name:fullName||'',slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
         return created;
       });
@@ -177,7 +177,7 @@ export class AuthController {
       if(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==='P2002')throw new ConflictException('This Google account is already registered. Please sign in again.');
       throw error;
     }
-    await this.issueSession(user.id,res);return {id:user.id,email:user.email,emailVerified:true,trialEndsAt:trialEndsAt.toISOString()};
+    await this.issueSession(user.id,res);return {id:user.id,email:user.email,emailVerified:true};
   }
   @Throttle({default:{limit:6,ttl:60_000}})
   @Post('verify-email') async verifyEmail(@Body() dto:TokenInput) {
@@ -241,15 +241,15 @@ export class AuthController {
   }
   @UseGuards(SessionGuard) @Get('me') async me(@Req() req:Request & {user:any}) {
     const subscription=await this.db.subscription.findUnique({where:{userId:req.user.id}});
-    const trialActive=subscription?.status==='TRIALING'&&subscription.trialEndsAt>new Date();
+    const paid=subscription?.status==='ACTIVE'&&subscription?.billingType==='ONE_TIME';
     return {
       id:req.user.id,
       email:req.user.email,
       emailVerified:!!req.user.emailVerifiedAt,
       role:req.user.role,
-      paid:subscription?.status==='ACTIVE',
-      trialActive,
-      trialEndsAt:subscription?.trialEndsAt.toISOString()||null,
+      paid,
+      trialActive:false,
+      trialEndsAt:null,
     };
   }
   @UseGuards(SessionGuard) @Post('logout') async logout(@Req() req:Request & {user:any;sessionToken?:string},@Res({passthrough:true}) res:Response) {
