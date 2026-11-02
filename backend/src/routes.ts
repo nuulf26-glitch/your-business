@@ -60,7 +60,6 @@ class AiHelpInput { @IsString() @MinLength(1) @MaxLength(2000) message!: string;
 class TokenInput { @IsString() @MinLength(32) @MaxLength(200) token!: string; }
 class ResetInput extends TokenInput { @IsString() @MinLength(12) @MaxLength(200) password!: string; }
 class EmailInput { @IsEmail() email!: string; }
-class PayPalCaptureInput { @IsString() @MaxLength(100) orderId!: string; }
 class StripeSessionInput { @IsString() @MaxLength(200) sessionId!: string; }
 class OrderStatusInput { @IsString() @MaxLength(30) status!: string; }
 class CustomerStatusInput { @IsString() @MaxLength(30) status!: string; }
@@ -557,42 +556,6 @@ export class UploadController {
     response.setHeader('Content-Type',String(metadata.metadata.contentType||'application/octet-stream'));
     response.setHeader('Cache-Control','public, max-age=31536000, immutable');
     return response.status(200).send(Buffer.from(image));
-  }
-}
-
-@Controller('payments/paypal')
-@UseGuards(SessionGuard)
-export class PayPalController {
-  constructor(private db:DbService){}
-  private async accessToken(){
-    const id=process.env.PAYPAL_CLIENT_ID,secret=process.env.PAYPAL_CLIENT_SECRET;if(!id||!secret)throw new BadRequestException('PayPal is not configured');
-    const base=process.env.PAYPAL_API_BASE||'https://api-m.sandbox.paypal.com';
-    const response=await fetch(`${base}/v1/oauth2/token`,{method:'POST',headers:{Authorization:`Basic ${Buffer.from(`${id}:${secret}`).toString('base64')}`,'Content-Type':'application/x-www-form-urlencoded'},body:'grant_type=client_credentials'});
-    const body=await response.json() as any;if(!response.ok||!body.access_token)throw new BadRequestException('PayPal authentication failed');return {token:body.access_token,base};
-  }
-  @Post('orders') async createOrder(@Req() req:Request & {user:any}){
-    const {token,base}=await this.accessToken(),amount=process.env.PAYPAL_BASIC_AMOUNT||'246.00';
-    if(!/^\d+\.\d{2}$/.test(amount))throw new BadRequestException('PayPal price configuration is invalid');
-    const response=await fetch(`${base}/v2/checkout/orders`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','PayPal-Request-Id':`getcyb-${randomBytes(16).toString('hex')}`},body:JSON.stringify({intent:'CAPTURE',purchase_units:[{reference_id:req.user.id,custom_id:req.user.id,description:'GETCYB Basic lifetime access',amount:{currency_code:'USD',value:amount}}]})});
-    const body=await response.json() as any;if(!response.ok||!body.id)throw new BadRequestException('Could not create PayPal order');
-    await this.db.paymentReference.create({data:{provider:'paypal',providerOrderId:body.id,status:'PENDING',amountCents:Math.round(Number(amount)*100),currency:'USD',userId:req.user.id,metadata:{intent:'PLATFORM_ACCESS'}}});
-    return {orderId:body.id};
-  }
-  @Post('capture') async capture(@Req() req:Request & {user:any},@Body() dto:PayPalCaptureInput){
-    const payment=await this.db.paymentReference.findUnique({where:{providerOrderId:dto.orderId}});if(!payment||payment.userId!==req.user.id)throw new NotFoundException('PayPal order not found');
-    if(payment.status==='COMPLETED')return {success:true,status:'COMPLETED',orderId:dto.orderId};
-    if(payment.status!=='PENDING')throw new BadRequestException('PayPal order cannot be captured');
-    const {token,base}=await this.accessToken();
-    const response=await fetch(`${base}/v2/checkout/orders/${encodeURIComponent(dto.orderId)}/capture`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','PayPal-Request-Id':`gcb-${payment.id}`}});
-    const capture=await response.json() as any;if(!response.ok)throw new BadRequestException('Could not capture PayPal payment');
-    const unit=capture.purchase_units?.[0],item=unit?.payments?.captures?.[0];
-    const valid=capture.status==='COMPLETED'&&item?.status==='COMPLETED'&&unit?.reference_id===req.user.id&&item?.amount?.currency_code===payment.currency&&Math.round(Number(item?.amount?.value)*100)===payment.amountCents;
-    if(!valid)throw new BadRequestException('PayPal payment verification failed');
-    await this.db.$transaction([
-      this.db.paymentReference.update({where:{id:payment.id},data:{status:'COMPLETED',providerCaptureId:item.id,metadata:{intent:'PLATFORM_ACCESS',paypalOrderId:capture.id}}}),
-      this.db.subscription.upsert({where:{userId:req.user.id},create:{userId:req.user.id,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}}),
-    ]);
-    return {success:true,status:'COMPLETED',orderId:capture.id};
   }
 }
 
