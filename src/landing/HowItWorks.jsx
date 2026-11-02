@@ -41,7 +41,7 @@ function HowItWorks() {
               textTransform: "lowercase",
               fontFamily: "'Mograp', sans-serif"
             }}>
-              From idea to online store <br/>
+              From idea to online business <br/>
               <span style={{ color: "#666" }}>in three simple steps.</span>
             </h2>
           </div>
