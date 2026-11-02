@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import WebsiteRenderer from "../editor/WebsiteRenderer";
+import { preserveProductReferences } from "../editor/aiPreviewModel.js";
 import { customBackendRequest } from "../services/customBackendSession";
 import { parseAiHelpText } from "../utils/aiHelpText.js";
 import "../styles/aiDesigner.css";
@@ -23,7 +24,7 @@ export default function AiDesigner({ model = {}, products = [], onApply, onClose
     event.preventDefault(); if (inFlight.current || !prompt.trim()) return; inFlight.current = true; setBusy(true); setError(""); setAppliedNotice("");
     try {
       const result = await customBackendRequest("/websites/ai/design", { method: "POST", body: JSON.stringify({ prompt: prompt.trim(), mode, ...(mode === "modify" ? { model } : {}) }) });
-      setPendingModel(result.model);
+      setPendingModel(mode === "modify" ? preserveProductReferences(model, result.model) : result.model);
       setPendingSummary(result.changesSummary || "A complete editable first draft");
     } catch (e) {
       setError(e.message);
