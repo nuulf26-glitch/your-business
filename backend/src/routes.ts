@@ -2,7 +2,7 @@ import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, B
 import { IsEmail, IsNumber, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn, IsBoolean } from 'class-validator';
 import { Request, Response } from 'express';
 import * as argon2 from 'argon2';
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes, createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { MediaStorage, assertOwnedMedia } from './media-storage';
 import { getStore } from '@netlify/blobs';
 import { Throttle } from '@nestjs/throttler';
@@ -594,7 +594,7 @@ export class StripeController {
     const testMode=this.isStripeTestKey(key);
     let verified=false;
     if(testMode) {
-      try { const account=await this.stripeRequest('/account'); verified=account.livemode===false; }
+      try { const balance=await this.stripeRequest('/balance'); verified=balance.object==='balance'&&balance.livemode===false; }
       catch { verified=false; }
     }
     const amount=process.env.STRIPE_BASIC_AMOUNT||'24600';
@@ -627,22 +627,65 @@ export class StripeController {
     return {url:session.url};
   }
   @Post('confirm-checkout') async confirmCheckout(@Req() req:Request & {user:any},@Body() dto:StripeSessionInput) {
+    if(stagingDiagnosticsEnabled()&&!this.isStripeTestKey())throw new ServiceUnavailableException('Staging checkout requires a Stripe test-mode key.');
     const payment=await this.db.paymentReference.findUnique({where:{providerOrderId:dto.sessionId}});
     if(!payment||payment.provider!=='stripe'||payment.userId!==req.user.id)throw new NotFoundException('Stripe checkout session not found');
     if(payment.status==='COMPLETED')return {success:true,status:'COMPLETED'};
     if(payment.status!=='PENDING')throw new BadRequestException('Stripe checkout session cannot be confirmed');
     const session=await this.stripeRequest(`/checkout/sessions/${encodeURIComponent(dto.sessionId)}`);
-    const valid=session.mode==='payment'&&session.payment_status==='paid'&&session.client_reference_id===req.user.id&&session.metadata?.userId===req.user.id&&session.metadata?.intent==='PLATFORM_ACCESS'&&session.currency===payment.currency.toLowerCase()&&session.amount_total===payment.amountCents;
+    await activateVerifiedStripeSession(this.db,payment,session);
+    return {success:true,status:'COMPLETED'};
+  }
+}
+
+async function activateVerifiedStripeSession(db:DbService,payment:any,session:any) {
+    const valid=session.id===payment.providerOrderId&&(!stagingDiagnosticsEnabled()||session.livemode===false)&&session.mode==='payment'&&session.payment_status==='paid'&&session.client_reference_id===payment.userId&&session.metadata?.userId===payment.userId&&session.metadata?.intent==='PLATFORM_ACCESS'&&session.currency===payment.currency.toLowerCase()&&session.amount_total===payment.amountCents;
     if(!valid)throw new BadRequestException('Stripe payment verification failed');
-    await this.db.$transaction(async tx=>{
-      const updated=await tx.paymentReference.updateMany({where:{id:payment.id,status:'PENDING'},data:{status:'COMPLETED',providerCaptureId:dto.sessionId,metadata:{intent:'PLATFORM_ACCESS',stripeSessionId:dto.sessionId,paymentIntentId:session.payment_intent||null}}});
+    await db.$transaction(async tx=>{
+      const updated=await tx.paymentReference.updateMany({where:{id:payment.id,status:'PENDING'},data:{status:'COMPLETED',providerCaptureId:session.id,metadata:{intent:'PLATFORM_ACCESS',stripeSessionId:session.id,paymentIntentId:session.payment_intent||null}}});
       if(!updated.count) {
         const current=await tx.paymentReference.findUnique({where:{id:payment.id}});
         if(current?.status==='COMPLETED')return;
         throw new BadRequestException('Stripe payment is already being confirmed');
       }
-      await tx.subscription.upsert({where:{userId:req.user.id},create:{userId:req.user.id,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}});
+      await tx.subscription.upsert({where:{userId:payment.userId},create:{userId:payment.userId,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}});
     });
-    return {success:true,status:'COMPLETED'};
+}
+
+// Stripe authenticates this endpoint with a signature over the original bytes.
+@Controller('payments/stripe/webhook')
+export class StripeWebhookController {
+  constructor(private db:DbService){}
+  @Post() async receive(@Req() req:Request) {
+    const secret=process.env.STRIPE_WEBHOOK_SECRET?.trim();
+    if(!secret)throw new ServiceUnavailableException('Stripe webhook is not configured');
+    const signature=req.headers['stripe-signature'];
+    if(!Buffer.isBuffer(req.body)||typeof signature!=='string')throw new BadRequestException('Invalid Stripe signature');
+    const parts=signature.split(',').map(part=>part.trim().split('='));
+    const timestamps=parts.filter(([key])=>key==='t').map(([,value])=>value);
+    if(timestamps.length!==1||!/^\d+$/.test(timestamps[0])||Math.abs(Date.now()/1000-Number(timestamps[0]))>300)throw new BadRequestException('Invalid Stripe signature');
+    const expected=createHmac('sha256',secret).update(timestamps[0]+'.').update(req.body).digest();
+    const valid=parts.some(([key,value])=>key==='v1'&&/^[a-f0-9]{64}$/i.test(value||'')&&timingSafeEqual(expected,Buffer.from(value,'hex')));
+    if(!valid)throw new BadRequestException('Invalid Stripe signature');
+    let event:any;
+    try { event=JSON.parse(req.body.toString('utf8')); } catch { throw new BadRequestException('Invalid Stripe event'); }
+    if(!event||typeof event!=='object')throw new BadRequestException('Invalid Stripe event');
+    const key=process.env.STRIPE_SECRET_KEY?.trim()||'';
+    const testKey=/^(sk|rk)_test_/.test(key);
+    if(!/^(sk|rk)_(test|live)_/.test(key))throw new ServiceUnavailableException('Stripe is not configured');
+    if(stagingDiagnosticsEnabled()&&(!testKey||event.livemode!==false))throw new BadRequestException('Staging requires test-mode events');
+    if(event.livemode!==!testKey)throw new BadRequestException('Stripe event mode does not match configuration');
+    if(!['checkout.session.completed','checkout.session.async_payment_succeeded'].includes(event.type))return {received:true};
+    const session=event.data?.object;
+    if(!session||typeof session.id!=='string')throw new BadRequestException('Invalid Stripe session');
+    if(session.payment_status!=='paid')return {received:true};
+    const payment=await this.db.paymentReference.findUnique({where:{providerOrderId:session.id}});
+    // An event can race the checkout response's local payment-reference write.
+    // Return a retryable failure instead of silently dropping a paid activation.
+    if(!payment||payment.provider!=='stripe')throw new ServiceUnavailableException('Checkout reference is not ready');
+    if(payment.status==='COMPLETED')return {received:true};
+    if(payment.status!=='PENDING')throw new BadRequestException('Checkout cannot be activated');
+    await activateVerifiedStripeSession(this.db,payment,session);
+    return {received:true};
   }
 }
