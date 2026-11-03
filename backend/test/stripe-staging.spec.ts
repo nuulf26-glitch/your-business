@@ -15,18 +15,18 @@ describe('staging Stripe safety diagnostics',()=>{
     jest.restoreAllMocks();
   });
 
-  it('verifies test mode with a read-only Stripe account request and preserves the lifetime price',async()=>{
+  it('verifies test mode with a read-only Stripe balance request and preserves the lifetime price',async()=>{
     process.env.PUBLIC_APP_URL='https://getcyb-staging-web.onrender.com';
     process.env.STRIPE_SECRET_KEY='sk_test_fixture_only';
     delete process.env.STRIPE_BASIC_AMOUNT;
     delete process.env.STRIPE_CURRENCY;
-    const fetch=jest.fn().mockResolvedValue({ok:true,json:async()=>({livemode:false})});
+    const fetch=jest.fn().mockResolvedValue({ok:true,json:async()=>({object:'balance',livemode:false})});
     global.fetch=fetch as any;
 
     const result=await new StripeController({} as any).stagingStatus();
 
     expect(result).toEqual({configured:true,testMode:true,verified:true,amountCents:24600,currency:'usd'});
-    expect(fetch.mock.calls[0][0]).toBe('https://api.stripe.com/v1/account');
+    expect(fetch.mock.calls[0][0]).toBe('https://api.stripe.com/v1/balance');
     expect(fetch.mock.calls[0][1].method).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain('sk_test_fixture_only');
   });
