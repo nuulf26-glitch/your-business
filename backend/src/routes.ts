@@ -572,6 +572,9 @@ function legacyMediaStore() {
 @UseGuards(SessionGuard)
 export class StripeController {
   constructor(private db:DbService){}
+  private isStripeTestKey(key=process.env.STRIPE_SECRET_KEY||'') {
+    return /^(sk|rk)_test_/.test(key.trim());
+  }
   private async stripeRequest(path:string, init:RequestInit={}) {
     const key=process.env.STRIPE_SECRET_KEY;
     if(!key)throw new BadRequestException('Stripe is not configured');
@@ -585,8 +588,22 @@ export class StripeController {
     }
     return body;
   }
+  @Get('staging-status') async stagingStatus() {
+    if(!stagingDiagnosticsEnabled())throw new NotFoundException();
+    const key=process.env.STRIPE_SECRET_KEY?.trim()||'';
+    const testMode=this.isStripeTestKey(key);
+    let verified=false;
+    if(testMode) {
+      try { const account=await this.stripeRequest('/account'); verified=account.livemode===false; }
+      catch { verified=false; }
+    }
+    const amount=process.env.STRIPE_BASIC_AMOUNT||'24600';
+    const currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
+    return {configured:!!key,testMode,verified,amountCents:/^\d+$/.test(amount)?Number(amount):null,currency:/^[a-z]{3}$/.test(currency)?currency:null};
+  }
   @Post('checkout-sessions') async createCheckoutSession(@Req() req:Request & {user:any}) {
     const amount=process.env.STRIPE_BASIC_AMOUNT||'24600',currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
+    if(stagingDiagnosticsEnabled()&&!this.isStripeTestKey())throw new ServiceUnavailableException('Staging checkout requires a Stripe test-mode key.');
     if(!/^\d+$/.test(amount)||Number(amount)<50||!/^[a-z]{3}$/.test(currency))throw new BadRequestException('Stripe price configuration is invalid');
     let appUrl:string;
     try { const parsed=new URL(process.env.PUBLIC_APP_URL||'https://getcyb.fit'); if(!['https:','http:'].includes(parsed.protocol))throw new Error(); appUrl=parsed.origin; }
