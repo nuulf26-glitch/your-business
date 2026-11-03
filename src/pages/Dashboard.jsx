@@ -7,7 +7,7 @@ import { useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
 import { getOrders } from "../services/orderService";
 import { getCustomers } from "../services/customerService";
-import { getAppUser } from "../services/customBackendSession";
+import { customBackendRequest, getAppUser } from "../services/customBackendSession";
 import { loadWebsiteRecord } from "../editor/versionService";
 import { websitePublicationStatus } from "../editor/websiteStatus";
 
@@ -29,6 +29,9 @@ const [products, setProducts] = useState([]);
 const [userProfile, setUserProfile] = useState(null);
   const [websiteRecord, setWebsiteRecord] = useState(null);
   const [websiteStatus, setWebsiteStatus] = useState("Checking…");
+  const [stripeStatus, setStripeStatus] = useState(null);
+  const [stripeStatusError, setStripeStatusError] = useState("");
+  const [stripeStatusLoading, setStripeStatusLoading] = useState(false);
   const [dashboardLoadState, setDashboardLoadState] = useState("loading");
   const [dashboardRetryCount, setDashboardRetryCount] = useState(0);
   useEffect(() => {
@@ -75,6 +78,7 @@ const [userProfile, setUserProfile] = useState(null);
     return () => { active = false; };
   }, [dashboardRetryCount, navigate]);
   const websiteSetup = store;
+  const isStaging = window.location.hostname === "getcyb-staging-web.onrender.com";
   const editorData = websiteRecord?.draft || store?.draftEditorData || store?.editorData;
   const businessName = editorData?.brandName || store?.businessName || store?.storeName || 'Your Business';
   const selectedTemplate = editorData?.template || store?.template || 'minimal';
@@ -271,6 +275,39 @@ const [userProfile, setUserProfile] = useState(null);
   )}
 
 </section>
+        {isStaging && (
+          <section className="dashboard-payment-card" aria-labelledby="staging-stripe-title">
+            <span>Staging diagnostics</span>
+            <h2 id="staging-stripe-title">Verify Stripe test mode</h2>
+            <p>Read-only check. No checkout or payment is created.</p>
+            <button
+              type="button"
+              className="dashboard-secondary-button"
+              disabled={stripeStatusLoading}
+              onClick={async () => {
+                setStripeStatusLoading(true);
+                setStripeStatusError("");
+                try {
+                  setStripeStatus(await customBackendRequest("/payments/stripe/staging-status"));
+                } catch (error) {
+                  setStripeStatusError(error instanceof Error ? error.message : "Could not verify Stripe configuration.");
+                } finally {
+                  setStripeStatusLoading(false);
+                }
+              }}
+            >
+              {stripeStatusLoading ? "Checking…" : "Check test-mode status"}
+            </button>
+            {stripeStatus && (
+              <p role="status" aria-live="polite">
+                {stripeStatus.verified && stripeStatus.amountCents === 24600
+                  ? `Verified test mode · $${(stripeStatus.amountCents / 100).toFixed(2)} ${stripeStatus.currency?.toUpperCase()}`
+                  : `Test mode: ${stripeStatus.testMode ? "yes" : "no"} · Verified: ${stripeStatus.verified ? "yes" : "no"} · Amount: ${stripeStatus.amountCents == null ? "invalid" : `$${(stripeStatus.amountCents / 100).toFixed(2)}`} ${stripeStatus.currency?.toUpperCase() || ""}`}
+              </p>
+            )}
+            {stripeStatusError && <p role="alert">{stripeStatusError}</p>}
+          </section>
+        )}
         <button type="button" className="dashboard-secondary-button" onClick={() => navigate('/business')}>Business workspace ↗</button>
         <section className="dashboard-stats-grid"><article className="dashboard-stat-card"><span>Net profit</span><strong>{metrics.profit == null ? 'Not available' : formatCurrency(metrics.profit)}</strong><p>{metrics.profit == null ? 'Add order cost of goods and expenses to calculate profit.' : 'Based on recorded order costs and expenses.'}</p></article><article className="dashboard-stat-card"><span>Profit margin</span><strong>{metrics.margin == null ? '—' : `${metrics.margin.toFixed(1)}%`}</strong></article></section>
         {/* Top Stat Summary Grid */}
