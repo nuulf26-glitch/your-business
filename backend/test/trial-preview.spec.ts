@@ -32,6 +32,25 @@ describe('Try CYB preview',()=>{
     expect(sections.some((section:any)=>section.type==='reviews')).toBe(false);
   });
 
+  it('uses a capitalized business name from a natural-language prompt',async()=>{
+    let cookie='';
+    const row:any={id:'preview-brand',tokenHash:'',draft:null,prompt:null,generatedAt:null,claimedUserId:null,expiresAt:new Date(Date.now()+864e5)};
+    const db:any={trialPreview:{
+      deleteMany:jest.fn().mockResolvedValue({count:0}),
+      create:jest.fn(async({data}:any)=>{Object.assign(row,data);return row;}),
+      findFirst:jest.fn(async({where}:any)=>where.tokenHash===row.tokenHash&&row.expiresAt>new Date()?row:null),
+      updateMany:jest.fn(async({data}:any)=>{Object.assign(row,data);return {count:1};}),
+    }};
+    const controller=new TrialPreviewController(db);
+    await controller.session({cookies:{}} as any,{cookie:(_name:string,value:string)=>{cookie=value;}} as any);
+    const result=await controller.generate(
+      {cookies:{cyb_preview:cookie}} as any,
+      {prompt:'Create a luxury skincare website for Nouf Test Studio with beige colours and elegant type.'} as any,
+    );
+    expect((result.model as any).brandName).toBe('Nouf Test Studio');
+    expect((result.model as any).pages[0].sections.find((section:any)=>section.id==='preview-footer').title).toBe('Nouf Test Studio');
+  });
+
   it('creates one deterministic draft, saves edits server-side, and returns the same draft on retry',async()=>{
     let cookie='';
     const row:any={id:'preview-1',tokenHash:'',draft:null,prompt:null,generatedAt:null,claimedUserId:null,expiresAt:new Date(Date.now()+864e5)};
