@@ -515,4 +515,189 @@ export class WebsiteController {
     const draft=validateWebsite({editorVersion:2,...safeGenerated,pages:[{id:'home',slug:'',title:'Home',sections:sections.map((section:any,index:number)=>({...section,id:`ai-${Date.now()}-${index}`,style:{fontFamily:section.type==='hero'?'Georgia':'Arial',fontSize:section.type==='hero'?56:28,color:safeGenerated.textColor||'#171513'}}))}]},true);
     return {model:draft};
   }
-  @UseGuards(SessionGuard) @Post('ai/help') async aiHelp(@Req() req:Request & {user:any},@Body() dto:AiHelpInput){const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('CYB AI help is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');const context=JSON.stringify(dto.context||{}).slice(0,4000);const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB website-builder guide. Explain steps simply, help users understand the editor, and answer questions about designing their website. When users want design changes, direct them to the Edit my website tab, where their request will be applied as an editable change. Never claim to perform changes in this help chat. Keep the answer concise and do not invent features.',input:`Current website and recent conversation context: ${context}\nUser question: ${dto.message}`},apiKey,'AI help');const answer=aiResponseText(d
+  @UseGuards(SessionGuard) @Post('ai/help') async aiHelp(@Req() req:Request & {user:any},@Body() dto:AiHelpInput){const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('CYB AI help is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');const context=JSON.stringify(dto.context||{}).slice(0,4000);const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB website-builder guide. Explain steps simply, help users understand the editor, and answer questions about designing their website. When users want design changes, direct them to the Edit my website tab, where their request will be applied as an editable change. Never claim to perform changes in this help chat. Keep the answer concise and do not invent features.',input:`Current website and recent conversation context: ${context}\nUser question: ${dto.message}`},apiKey,'AI help');const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};}
+  @Throttle({default:{limit:5,ttl:60_000}}) @Post('public/ai/help') async publicAiHelp(@Body() dto:AiHelpInput){
+    const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('CYB AI help is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');
+    const context=JSON.stringify(dto.context||{}).slice(0,4000);
+    const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB guide for visitors who have not created an account yet. Answer concise questions about CYB, starting a website, and the general website-building process. Do not claim to see or change a visitor’s account or website. If a question needs account-specific details, tell them to sign in. If you are unsure about a CYB feature, say so instead of guessing.',input:`Visitor context: ${context}\nQuestion: ${dto.message}`},apiKey,'AI help');
+    const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};
+  }
+  @UseGuards(SessionGuard) @Get('draft') async draft(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});return b?.website||null;}
+  @UseGuards(SessionGuard) @Get('publication-diagnostic') async publicationDiagnostic(@Req() req:Request & {user:any}) {
+    if(!stagingDiagnosticsEnabled())throw new NotFoundException();
+    const business=await this.businessFor(req),website=await this.db.website.findUnique({where:{businessId:business.id}});
+    const paths=publicationDifferencePaths(website?.draft as any,website?.published as any);
+    const hasPublished=!!website?.published,hasPublishedAt=!!website?.publishedAt;
+    const status=!hasPublished||!hasPublishedAt?'Draft':paths.length?'Unpublished changes':'Published';
+    return {status,hasDraft:!!website?.draft,hasPublished,hasPublishedAt,changedPathCount:paths.length,changedPaths:paths.slice(0,80),truncated:paths.length>80};
+  }
+  @UseGuards(SessionGuard) @Put('draft') async saveDraft(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');const model=validateWebsite(dto.model,false);await assertOwnedMedia(this.db,req.user.id,model);return this.db.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any},update:{draft:model as any,revision:{increment:1}}});}
+  @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business before publishing');await this.requirePaidPublishing(req.user.id);const model=validateWebsite(dto.model,true);await assertOwnedMedia(this.db,req.user.id,model);return this.db.$transaction(async tx=>{const publishedAt=new Date();const site=await tx.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any,published:publicWebsite(model) as any,publishedAt},update:{draft:model as any,published:publicWebsite(model) as any,publishedAt,revision:{increment:1}}});const version=await tx.websiteVersion.create({data:{websiteId:site.id,snapshot:site.draft as any}});return {published:true,revision:site.revision,slug:b.slug,versionId:version.id};});}
+  @UseGuards(SessionGuard) @Post('unpublish') async unpublish(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');return this.db.website.updateMany({where:{businessId:b.id},data:{published:Prisma.DbNull,publishedAt:null}});}
+  @UseGuards(SessionGuard) @Get('versions') async versions(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)return [];return (await this.db.websiteVersion.findMany({where:{websiteId:b.website.id},orderBy:{createdAt:'desc'},take:10})).map(({snapshot,createdAt,...version})=>({...version,model:snapshot,publishedAt:createdAt}));}
+  @UseGuards(SessionGuard) @Post('restore/:id') async restore(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)throw new NotFoundException('Website not found');const version=await this.db.websiteVersion.findFirst({where:{id:String(req.params['id']),websiteId:b.website.id}});if(!version)throw new NotFoundException('Version not found');const model=validateWebsite(version.snapshot,false);return this.db.website.update({where:{businessId:b.id},data:{draft:model as any,revision:{increment:1}}});}
+  @Get('public/:slug') async publicSite(@Req() req:Request){const slug=String(req.params['slug']||'');const business=await this.db.business.findUnique({where:{slug}});if(!business)throw new NotFoundException('Website not found');const site=await this.db.website.findUnique({where:{businessId:business.id}});return {business:{name:business.name,slug:business.slug,category:business.category},website:site?.published||null,published:!!site?.published};}
+}
+
+class MediaUploadInput {
+  @IsString() @IsIn(['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm']) contentType!: string;
+  @IsNumber() size!: number;
+  @IsString() @MaxLength(44) checksum!: string;
+}
+
+@Controller('uploads')
+export class UploadController {
+  constructor(private mediaStorage: MediaStorage) {}
+  @UseGuards(SessionGuard) @Get('status') status() { return this.mediaStorage.status(); }
+  @UseGuards(SessionGuard) @Post('authorize') authorize(@Req() req: Request & {user:any}, @Body() dto: MediaUploadInput) { return this.mediaStorage.authorize(req.user.id, dto); }
+  @UseGuards(SessionGuard) @Post('complete/:id') complete(@Req() req: Request & {user:any}) { return this.mediaStorage.complete(req.user.id, String(req.params['id'])); }
+  @Throttle({default:{limit:600,ttl:60_000}})
+  @Get('media/:id') async media(@Req() req: Request, @Res() response: Response) { response.setHeader('Cache-Control','no-store'); response.setHeader('Cross-Origin-Resource-Policy','cross-origin'); return response.redirect(307, await this.mediaStorage.publicUrl(String(req.params['id']))); }
+
+  @UseGuards(SessionGuard)
+  @Post() async upload(@Req() req:Request & {user:any},@Headers('content-type') contentType:string,@Req() request:Request,@Res() response:Response) {
+    const bytes=Buffer.isBuffer(request.body)?request.body:Buffer.alloc(0);
+    if(bytes.length<1||bytes.length>MAX_UPLOAD_BYTES)throw new BadRequestException('Media files must be 4 MB or smaller on this legacy upload endpoint. Use direct uploads for larger files.');
+    const result=await this.mediaStorage.uploadSmall(req.user.id,contentType,bytes);
+    return response.status(201).json(result);
+  }
+  @Get(['businesses/:owner/:name', ':owner/:name']) async read(@Req() req:Request,@Res() response:Response) {
+    const owner=String(req.params['owner']||''),name=String(req.params['name']||'');
+    if(!/^[a-zA-Z0-9_-]{1,120}$/.test(owner)||!/^[a-f0-9]{36}$/.test(name))throw new NotFoundException('Image not found');
+    const key=`businesses/${owner}/${name}`,store=legacyMediaStore();
+    const metadata=await store.getMetadata(key);
+    if(!metadata)throw new NotFoundException('Image not found');
+    const image=await store.get(key,{type:'arrayBuffer'});
+    response.setHeader('Cross-Origin-Resource-Policy','cross-origin');
+    response.setHeader('Content-Type',String(metadata.metadata.contentType||'application/octet-stream'));
+    response.setHeader('Cache-Control','public, max-age=31536000, immutable');
+    return response.status(200).send(Buffer.from(image));
+  }
+}
+
+function legacyMediaStore() {
+  try { return process.env.NETLIFY_BLOBS_SITE_ID && process.env.NETLIFY_BLOBS_TOKEN ? getStore({name:'getcyb-assets',siteID:process.env.NETLIFY_BLOBS_SITE_ID,token:process.env.NETLIFY_BLOBS_TOKEN}) : getStore('getcyb-assets'); } catch { throw new ServiceUnavailableException('Legacy media storage is unavailable on this API. Use the updated direct upload flow or configure legacy Netlify Blobs access.'); }
+}
+
+
+@Controller('payments/stripe')
+@UseGuards(SessionGuard)
+export class StripeController {
+  constructor(private db:DbService){}
+  private isStripeTestKey(key=process.env.STRIPE_SECRET_KEY||'') {
+    return /^(sk|rk)_test_/.test(key.trim());
+  }
+  private async stripeRequest(path:string, init:RequestInit={}) {
+    const key=process.env.STRIPE_SECRET_KEY;
+    if(!key)throw new BadRequestException('Stripe is not configured');
+    let response:globalThis.Response;
+    try { response=await fetch(`https://api.stripe.com/v1${path}`,{...init,headers:{Authorization:`Bearer ${key}`,...(init.headers||{})},signal:AbortSignal.timeout(20000)}); }
+    catch { throw new ServiceUnavailableException('Stripe could not be reached. Please try again.'); }
+    const body=await response.json().catch(()=>({})) as any;
+    if(!response.ok) {
+      Logger.error(JSON.stringify({status:response.status,code:body.error?.code||'unknown',type:body.error?.type||'unknown'}),'Stripe');
+      throw new BadRequestException('Stripe could not complete the payment request. Please try again.');
+    }
+    return body;
+  }
+  @Get('staging-status') async stagingStatus() {
+    if(!stagingDiagnosticsEnabled())throw new NotFoundException();
+    const key=process.env.STRIPE_SECRET_KEY?.trim()||'';
+    const testMode=this.isStripeTestKey(key);
+    let verified=false;
+    if(testMode) {
+      try { const balance=await this.stripeRequest('/balance'); verified=balance.object==='balance'&&balance.livemode===false; }
+      catch { verified=false; }
+    }
+    const amount=process.env.STRIPE_BASIC_AMOUNT||'24600';
+    const currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
+    return {configured:!!key,testMode,verified,amountCents:/^\d+$/.test(amount)?Number(amount):null,currency:/^[a-z]{3}$/.test(currency)?currency:null};
+  }
+  @Post('checkout-sessions') async createCheckoutSession(@Req() req:Request & {user:any}) {
+    const amount=process.env.STRIPE_BASIC_AMOUNT||'24600',currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
+    if(stagingDiagnosticsEnabled()&&!this.isStripeTestKey())throw new ServiceUnavailableException('Staging checkout requires a Stripe test-mode key.');
+    if(!/^\d+$/.test(amount)||Number(amount)<50||!/^[a-z]{3}$/.test(currency))throw new BadRequestException('Stripe price configuration is invalid');
+    let appUrl:string;
+    try { const parsed=new URL(process.env.PUBLIC_APP_URL||'https://getcyb.fit'); if(!['https:','http:'].includes(parsed.protocol))throw new Error(); appUrl=parsed.origin; }
+    catch { throw new BadRequestException('Stripe return URL configuration is invalid'); }
+    const form=new URLSearchParams({
+      mode:'payment',
+      success_url:`${appUrl}/platform-payment?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url:`${appUrl}/platform-payment?stripe_cancelled=1`,
+      client_reference_id:req.user.id,
+      'metadata[userId]':req.user.id,
+      'metadata[intent]':'PLATFORM_ACCESS',
+      'line_items[0][price_data][currency]':currency,
+      'line_items[0][price_data][unit_amount]':amount,
+      'line_items[0][price_data][product_data][name]':Number(amount)===100?'CYB Stripe Test Payment':'CYB Lifetime Access',
+      'line_items[0][price_data][product_data][description]':Number(amount)===100?'Temporary staging payment verification':'One-time payment for lifetime access to CYB',
+      'line_items[0][quantity]':'1',
+    });
+    const session=await this.stripeRequest('/checkout/sessions',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:form.toString()});
+    if(!session.id||!session.url)throw new ServiceUnavailableException('Stripe did not return a checkout link. Please try again.');
+    await this.db.paymentReference.create({data:{provider:'stripe',providerOrderId:session.id,status:'PENDING',amountCents:Number(amount),currency:currency.toUpperCase(),userId:req.user.id,metadata:{intent:'PLATFORM_ACCESS'}}});
+    return {url:session.url};
+  }
+  @Post('confirm-checkout') async confirmCheckout(@Req() req:Request & {user:any},@Body() dto:StripeSessionInput) {
+    if(stagingDiagnosticsEnabled()&&!this.isStripeTestKey())throw new ServiceUnavailableException('Staging checkout requires a Stripe test-mode key.');
+    const payment=await this.db.paymentReference.findUnique({where:{providerOrderId:dto.sessionId}});
+    if(!payment||payment.provider!=='stripe'||payment.userId!==req.user.id)throw new NotFoundException('Stripe checkout session not found');
+    if(payment.status==='COMPLETED')return {success:true,status:'COMPLETED'};
+    if(payment.status!=='PENDING')throw new BadRequestException('Stripe checkout session cannot be confirmed');
+    const session=await this.stripeRequest(`/checkout/sessions/${encodeURIComponent(dto.sessionId)}`);
+    await activateVerifiedStripeSession(this.db,payment,session);
+    return {success:true,status:'COMPLETED'};
+  }
+}
+
+async function activateVerifiedStripeSession(db:DbService,payment:any,session:any) {
+    const valid=session.id===payment.providerOrderId&&(!stagingDiagnosticsEnabled()||session.livemode===false)&&session.mode==='payment'&&session.payment_status==='paid'&&session.client_reference_id===payment.userId&&session.metadata?.userId===payment.userId&&session.metadata?.intent==='PLATFORM_ACCESS'&&session.currency===payment.currency.toLowerCase()&&session.amount_total===payment.amountCents;
+    if(!valid)throw new BadRequestException('Stripe payment verification failed');
+    await db.$transaction(async tx=>{
+      const updated=await tx.paymentReference.updateMany({where:{id:payment.id,status:'PENDING'},data:{status:'COMPLETED',providerCaptureId:session.id,metadata:{intent:'PLATFORM_ACCESS',stripeSessionId:session.id,paymentIntentId:session.payment_intent||null}}});
+      if(!updated.count) {
+        const current=await tx.paymentReference.findUnique({where:{id:payment.id}});
+        if(current?.status==='COMPLETED')return;
+        throw new BadRequestException('Stripe payment is already being confirmed');
+      }
+      await tx.subscription.upsert({where:{userId:payment.userId},create:{userId:payment.userId,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}});
+    });
+}
+
+// Stripe authenticates this endpoint with a signature over the original bytes.
+@Controller('payments/stripe/webhook')
+export class StripeWebhookController {
+  constructor(private db:DbService){}
+  @Post() async receive(@Req() req:Request) {
+    const secret=process.env.STRIPE_WEBHOOK_SECRET?.trim();
+    if(!secret)throw new ServiceUnavailableException('Stripe webhook is not configured');
+    const signature=req.headers['stripe-signature'];
+    if(!Buffer.isBuffer(req.body)||typeof signature!=='string')throw new BadRequestException('Invalid Stripe signature');
+    const parts=signature.split(',').map(part=>part.trim().split('='));
+    const timestamps=parts.filter(([key])=>key==='t').map(([,value])=>value);
+    if(timestamps.length!==1||!/^\d+$/.test(timestamps[0])||Math.abs(Date.now()/1000-Number(timestamps[0]))>300)throw new BadRequestException('Invalid Stripe signature');
+    const expected=createHmac('sha256',secret).update(timestamps[0]+'.').update(req.body).digest();
+    const valid=parts.some(([key,value])=>key==='v1'&&/^[a-f0-9]{64}$/i.test(value||'')&&timingSafeEqual(expected,Buffer.from(value,'hex')));
+    if(!valid)throw new BadRequestException('Invalid Stripe signature');
+    let event:any;
+    try { event=JSON.parse(req.body.toString('utf8')); } catch { throw new BadRequestException('Invalid Stripe event'); }
+    if(!event||typeof event!=='object')throw new BadRequestException('Invalid Stripe event');
+    const key=process.env.STRIPE_SECRET_KEY?.trim()||'';
+    const testKey=/^(sk|rk)_test_/.test(key);
+    if(!/^(sk|rk)_(test|live)_/.test(key))throw new ServiceUnavailableException('Stripe is not configured');
+    if(stagingDiagnosticsEnabled()&&(!testKey||event.livemode!==false))throw new BadRequestException('Staging requires test-mode events');
+    if(event.livemode!==!testKey)throw new BadRequestException('Stripe event mode does not match configuration');
+    if(!['checkout.session.completed','checkout.session.async_payment_succeeded'].includes(event.type))return {received:true};
+    const session=event.data?.object;
+    if(!session||typeof session.id!=='string')throw new BadRequestException('Invalid Stripe session');
+    if(session.payment_status!=='paid')return {received:true};
+    const payment=await this.db.paymentReference.findUnique({where:{providerOrderId:session.id}});
+    // An event can race the checkout response's local payment-reference write.
+    // Return a retryable failure instead of silently dropping a paid activation.
+    if(!payment||payment.provider!=='stripe')throw new ServiceUnavailableException('Checkout reference is not ready');
+    if(payment.status==='COMPLETED')return {received:true};
+    if(payment.status!=='PENDING')throw new BadRequestException('Checkout cannot be activated');
+    await activateVerifiedStripeSession(this.db,payment,session);
+    return {received:true};
+  }
+}
