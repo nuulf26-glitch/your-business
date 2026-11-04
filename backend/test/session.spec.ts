@@ -170,7 +170,7 @@ describe('backend critical operations', () => {
     expect(db.passwordResetToken.deleteMany).toHaveBeenCalledWith({where:{tokenHash:undeliveredHash}});
     expect(db.passwordResetToken.deleteMany.mock.calls[0][0].where).not.toHaveProperty('userId');
     expect(mail.sendAccountLink).toHaveBeenCalledWith(email,expect.any(String),'reset');
-    expect(log.mock.calls.map(call=>String(call[0])).join('\\n')).not.toContain(email);
+    expect(log.mock.calls.map(call=>String(call[0])).join('\n')).not.toContain(email);
     expect(log.mock.calls.map(call=>String(call[0])).join('\\n')).not.toContain(mail.sendAccountLink.mock.calls[0][1]);
   });
 
