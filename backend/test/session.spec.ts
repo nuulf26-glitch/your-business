@@ -153,6 +153,27 @@ describe('backend critical operations', () => {
     expect(logged).not.toContain(mail.sendAccountLink.mock.calls[0][1]);
   });
 
+  it('preserves prior reset links and deletes only the undelivered token when SMTP fails', async () => {
+    const email='owner@example.com';
+    const db:any={
+      user:{findUnique:jest.fn().mockResolvedValue({id:'u-1',email})},
+      passwordResetToken:{create:jest.fn().mockResolvedValue({}),deleteMany:jest.fn().mockResolvedValue({count:1})},
+    };
+    const mail:any={sendAccountLink:jest.fn().mockRejectedValue(Object.assign(new Error('SMTP unavailable'),{code:'EAUTH'}))};
+    const controller:any=new AuthController(db,mail);
+    const log=jest.spyOn(controller.logger,'error').mockImplementation(()=>undefined);
+
+    await expect(controller.forgotPassword({email} as any)).resolves.toEqual({ok:true,message:'If the account exists, a password reset link will be sent.'});
+
+    const undeliveredHash=db.passwordResetToken.create.mock.calls[0][0].data.tokenHash;
+    expect(db.passwordResetToken.deleteMany).toHaveBeenCalledTimes(1);
+    expect(db.passwordResetToken.deleteMany).toHaveBeenCalledWith({where:{tokenHash:undeliveredHash}});
+    expect(db.passwordResetToken.deleteMany.mock.calls[0][0].where).not.toHaveProperty('userId');
+    expect(mail.sendAccountLink).toHaveBeenCalledWith(email,expect.any(String),'reset');
+    expect(log.mock.calls.map(call=>String(call[0])).join('\n')).not.toContain(email);
+    expect(log.mock.calls.map(call=>String(call[0])).join('\\n')).not.toContain(mail.sendAccountLink.mock.calls[0][1]);
+  });
+
   it('does not consume an expired password-reset token', async () => {
     const db:any={passwordResetToken:{findUnique:jest.fn().mockResolvedValue({userId:'u-1',expiresAt:new Date(Date.now()-1000)})},$transaction:jest.fn()};
     await expect(new AuthController(db,{} as any).resetPassword({token:'c'.repeat(43),password:'a-new-secure-password'} as any)).rejects.toThrow('invalid or expired');
