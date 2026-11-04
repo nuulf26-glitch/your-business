@@ -27,6 +27,8 @@ function Dashboard() {
 const [customers, setCustomers] = useState([]);
 const [products, setProducts] = useState([]);
 const [userProfile, setUserProfile] = useState(null);
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundMessage, setRefundMessage] = useState("");
   const [websiteRecord, setWebsiteRecord] = useState(null);
   const [websiteStatus, setWebsiteStatus] = useState("Checking…");
   const [stripeStatus, setStripeStatus] = useState(null);
@@ -77,6 +79,21 @@ const [userProfile, setUserProfile] = useState(null);
     loadDashboardData();
     return () => { active = false; };
   }, [dashboardRetryCount, navigate]);
+  async function requestRefund() {
+    if (!window.confirm("Cancel your CYB access and refund the $246 lifetime payment?")) return;
+    setRefundLoading(true);
+    setRefundMessage("");
+    try {
+      await customBackendRequest("/payments/platform-access/refund", { method: "POST" });
+      setUserProfile(await getAppUser());
+      setRefundMessage("Your refund has been issued. Your account is now inactive.");
+    } catch (error) {
+      setRefundMessage(error.message || "We could not process the refund. Please try again.");
+    } finally {
+      setRefundLoading(false);
+    }
+  }
+
   const websiteSetup = store;
   const isStaging = window.location.hostname === "getcyb-staging-web.onrender.com";
   const editorData = websiteRecord?.draft || store?.draftEditorData || store?.editorData;
@@ -254,6 +271,10 @@ const [userProfile, setUserProfile] = useState(null);
       <p>
         Your Business platform is unlocked.
       </p>
+      <p>You can cancel and request a full refund within 30 days of payment.</p>
+      <button type="button" className="dashboard-secondary-button" onClick={requestRefund} disabled={refundLoading}>
+        {refundLoading ? "Processing refund…" : "Cancel account & get refund"}
+      </button>
     </>
   ) : (
     <>
@@ -273,6 +294,7 @@ const [userProfile, setUserProfile] = useState(null);
       </button>
     </>
   )}
+  {refundMessage && <p role="status">{refundMessage}</p>}
 
 </section>
         {isStaging && (

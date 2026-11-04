@@ -90,6 +90,11 @@ async function handleSignup(event) {
               <span>03</span>
               <p>Mobile-ready website</p>
             </div>
+
+            <div>
+              <span>04</span>
+              <p>30-day money-back guarantee</p>
+            </div>
           </div>
         </div>
 

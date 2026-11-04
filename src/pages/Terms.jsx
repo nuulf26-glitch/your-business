@@ -28,7 +28,7 @@ function Terms() {
         <section className="legal-hero">
           <span>Legal</span>
           <h1>Terms and Conditions</h1>
-          <p>Last updated: July 2026</p>
+          <p>Last updated: October 2026</p>
         </section>
 
         <section className="legal-content">
@@ -80,9 +80,7 @@ function Terms() {
           <article>
             <h2>6. Payments</h2>
             <p>
-              Payments may be handled by third-party payment providers. Payment
-              availability, processing times, fees, refunds, and disputes may
-              also be subject to the provider’s own terms.
+              CYB Lifetime Access costs $246 USD as a one-time payment. Accounts activate after the payment is confirmed. No free trial is included. Payments are processed by third-party providers and remain subject to their terms.
             </p>
           </article>
 
@@ -98,9 +96,7 @@ function Terms() {
           <article>
             <h2>8. Fees and subscriptions</h2>
             <p>
-              Certain features may require payment. Prices, billing periods,
-              trials, and renewal terms will be shown before purchase. Fees
-              may change for future billing periods.
+              CYB Lifetime Access is a one-time payment with no recurring platform subscription. You may cancel your CYB account and request a full refund within 30 days after the payment date. Once the refund is issued, your account access is deactivated. This guarantee does not limit any rights that apply under local law.
             </p>
           </article>
 

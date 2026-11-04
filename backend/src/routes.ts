@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 22232)
+Total output lines: 752
+
 import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, ForbiddenException, Logger, ServiceUnavailableException, Headers, UnauthorizedException } from '@nestjs/common';
 import { IsEmail, IsNumber, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn, IsBoolean } from 'class-validator';
 import { Request, Response } from 'express';
@@ -370,86 +373,7 @@ export class PublicBusinessController {
 export class ProductController {
   constructor(private db:DbService){}
   private async business(userId:string){const b=await this.db.business.findFirst({where:{ownerId:userId}});if(!b)throw new NotFoundException('Create a business first');return b;}
-  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.business(req.user.id);return this.db.product.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'}});}
-  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const name=String(dto.data.name||'').trim();if(!name)throw new BadRequestException('Product name required');await assertOwnedMedia(this.db,req.user.id,dto.data);return this.db.product.create({data:{businessId:b.id,name,data:dto.data as any}});}
-  @Put(':id') async update(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');await assertOwnedMedia(this.db,req.user.id,dto.data);const merged={...(prior.data as Record<string,unknown>),...dto.data};const name=String(merged.name||prior.name).trim();if(!name)throw new BadRequestException('Product name required');const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{name,data:merged as any}});if(!result.count)throw new NotFoundException('Product not found');return this.db.product.findUnique({where:{id}});}
-  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.business(req.user.id);const result=await this.db.product.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Product not found');return {deleted:true};}
-}
-
-@Controller('public/products')
-export class PublicProductController {
-  constructor(private db:DbService){}
-  @Get(':slug') async list(@Req() req:Request){
-    const slug=String(req.params['slug']||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Website not found');
-    const rows=await this.db.product.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:300});
-    return rows.filter(row=>(row.data as any)?.status!=='hidden').map(row=>{
-      const data=row.data as Record<string,unknown>;
-      return {id:row.id,storeUrl:business.slug,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,images:data.images,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};
-    });
-  }
-  @Get('item/:id') async one(@Req() req:Request){const id=String(req.params['id']||'');const row=await this.db.product.findUnique({where:{id},include:{business:{include:{website:true}}}});if(!row||!row.business.website?.published||(row.data as any)?.status==='hidden')throw new NotFoundException('Product not found');const data=row.data as Record<string,unknown>;return {id:row.id,storeUrl:row.business.slug,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,images:data.images,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};}
-}
-
-@Controller('customers')
-@UseGuards(SessionGuard)
-export class CustomerController {
-  constructor(private db:DbService){}
-  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)return [];return this.db.customer.findMany({where:{businessId:b.id},orderBy:{id:'desc'}});}
-  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');return this.db.customer.create({data:{businessId:b.id,data:dto.data as any}});}
-  @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:CustomerStatusInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const customer=await this.db.customer.findFirst({where:{id,businessId:b.id}});if(!customer)throw new NotFoundException('Customer not found');const data={...(customer.data as Record<string,unknown>),status:dto.status};return this.db.customer.update({where:{id},data:{data:data as any}});}
-  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const result=await this.db.customer.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Customer not found');return {deleted:true};}
-}
-
-@Controller('orders')
-@UseGuards(SessionGuard)
-export class OrderController {
-  constructor(private db:DbService){}
-  @Get() async list(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)return [];return this.db.order.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'},take:300});}
-  @Get(':id') async one(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const row=await this.db.order.findFirst({where:{id:String(req.params['id']),businessId:b.id}});if(!row)throw new NotFoundException('Order not found');return {...(row.data as object),id:row.id,status:row.status,createdAt:row.createdAt};}
-  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const data=dto.data as Record<string,any>;const amount=Number(data.total??data.amount);return this.db.order.create({data:{businessId:b.id,status:String(data.status||'pending'),amountCents:Number.isFinite(amount)?Math.round(amount*100):null,currency:String(data.currency||'USD'),data:data as any}});}
-  @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:OrderStatusInput){
-    const valid=['new','pending','paid','processing','shipped','delivered','cancelled','refunded'];if(!valid.includes(dto.status.toLowerCase()))throw new BadRequestException('Invalid order status');
-    const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');
-    const id=String(req.params['id']);const result=await this.db.order.updateMany({where:{id,businessId:b.id},data:{status:dto.status.toLowerCase()}});if(!result.count)throw new NotFoundException('Order not found');
-    return this.db.order.findUnique({where:{id}});
-  }
-  @Patch(':id') async updateDetails(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const row=await this.db.order.findFirst({where:{id,businessId:b.id}});if(!row)throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...dto.data};const result=await this.db.order.update({where:{id},data:{data:data as any}});return {...(result.data as object),id:result.id,status:result.status,createdAt:result.createdAt};}
-  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const result=await this.db.order.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Order not found');return {deleted:true};}
-}
-
-// Customer checkout is intentionally public. The order is attached to a published
-// business by its public slug; private order reads remain owner-scoped above.
-@Controller('public/orders')
-export class PublicOrderController {
-  constructor(private db:DbService){}
-  @Post() async create(@Body() dto:JsonInput){const data=dto.data as Record<string,any>;const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===String(item.id||item.productId||'')),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||(product.data as any)?.status==='hidden')throw new BadRequestException('A product in this order is unavailable');const p=product.data as any,price=Number(p.salePrice||p.sellingPrice||p.price||0);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');return {...item,id:product.id,name:product.name,price,quantity};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),shipping=subtotal>=300?0:25,amount=subtotal+shipping;const normalized={...data,items,subtotal,shipping,total:amount,currency:'USD',status:'New',paymentStatus:'Pending',createdAt:new Date().toISOString()};const order=await this.db.$transaction(async tx=>{const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:'USD',data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0)+amount};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;});return {...(order.data as object),id:order.id,status:order.status,createdAt:order.createdAt};}
-  @Post(':id/cash-on-delivery') async setCashOnDelivery(@Req() req:Request,@Body() dto:JsonInput){const id=String(req.params['id']);const row=await this.db.order.findUnique({where:{id}});if(!row||row.status!=='new')throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...(dto.data||{}),paymentMethod:'cash',paymentStatus:'Cash on delivery'};await this.db.order.update({where:{id},data:{data:data as any}});return {ok:true};}
-}
-
-function deterministicTrialWebsite(prompt:string){
-  const clean=prompt.trim().replace(/\s+/g,' ').slice(0,1200),lower=clean.toLowerCase();
-  const kind=/\b(consult(?:ing|ant)?|advisory|advisor|consultant|strategy)\b/.test(lower)?'consulting':/\b(portfolio|creative|designer|photographer|illustrator|artist)\b/.test(lower)?'portfolio':lower.includes('skin')||lower.includes('beauty')?'skincare':lower.includes('coffee')||lower.includes('cafe')?'coffee':lower.includes('fashion')||lower.includes('clothing')?'fashion':lower.includes('fitness')||lower.includes('gym')?'wellness':'studio';
-  const profiles:Record<string,any>={
-    skincare:{name:'ATELIER BOTANIQUE',eyebrow:'SKINCARE · MADE WITH INTENTION',title:'A softer ritual. A brighter kind of care.',body:'Thoughtful formulas and everyday rituals, created to make caring for your skin feel beautifully simple.',accent:'#9b765a',image:'https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?auto=format&fit=crop&w=1200&q=85',offer:'The daily ritual',items:['Gentle by design','Made for everyday','Care that feels considered']},
-    coffee:{name:'SUNDAY ROAST',eyebrow:'SMALL BATCH · SLOW MORNINGS',title:'Make room for a better cup.',body:'Carefully sourced coffee, roasted in small batches and made for the moments worth slowing down for.',accent:'#76543d',image:'https://images.unsplash.com/photo-1442512595331-e89e73853f31?auto=format&fit=crop&w=1200&q=85',offer:'From our roastery',items:['Thoughtful sourcing','Roasted in small batches','A ritual worth keeping']},
-    fashion:{name:'FORME STUDIO',eyebrow:'CONSIDERED WARDROBE · EST. 2026',title:'Fewer pieces. More ways to be you.',body:'A considered collection of modern essentials, made to move with you and stay in your wardrobe for years.',accent:'#7c6653',image:'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1200&q=85',offer:'The essentials edit',items:['Easy, timeless silhouettes','Designed for repeat wear','A quieter kind of statement']},
-    wellness:{name:'STILL FORM',eyebrow:'MOVEMENT · WELLNESS · BALANCE',title:'Find your own kind of strong.',body:'A welcoming space to move with purpose, build a lasting practice and feel more at home in your body.',accent:'#547060',image:'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=1200&q=85',offer:'Move at your pace',items:['Classes for every level','Guidance that meets you here','Progress without pressure']},
-    studio:{name:'FORM & FIELD',eyebrow:'INDEPENDENT BUSINESS · MADE PERSONAL',title:'Good work deserves a beautiful home.',body:'A clear, considered introduction to your business, your approach and the work you are proud to share.',accent:'#776b5e',image:'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=85',offer:'A little about us',items:['Thoughtful, personal service','Made around what matters','Here to help you begin'],cta:'Explore our approach',offerType:'services',offerTitle:'A clearer way to introduce your work',offerBody:'Show people what you do, how you work, and the best way to take the next step.',offerItems:['What you offer','How you work','How to get in touch']},
-    consulting:{name:'NORTHLINE ADVISORY',eyebrow:'CONSULTING · PRACTICAL CLARITY',title:'Make your next move with confidence.',body:'Clear, thoughtful advice for businesses working through an important decision or a new stage of growth.',accent:'#667268',image:'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=85',offer:'A more considered way forward',items:['Understand what matters most','Turn questions into clear next steps','Move forward with a trusted perspective'],cta:'Explore our approach',valuesTitle:'Clear thinking. Practical next steps.',offerType:'services',offerTitle:'A practical path forward',offerBody:'Introduce the areas you support and help people understand where to begin.',offerItems:['Strategy and planning','Operations and growth','Workshops and facilitation']},
-    portfolio:{name:'STUDIO MARGINALIA',eyebrow:'SELECTED WORK · CREATIVE PRACTICE',title:'A considered home for your creative work.',body:'Bring selected projects, process, and the ideas behind your practice together in one clear portfolio.',accent:'#8b7159',image:'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=85',offer:'A practice, told through its work',items:['Projects with a point of view','Process and perspective','A direct way to enquire'],cta:'Explore the work',valuesTitle:'Selected work. Thoughtfully presented.',offerType:'services',offerTitle:'What your portfolio can show',offerBody:'Make space for the projects and context you choose to share when you make this design your own.',offerItems:['Selected projects','Process and point of view','Contact and availability']}
-  };
-  const p=profiles[kind];
-  const explicitBrand = clean.match(/(?:\bbrand\s+name\s+(?:(?:is|called|named|:|=)\s+)?|\bbrand\s+(?:is|called|named|:|=)\s+|\b(?:called|named)\s+)[“"']?([\p{L}][\p{L}\p{N} &'’-]{1,48})/iu)?.[1];
-  const titledBusiness = clean.match(/\bfor\s+([\p{Lu}][\p{L}\p{N}&'’-]*(?:\s+[\p{Lu}][\p{L}\p{N}&'’-]*){0,3})/u)?.[1];
-  const requested=(explicitBrand||titledBusiness)?.trim().replace(/[“"'.,!?]+$/g,'').replace(/\s+(with|that|and|featuring|using|selling|offering)\s+.*$/i,'').slice(0,32);
-  const brandName=requested||p.name;
-  const sections=[
-    {id:'preview-hero',type:'hero',variant:'luxury',eyebrow:p.eyebrow,title:p.title,body:p.body,buttonText:p.cta||'Explore the collection',href:'#preview-offer',image:p.image,alt:`Editorial ${kind} preview`},
-    {id:'preview-intro',type:'about',eyebrow:'A MORE PERSONAL APPROACH',title:p.offer,body:p.body,image:p.image,alt:`${kind} studio`},
-    {id:'preview-values',type:'services',title:p.valuesTitle||'Made to feel like you.',body:'A few things that guide everything we do.',items:p.items},
-    p.offerType==='services'
-      ? {id:'preview-offer',type:'services',title:p.offerTitle,body:p.offerBody,items:p.offerItems}
-      : {id:'preview-offer',type:'collection',title:'The thoughtful edit',body:'A preview of how your offer can come to life. Add your real products and details when you make your website yours.',limit:3},
+  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.business(req.user.id);return this.db.product.findMany({where:{businessId:b.id},orderBy:{c…4232 tokens truncated…oughtful edit',body:'A preview of how your offer can come to life. Add your real products and details when you make your website yours.',limit:3},
     {id:'preview-faq',type:'faq',title:'A few good questions',body:'Clear answers help people feel at home.',items:[{question:'What makes this different?',answer:'A considered approach, shaped around what you need.'},{question:'How do I get started?',answer:'Tell us what you are looking for and we will help you take the next step.'}]},
     {id:'preview-footer',type:'footer',title:brandName,body:'A little more care in every detail.'}
   ];
@@ -580,6 +504,55 @@ function legacyMediaStore() {
 }
 
 
+@Controller('payments')
+@UseGuards(SessionGuard)
+export class PlatformRefundController {
+  constructor(private db:DbService){}
+  @Post('platform-access/refund') async refund(@Req() req:Request & {user:any}) {
+    const payments=await this.db.paymentReference.findMany({
+      where:{userId:req.user.id,provider:{in:['stripe','paypal']},status:{in:['COMPLETED','REFUNDED']}},
+      orderBy:{createdAt:'desc'},
+      take:20,
+    });
+    const payment=payments.find(item=>(item.metadata as any)?.intent==='PLATFORM_ACCESS');
+    if(!payment)throw new NotFoundException('No completed platform payment was found');
+    if(payment.status==='REFUNDED')return {success:true,status:'REFUNDED'};
+    const paymentDate=new Date((payment.metadata as any)?.paidAt||payment.createdAt);
+    if(!Number.isFinite(paymentDate.getTime())||Date.now()-paymentDate.getTime()>30*864e5)throw new BadRequestException('The 30-day refund period has ended');
+    let refundId:string|undefined;
+    if(payment.provider==='stripe') {
+      const key=process.env.STRIPE_SECRET_KEY;
+      const paymentIntentId=(payment.metadata as any)?.paymentIntentId;
+      if(!key||typeof paymentIntentId!=='string'||!paymentIntentId.startsWith('pi_'))throw new ServiceUnavailableException('This Stripe payment cannot be refunded automatically. Please contact support.');
+      const form=new URLSearchParams({payment_intent:paymentIntentId});
+      let response:globalThis.Response;
+      try { response=await fetch('https://api.stripe.com/v1/refunds',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/x-www-form-urlencoded','Idempotency-Key':`getcyb-refund-${payment.id}`},body:form.toString(),signal:AbortSignal.timeout(20000)}); }
+      catch { throw new ServiceUnavailableException('The refund provider could not be reached. Please try again.'); }
+      const result=await response.json().catch(()=>({})) as any;
+      if(!response.ok||!result.id)throw new BadRequestException('Stripe could not process the refund. Please try again.');
+      refundId=result.id;
+    } else {
+      const id=process.env.PAYPAL_CLIENT_ID,secret=process.env.PAYPAL_CLIENT_SECRET;
+      const captureId=payment.providerCaptureId;
+      if(!id||!secret||!captureId)throw new ServiceUnavailableException('This PayPal payment cannot be refunded automatically. Please contact support.');
+      const base=process.env.PAYPAL_API_BASE||'https://api-m.sandbox.paypal.com';
+      const tokenResponse=await fetch(`${base}/v1/oauth2/token`,{method:'POST',headers:{Authorization:`Basic ${Buffer.from(`${id}:${secret}`).toString('base64')}`,'Content-Type':'application/x-www-form-urlencoded'},body:'grant_type=client_credentials',signal:AbortSignal.timeout(20000)});
+      const tokenData=await tokenResponse.json().catch(()=>({})) as any;
+      if(!tokenResponse.ok||!tokenData.access_token)throw new ServiceUnavailableException('PayPal could not authorize the refund. Please try again.');
+      const response=await fetch(`${base}/v2/payments/captures/${encodeURIComponent(captureId)}/refund`,{method:'POST',headers:{Authorization:`Bearer ${tokenData.access_token}`,'Content-Type':'application/json','PayPal-Request-Id':`getcyb-refund-${payment.id}`},body:JSON.stringify({})});
+      const result=await response.json().catch(()=>({})) as any;
+      if(!response.ok||!result.id)throw new BadRequestException('PayPal could not process the refund. Please try again.');
+      refundId=result.id;
+    }
+    await this.db.$transaction([
+      this.db.paymentReference.update({where:{id:payment.id},data:{status:'REFUNDED',metadata:{...(payment.metadata as any),refundId,refundedAt:new Date().toISOString()}}}),
+      this.db.subscription.updateMany({where:{userId:req.user.id},data:{status:'INACTIVE',billingType:'ONE_TIME'}}),
+    ]);
+    return {success:true,status:'REFUNDED'};
+  }
+}
+
+
 @Controller('payments/stripe')
 @UseGuards(SessionGuard)
 export class StripeController {
@@ -654,7 +627,7 @@ async function activateVerifiedStripeSession(db:DbService,payment:any,session:an
     const valid=session.id===payment.providerOrderId&&(!stagingDiagnosticsEnabled()||session.livemode===false)&&session.mode==='payment'&&session.payment_status==='paid'&&session.client_reference_id===payment.userId&&session.metadata?.userId===payment.userId&&session.metadata?.intent==='PLATFORM_ACCESS'&&session.currency===payment.currency.toLowerCase()&&session.amount_total===payment.amountCents;
     if(!valid)throw new BadRequestException('Stripe payment verification failed');
     await db.$transaction(async tx=>{
-      const updated=await tx.paymentReference.updateMany({where:{id:payment.id,status:'PENDING'},data:{status:'COMPLETED',providerCaptureId:session.id,metadata:{intent:'PLATFORM_ACCESS',stripeSessionId:session.id,paymentIntentId:session.payment_intent||null}}});
+      const updated=await tx.paymentReference.updateMany({where:{id:payment.id,status:'PENDING'},data:{status:'COMPLETED',providerCaptureId:session.id,metadata:{intent:'PLATFORM_ACCESS',stripeSessionId:session.id,paymentIntentId:session.payment_intent||null,paidAt:new Date().toISOString()}}});
       if(!updated.count) {
         const current=await tx.paymentReference.findUnique({where:{id:payment.id}});
         if(current?.status==='COMPLETED')return;

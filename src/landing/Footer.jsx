@@ -98,7 +98,7 @@ function Footer() {
             <span>Built for modern businesses</span>
             <p>
               Start with a free, private website preview. Activate lifetime
-              access when you are ready.
+              access when you are ready, with a full refund available within 30 days.
             </p>
           </div>
 

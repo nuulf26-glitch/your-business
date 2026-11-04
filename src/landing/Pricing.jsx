@@ -96,7 +96,7 @@ function Pricing() {
                 <h3 style={{ fontSize: "1.1rem", fontWeight: "500", margin: "0 0 8px 0", color: "#111", fontFamily: "'Mograp', sans-serif" }}>Start before you pay</h3>
                 <p style={{ color: "#555", fontSize: "0.95rem", lineHeight: "1.5", margin: 0, fontFamily: "'Mograp', sans-serif" }}>
                   Start with a private website preview. When you are ready,
-                  lifetime access is a one-time $246 payment.
+                  lifetime access is a one-time $246 payment. Your payment includes a full refund within 30 days.
                 </p>
               </div>
             </div>
@@ -161,6 +161,9 @@ function Pricing() {
 
             <p style={{ textAlign: "center", fontSize: "0.80rem", color: "#666", margin: "0 0 30px 0", fontFamily: "'Mograp', sans-serif" }}>
               No payment required to create your account
+            </p>
+            <p style={{ textAlign: "center", fontSize: "0.80rem", color: "#666", margin: "-22px 0 30px 0", fontFamily: "'Mograp', sans-serif" }}>
+              Full refund available within 30 days after payment
             </p>
 
             <div style={{ borderTop: "1px solid #e5e5e0", paddingTop: "30px" }}>
