@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 22232)
-Total output lines: 752
-
 import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, ForbiddenException, Logger, ServiceUnavailableException, Headers, UnauthorizedException } from '@nestjs/common';
 import { IsEmail, IsNumber, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn, IsBoolean } from 'class-validator';
 import { Request, Response } from 'express';
@@ -373,7 +370,86 @@ export class PublicBusinessController {
 export class ProductController {
   constructor(private db:DbService){}
   private async business(userId:string){const b=await this.db.business.findFirst({where:{ownerId:userId}});if(!b)throw new NotFoundException('Create a business first');return b;}
-  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.business(req.user.id);return this.db.product.findMany({where:{businessId:b.id},orderBy:{c…4232 tokens truncated…oughtful edit',body:'A preview of how your offer can come to life. Add your real products and details when you make your website yours.',limit:3},
+  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.business(req.user.id);return this.db.product.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'}});}
+  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const name=String(dto.data.name||'').trim();if(!name)throw new BadRequestException('Product name required');await assertOwnedMedia(this.db,req.user.id,dto.data);return this.db.product.create({data:{businessId:b.id,name,data:dto.data as any}});}
+  @Put(':id') async update(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');await assertOwnedMedia(this.db,req.user.id,dto.data);const merged={...(prior.data as Record<string,unknown>),...dto.data};const name=String(merged.name||prior.name).trim();if(!name)throw new BadRequestException('Product name required');const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{name,data:merged as any}});if(!result.count)throw new NotFoundException('Product not found');return this.db.product.findUnique({where:{id}});}
+  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.business(req.user.id);const result=await this.db.product.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Product not found');return {deleted:true};}
+}
+
+@Controller('public/products')
+export class PublicProductController {
+  constructor(private db:DbService){}
+  @Get(':slug') async list(@Req() req:Request){
+    const slug=String(req.params['slug']||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Website not found');
+    const rows=await this.db.product.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:300});
+    return rows.filter(row=>(row.data as any)?.status!=='hidden').map(row=>{
+      const data=row.data as Record<string,unknown>;
+      return {id:row.id,storeUrl:business.slug,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,images:data.images,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};
+    });
+  }
+  @Get('item/:id') async one(@Req() req:Request){const id=String(req.params['id']||'');const row=await this.db.product.findUnique({where:{id},include:{business:{include:{website:true}}}});if(!row||!row.business.website?.published||(row.data as any)?.status==='hidden')throw new NotFoundException('Product not found');const data=row.data as Record<string,unknown>;return {id:row.id,storeUrl:row.business.slug,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,images:data.images,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};}
+}
+
+@Controller('customers')
+@UseGuards(SessionGuard)
+export class CustomerController {
+  constructor(private db:DbService){}
+  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)return [];return this.db.customer.findMany({where:{businessId:b.id},orderBy:{id:'desc'}});}
+  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');return this.db.customer.create({data:{businessId:b.id,data:dto.data as any}});}
+  @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:CustomerStatusInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const customer=await this.db.customer.findFirst({where:{id,businessId:b.id}});if(!customer)throw new NotFoundException('Customer not found');const data={...(customer.data as Record<string,unknown>),status:dto.status};return this.db.customer.update({where:{id},data:{data:data as any}});}
+  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const result=await this.db.customer.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Customer not found');return {deleted:true};}
+}
+
+@Controller('orders')
+@UseGuards(SessionGuard)
+export class OrderController {
+  constructor(private db:DbService){}
+  @Get() async list(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)return [];return this.db.order.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'},take:300});}
+  @Get(':id') async one(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const row=await this.db.order.findFirst({where:{id:String(req.params['id']),businessId:b.id}});if(!row)throw new NotFoundException('Order not found');return {...(row.data as object),id:row.id,status:row.status,createdAt:row.createdAt};}
+  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const data=dto.data as Record<string,any>;const amount=Number(data.total??data.amount);return this.db.order.create({data:{businessId:b.id,status:String(data.status||'pending'),amountCents:Number.isFinite(amount)?Math.round(amount*100):null,currency:String(data.currency||'USD'),data:data as any}});}
+  @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:OrderStatusInput){
+    const valid=['new','pending','paid','processing','shipped','delivered','cancelled','refunded'];if(!valid.includes(dto.status.toLowerCase()))throw new BadRequestException('Invalid order status');
+    const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');
+    const id=String(req.params['id']);const result=await this.db.order.updateMany({where:{id,businessId:b.id},data:{status:dto.status.toLowerCase()}});if(!result.count)throw new NotFoundException('Order not found');
+    return this.db.order.findUnique({where:{id}});
+  }
+  @Patch(':id') async updateDetails(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const row=await this.db.order.findFirst({where:{id,businessId:b.id}});if(!row)throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...dto.data};const result=await this.db.order.update({where:{id},data:{data:data as any}});return {...(result.data as object),id:result.id,status:result.status,createdAt:result.createdAt};}
+  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const result=await this.db.order.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Order not found');return {deleted:true};}
+}
+
+// Customer checkout is intentionally public. The order is attached to a published
+// business by its public slug; private order reads remain owner-scoped above.
+@Controller('public/orders')
+export class PublicOrderController {
+  constructor(private db:DbService){}
+  @Post() async create(@Body() dto:JsonInput){const data=dto.data as Record<string,any>;const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===String(item.id||item.productId||'')),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||(product.data as any)?.status==='hidden')throw new BadRequestException('A product in this order is unavailable');const p=product.data as any,price=Number(p.salePrice||p.sellingPrice||p.price||0);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');return {...item,id:product.id,name:product.name,price,quantity};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),shipping=subtotal>=300?0:25,amount=subtotal+shipping;const normalized={...data,items,subtotal,shipping,total:amount,currency:'USD',status:'New',paymentStatus:'Pending',createdAt:new Date().toISOString()};const order=await this.db.$transaction(async tx=>{const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:'USD',data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0)+amount};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;});return {...(order.data as object),id:order.id,status:order.status,createdAt:order.createdAt};}
+  @Post(':id/cash-on-delivery') async setCashOnDelivery(@Req() req:Request,@Body() dto:JsonInput){const id=String(req.params['id']);const row=await this.db.order.findUnique({where:{id}});if(!row||row.status!=='new')throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...(dto.data||{}),paymentMethod:'cash',paymentStatus:'Cash on delivery'};await this.db.order.update({where:{id},data:{data:data as any}});return {ok:true};}
+}
+
+function deterministicTrialWebsite(prompt:string){
+  const clean=prompt.trim().replace(/\s+/g,' ').slice(0,1200),lower=clean.toLowerCase();
+  const kind=/\b(consult(?:ing|ant)?|advisory|advisor|consultant|strategy)\b/.test(lower)?'consulting':/\b(portfolio|creative|designer|photographer|illustrator|artist)\b/.test(lower)?'portfolio':lower.includes('skin')||lower.includes('beauty')?'skincare':lower.includes('coffee')||lower.includes('cafe')?'coffee':lower.includes('fashion')||lower.includes('clothing')?'fashion':lower.includes('fitness')||lower.includes('gym')?'wellness':'studio';
+  const profiles:Record<string,any>={
+    skincare:{name:'ATELIER BOTANIQUE',eyebrow:'SKINCARE · MADE WITH INTENTION',title:'A softer ritual. A brighter kind of care.',body:'Thoughtful formulas and everyday rituals, created to make caring for your skin feel beautifully simple.',accent:'#9b765a',image:'https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?auto=format&fit=crop&w=1200&q=85',offer:'The daily ritual',items:['Gentle by design','Made for everyday','Care that feels considered']},
+    coffee:{name:'SUNDAY ROAST',eyebrow:'SMALL BATCH · SLOW MORNINGS',title:'Make room for a better cup.',body:'Carefully sourced coffee, roasted in small batches and made for the moments worth slowing down for.',accent:'#76543d',image:'https://images.unsplash.com/photo-1442512595331-e89e73853f31?auto=format&fit=crop&w=1200&q=85',offer:'From our roastery',items:['Thoughtful sourcing','Roasted in small batches','A ritual worth keeping']},
+    fashion:{name:'FORME STUDIO',eyebrow:'CONSIDERED WARDROBE · EST. 2026',title:'Fewer pieces. More ways to be you.',body:'A considered collection of modern essentials, made to move with you and stay in your wardrobe for years.',accent:'#7c6653',image:'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1200&q=85',offer:'The essentials edit',items:['Easy, timeless silhouettes','Designed for repeat wear','A quieter kind of statement']},
+    wellness:{name:'STILL FORM',eyebrow:'MOVEMENT · WELLNESS · BALANCE',title:'Find your own kind of strong.',body:'A welcoming space to move with purpose, build a lasting practice and feel more at home in your body.',accent:'#547060',image:'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=1200&q=85',offer:'Move at your pace',items:['Classes for every level','Guidance that meets you here','Progress without pressure']},
+    studio:{name:'FORM & FIELD',eyebrow:'INDEPENDENT BUSINESS · MADE PERSONAL',title:'Good work deserves a beautiful home.',body:'A clear, considered introduction to your business, your approach and the work you are proud to share.',accent:'#776b5e',image:'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=85',offer:'A little about us',items:['Thoughtful, personal service','Made around what matters','Here to help you begin'],cta:'Explore our approach',offerType:'services',offerTitle:'A clearer way to introduce your work',offerBody:'Show people what you do, how you work, and the best way to take the next step.',offerItems:['What you offer','How you work','How to get in touch']},
+    consulting:{name:'NORTHLINE ADVISORY',eyebrow:'CONSULTING · PRACTICAL CLARITY',title:'Make your next move with confidence.',body:'Clear, thoughtful advice for businesses working through an important decision or a new stage of growth.',accent:'#667268',image:'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=85',offer:'A more considered way forward',items:['Understand what matters most','Turn questions into clear next steps','Move forward with a trusted perspective'],cta:'Explore our approach',valuesTitle:'Clear thinking. Practical next steps.',offerType:'services',offerTitle:'A practical path forward',offerBody:'Introduce the areas you support and help people understand where to begin.',offerItems:['Strategy and planning','Operations and growth','Workshops and facilitation']},
+    portfolio:{name:'STUDIO MARGINALIA',eyebrow:'SELECTED WORK · CREATIVE PRACTICE',title:'A considered home for your creative work.',body:'Bring selected projects, process, and the ideas behind your practice together in one clear portfolio.',accent:'#8b7159',image:'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=85',offer:'A practice, told through its work',items:['Projects with a point of view','Process and perspective','A direct way to enquire'],cta:'Explore the work',valuesTitle:'Selected work. Thoughtfully presented.',offerType:'services',offerTitle:'What your portfolio can show',offerBody:'Make space for the projects and context you choose to share when you make this design your own.',offerItems:['Selected projects','Process and point of view','Contact and availability']}
+  };
+  const p=profiles[kind];
+  const explicitBrand = clean.match(/(?:\bbrand\s+name\s+(?:(?:is|called|named|:|=)\s+)?|\bbrand\s+(?:is|called|named|:|=)\s+|\b(?:called|named)\s+)[“"']?([\p{L}][\p{L}\p{N} &'’-]{1,48})/iu)?.[1];
+  const titledBusiness = clean.match(/\bfor\s+([\p{Lu}][\p{L}\p{N}&'’-]*(?:\s+[\p{Lu}][\p{L}\p{N}&'’-]*){0,3})/u)?.[1];
+  const requested=(explicitBrand||titledBusiness)?.trim().replace(/[“"'.,!?]+$/g,'').replace(/\s+(with|that|and|featuring|using|selling|offering)\s+.*$/i,'').slice(0,32);
+  const brandName=requested||p.name;
+  const sections=[
+    {id:'preview-hero',type:'hero',variant:'luxury',eyebrow:p.eyebrow,title:p.title,body:p.body,buttonText:p.cta||'Explore the collection',href:'#preview-offer',image:p.image,alt:`Editorial ${kind} preview`},
+    {id:'preview-intro',type:'about',eyebrow:'A MORE PERSONAL APPROACH',title:p.offer,body:p.body,image:p.image,alt:`${kind} studio`},
+    {id:'preview-values',type:'services',title:p.valuesTitle||'Made to feel like you.',body:'A few things that guide everything we do.',items:p.items},
+    p.offerType==='services'
+      ? {id:'preview-offer',type:'services',title:p.offerTitle,body:p.offerBody,items:p.offerItems}
+      : {id:'preview-offer',type:'collection',title:'The thoughtful edit',body:'A preview of how your offer can come to life. Add your real products and details when you make your website yours.',limit:3},
     {id:'preview-faq',type:'faq',title:'A few good questions',body:'Clear answers help people feel at home.',items:[{question:'What makes this different?',answer:'A considered approach, shaped around what you need.'},{question:'How do I get started?',answer:'Tell us what you are looking for and we will help you take the next step.'}]},
     {id:'preview-footer',type:'footer',title:brandName,body:'A little more care in every detail.'}
   ];
@@ -439,238 +515,4 @@ export class WebsiteController {
     const draft=validateWebsite({editorVersion:2,...safeGenerated,pages:[{id:'home',slug:'',title:'Home',sections:sections.map((section:any,index:number)=>({...section,id:`ai-${Date.now()}-${index}`,style:{fontFamily:section.type==='hero'?'Georgia':'Arial',fontSize:section.type==='hero'?56:28,color:safeGenerated.textColor||'#171513'}}))}]},true);
     return {model:draft};
   }
-  @UseGuards(SessionGuard) @Post('ai/help') async aiHelp(@Req() req:Request & {user:any},@Body() dto:AiHelpInput){const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('CYB AI help is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');const context=JSON.stringify(dto.context||{}).slice(0,4000);const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB website-builder guide. Explain steps simply, help users understand the editor, and answer questions about designing their website. When users want design changes, direct them to the Edit my website tab, where their request will be applied as an editable change. Never claim to perform changes in this help chat. Keep the answer concise and do not invent features.',input:`Current website and recent conversation context: ${context}\nUser question: ${dto.message}`},apiKey,'AI help');const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};}
-  @Throttle({default:{limit:5,ttl:60_000}}) @Post('public/ai/help') async publicAiHelp(@Body() dto:AiHelpInput){
-    const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('CYB AI help is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');
-    const context=JSON.stringify(dto.context||{}).slice(0,4000);
-    const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB guide for visitors who have not created an account yet. Answer concise questions about CYB, starting a website, and the general website-building process. Do not claim to see or change a visitor’s account or website. If a question needs account-specific details, tell them to sign in. If you are unsure about a CYB feature, say so instead of guessing.',input:`Visitor context: ${context}\nQuestion: ${dto.message}`},apiKey,'AI help');
-    const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};
-  }
-  @UseGuards(SessionGuard) @Get('draft') async draft(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});return b?.website||null;}
-  @UseGuards(SessionGuard) @Get('publication-diagnostic') async publicationDiagnostic(@Req() req:Request & {user:any}) {
-    if(!stagingDiagnosticsEnabled())throw new NotFoundException();
-    const business=await this.businessFor(req),website=await this.db.website.findUnique({where:{businessId:business.id}});
-    const paths=publicationDifferencePaths(website?.draft as any,website?.published as any);
-    const hasPublished=!!website?.published,hasPublishedAt=!!website?.publishedAt;
-    const status=!hasPublished||!hasPublishedAt?'Draft':paths.length?'Unpublished changes':'Published';
-    return {status,hasDraft:!!website?.draft,hasPublished,hasPublishedAt,changedPathCount:paths.length,changedPaths:paths.slice(0,80),truncated:paths.length>80};
-  }
-  @UseGuards(SessionGuard) @Put('draft') async saveDraft(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');const model=validateWebsite(dto.model,false);await assertOwnedMedia(this.db,req.user.id,model);return this.db.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any},update:{draft:model as any,revision:{increment:1}}});}
-  @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business before publishing');await this.requirePaidPublishing(req.user.id);const model=validateWebsite(dto.model,true);await assertOwnedMedia(this.db,req.user.id,model);return this.db.$transaction(async tx=>{const publishedAt=new Date();const site=await tx.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any,published:publicWebsite(model) as any,publishedAt},update:{draft:model as any,published:publicWebsite(model) as any,publishedAt,revision:{increment:1}}});const version=await tx.websiteVersion.create({data:{websiteId:site.id,snapshot:site.draft as any}});return {published:true,revision:site.revision,slug:b.slug,versionId:version.id};});}
-  @UseGuards(SessionGuard) @Post('unpublish') async unpublish(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');return this.db.website.updateMany({where:{businessId:b.id},data:{published:Prisma.DbNull,publishedAt:null}});}
-  @UseGuards(SessionGuard) @Get('versions') async versions(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)return [];return (await this.db.websiteVersion.findMany({where:{websiteId:b.website.id},orderBy:{createdAt:'desc'},take:10})).map(({snapshot,createdAt,...version})=>({...version,model:snapshot,publishedAt:createdAt}));}
-  @UseGuards(SessionGuard) @Post('restore/:id') async restore(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)throw new NotFoundException('Website not found');const version=await this.db.websiteVersion.findFirst({where:{id:String(req.params['id']),websiteId:b.website.id}});if(!version)throw new NotFoundException('Version not found');const model=validateWebsite(version.snapshot,false);return this.db.website.update({where:{businessId:b.id},data:{draft:model as any,revision:{increment:1}}});}
-  @Get('public/:slug') async publicSite(@Req() req:Request){const slug=String(req.params['slug']||'');const business=await this.db.business.findUnique({where:{slug}});if(!business)throw new NotFoundException('Website not found');const site=await this.db.website.findUnique({where:{businessId:business.id}});return {business:{name:business.name,slug:business.slug,category:business.category},website:site?.published||null,published:!!site?.published};}
-}
-
-class MediaUploadInput {
-  @IsString() @IsIn(['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm']) contentType!: string;
-  @IsNumber() size!: number;
-  @IsString() @MaxLength(44) checksum!: string;
-}
-
-@Controller('uploads')
-export class UploadController {
-  constructor(private mediaStorage: MediaStorage) {}
-  @UseGuards(SessionGuard) @Get('status') status() { return this.mediaStorage.status(); }
-  @UseGuards(SessionGuard) @Post('authorize') authorize(@Req() req: Request & {user:any}, @Body() dto: MediaUploadInput) { return this.mediaStorage.authorize(req.user.id, dto); }
-  @UseGuards(SessionGuard) @Post('complete/:id') complete(@Req() req: Request & {user:any}) { return this.mediaStorage.complete(req.user.id, String(req.params['id'])); }
-  @Throttle({default:{limit:600,ttl:60_000}})
-  @Get('media/:id') async media(@Req() req: Request, @Res() response: Response) { response.setHeader('Cache-Control','no-store'); response.setHeader('Cross-Origin-Resource-Policy','cross-origin'); return response.redirect(307, await this.mediaStorage.publicUrl(String(req.params['id']))); }
-
-  @UseGuards(SessionGuard)
-  @Post() async upload(@Req() req:Request & {user:any},@Headers('content-type') contentType:string,@Req() request:Request,@Res() response:Response) {
-    const bytes=Buffer.isBuffer(request.body)?request.body:Buffer.alloc(0);
-    if(bytes.length<1||bytes.length>MAX_UPLOAD_BYTES)throw new BadRequestException('Media files must be 4 MB or smaller on this legacy upload endpoint. Use direct uploads for larger files.');
-    const result=await this.mediaStorage.uploadSmall(req.user.id,contentType,bytes);
-    return response.status(201).json(result);
-  }
-  @Get(['businesses/:owner/:name', ':owner/:name']) async read(@Req() req:Request,@Res() response:Response) {
-    const owner=String(req.params['owner']||''),name=String(req.params['name']||'');
-    if(!/^[a-zA-Z0-9_-]{1,120}$/.test(owner)||!/^[a-f0-9]{36}$/.test(name))throw new NotFoundException('Image not found');
-    const key=`businesses/${owner}/${name}`,store=legacyMediaStore();
-    const metadata=await store.getMetadata(key);
-    if(!metadata)throw new NotFoundException('Image not found');
-    const image=await store.get(key,{type:'arrayBuffer'});
-    response.setHeader('Cross-Origin-Resource-Policy','cross-origin');
-    response.setHeader('Content-Type',String(metadata.metadata.contentType||'application/octet-stream'));
-    response.setHeader('Cache-Control','public, max-age=31536000, immutable');
-    return response.status(200).send(Buffer.from(image));
-  }
-}
-
-function legacyMediaStore() {
-  try { return process.env.NETLIFY_BLOBS_SITE_ID && process.env.NETLIFY_BLOBS_TOKEN ? getStore({name:'getcyb-assets',siteID:process.env.NETLIFY_BLOBS_SITE_ID,token:process.env.NETLIFY_BLOBS_TOKEN}) : getStore('getcyb-assets'); } catch { throw new ServiceUnavailableException('Legacy media storage is unavailable on this API. Use the updated direct upload flow or configure legacy Netlify Blobs access.'); }
-}
-
-
-@Controller('payments')
-@UseGuards(SessionGuard)
-export class PlatformRefundController {
-  constructor(private db:DbService){}
-  @Post('platform-access/refund') async refund(@Req() req:Request & {user:any}) {
-    const payments=await this.db.paymentReference.findMany({
-      where:{userId:req.user.id,provider:{in:['stripe','paypal']},status:{in:['COMPLETED','REFUNDED']}},
-      orderBy:{createdAt:'desc'},
-      take:20,
-    });
-    const payment=payments.find(item=>(item.metadata as any)?.intent==='PLATFORM_ACCESS');
-    if(!payment)throw new NotFoundException('No completed platform payment was found');
-    if(payment.status==='REFUNDED')return {success:true,status:'REFUNDED'};
-    const paymentDate=new Date((payment.metadata as any)?.paidAt||payment.createdAt);
-    if(!Number.isFinite(paymentDate.getTime())||Date.now()-paymentDate.getTime()>30*864e5)throw new BadRequestException('The 30-day refund period has ended');
-    let refundId:string|undefined;
-    if(payment.provider==='stripe') {
-      const key=process.env.STRIPE_SECRET_KEY;
-      const paymentIntentId=(payment.metadata as any)?.paymentIntentId;
-      if(!key||typeof paymentIntentId!=='string'||!paymentIntentId.startsWith('pi_'))throw new ServiceUnavailableException('This Stripe payment cannot be refunded automatically. Please contact support.');
-      const form=new URLSearchParams({payment_intent:paymentIntentId});
-      let response:globalThis.Response;
-      try { response=await fetch('https://api.stripe.com/v1/refunds',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/x-www-form-urlencoded','Idempotency-Key':`getcyb-refund-${payment.id}`},body:form.toString(),signal:AbortSignal.timeout(20000)}); }
-      catch { throw new ServiceUnavailableException('The refund provider could not be reached. Please try again.'); }
-      const result=await response.json().catch(()=>({})) as any;
-      if(!response.ok||!result.id)throw new BadRequestException('Stripe could not process the refund. Please try again.');
-      refundId=result.id;
-    } else {
-      const id=process.env.PAYPAL_CLIENT_ID,secret=process.env.PAYPAL_CLIENT_SECRET;
-      const captureId=payment.providerCaptureId;
-      if(!id||!secret||!captureId)throw new ServiceUnavailableException('This PayPal payment cannot be refunded automatically. Please contact support.');
-      const base=process.env.PAYPAL_API_BASE||'https://api-m.sandbox.paypal.com';
-      const tokenResponse=await fetch(`${base}/v1/oauth2/token`,{method:'POST',headers:{Authorization:`Basic ${Buffer.from(`${id}:${secret}`).toString('base64')}`,'Content-Type':'application/x-www-form-urlencoded'},body:'grant_type=client_credentials',signal:AbortSignal.timeout(20000)});
-      const tokenData=await tokenResponse.json().catch(()=>({})) as any;
-      if(!tokenResponse.ok||!tokenData.access_token)throw new ServiceUnavailableException('PayPal could not authorize the refund. Please try again.');
-      const response=await fetch(`${base}/v2/payments/captures/${encodeURIComponent(captureId)}/refund`,{method:'POST',headers:{Authorization:`Bearer ${tokenData.access_token}`,'Content-Type':'application/json','PayPal-Request-Id':`getcyb-refund-${payment.id}`},body:JSON.stringify({})});
-      const result=await response.json().catch(()=>({})) as any;
-      if(!response.ok||!result.id)throw new BadRequestException('PayPal could not process the refund. Please try again.');
-      refundId=result.id;
-    }
-    await this.db.$transaction([
-      this.db.paymentReference.update({where:{id:payment.id},data:{status:'REFUNDED',metadata:{...(payment.metadata as any),refundId,refundedAt:new Date().toISOString()}}}),
-      this.db.subscription.updateMany({where:{userId:req.user.id},data:{status:'INACTIVE',billingType:'ONE_TIME'}}),
-    ]);
-    return {success:true,status:'REFUNDED'};
-  }
-}
-
-
-@Controller('payments/stripe')
-@UseGuards(SessionGuard)
-export class StripeController {
-  constructor(private db:DbService){}
-  private isStripeTestKey(key=process.env.STRIPE_SECRET_KEY||'') {
-    return /^(sk|rk)_test_/.test(key.trim());
-  }
-  private async stripeRequest(path:string, init:RequestInit={}) {
-    const key=process.env.STRIPE_SECRET_KEY;
-    if(!key)throw new BadRequestException('Stripe is not configured');
-    let response:globalThis.Response;
-    try { response=await fetch(`https://api.stripe.com/v1${path}`,{...init,headers:{Authorization:`Bearer ${key}`,...(init.headers||{})},signal:AbortSignal.timeout(20000)}); }
-    catch { throw new ServiceUnavailableException('Stripe could not be reached. Please try again.'); }
-    const body=await response.json().catch(()=>({})) as any;
-    if(!response.ok) {
-      Logger.error(JSON.stringify({status:response.status,code:body.error?.code||'unknown',type:body.error?.type||'unknown'}),'Stripe');
-      throw new BadRequestException('Stripe could not complete the payment request. Please try again.');
-    }
-    return body;
-  }
-  @Get('staging-status') async stagingStatus() {
-    if(!stagingDiagnosticsEnabled())throw new NotFoundException();
-    const key=process.env.STRIPE_SECRET_KEY?.trim()||'';
-    const testMode=this.isStripeTestKey(key);
-    let verified=false;
-    if(testMode) {
-      try { const balance=await this.stripeRequest('/balance'); verified=balance.object==='balance'&&balance.livemode===false; }
-      catch { verified=false; }
-    }
-    const amount=process.env.STRIPE_BASIC_AMOUNT||'24600';
-    const currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
-    return {configured:!!key,testMode,verified,amountCents:/^\d+$/.test(amount)?Number(amount):null,currency:/^[a-z]{3}$/.test(currency)?currency:null};
-  }
-  @Post('checkout-sessions') async createCheckoutSession(@Req() req:Request & {user:any}) {
-    const amount=process.env.STRIPE_BASIC_AMOUNT||'24600',currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
-    if(stagingDiagnosticsEnabled()&&!this.isStripeTestKey())throw new ServiceUnavailableException('Staging checkout requires a Stripe test-mode key.');
-    if(!/^\d+$/.test(amount)||Number(amount)<50||!/^[a-z]{3}$/.test(currency))throw new BadRequestException('Stripe price configuration is invalid');
-    let appUrl:string;
-    try { const parsed=new URL(process.env.PUBLIC_APP_URL||'https://getcyb.fit'); if(!['https:','http:'].includes(parsed.protocol))throw new Error(); appUrl=parsed.origin; }
-    catch { throw new BadRequestException('Stripe return URL configuration is invalid'); }
-    const form=new URLSearchParams({
-      mode:'payment',
-      success_url:`${appUrl}/platform-payment?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url:`${appUrl}/platform-payment?stripe_cancelled=1`,
-      client_reference_id:req.user.id,
-      'metadata[userId]':req.user.id,
-      'metadata[intent]':'PLATFORM_ACCESS',
-      'line_items[0][price_data][currency]':currency,
-      'line_items[0][price_data][unit_amount]':amount,
-      'line_items[0][price_data][product_data][name]':Number(amount)===100?'CYB Stripe Test Payment':'CYB Lifetime Access',
-      'line_items[0][price_data][product_data][description]':Number(amount)===100?'Temporary staging payment verification':'One-time payment for lifetime access to CYB',
-      'line_items[0][quantity]':'1',
-    });
-    const session=await this.stripeRequest('/checkout/sessions',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:form.toString()});
-    if(!session.id||!session.url)throw new ServiceUnavailableException('Stripe did not return a checkout link. Please try again.');
-    await this.db.paymentReference.create({data:{provider:'stripe',providerOrderId:session.id,status:'PENDING',amountCents:Number(amount),currency:currency.toUpperCase(),userId:req.user.id,metadata:{intent:'PLATFORM_ACCESS'}}});
-    return {url:session.url};
-  }
-  @Post('confirm-checkout') async confirmCheckout(@Req() req:Request & {user:any},@Body() dto:StripeSessionInput) {
-    if(stagingDiagnosticsEnabled()&&!this.isStripeTestKey())throw new ServiceUnavailableException('Staging checkout requires a Stripe test-mode key.');
-    const payment=await this.db.paymentReference.findUnique({where:{providerOrderId:dto.sessionId}});
-    if(!payment||payment.provider!=='stripe'||payment.userId!==req.user.id)throw new NotFoundException('Stripe checkout session not found');
-    if(payment.status==='COMPLETED')return {success:true,status:'COMPLETED'};
-    if(payment.status!=='PENDING')throw new BadRequestException('Stripe checkout session cannot be confirmed');
-    const session=await this.stripeRequest(`/checkout/sessions/${encodeURIComponent(dto.sessionId)}`);
-    await activateVerifiedStripeSession(this.db,payment,session);
-    return {success:true,status:'COMPLETED'};
-  }
-}
-
-async function activateVerifiedStripeSession(db:DbService,payment:any,session:any) {
-    const valid=session.id===payment.providerOrderId&&(!stagingDiagnosticsEnabled()||session.livemode===false)&&session.mode==='payment'&&session.payment_status==='paid'&&session.client_reference_id===payment.userId&&session.metadata?.userId===payment.userId&&session.metadata?.intent==='PLATFORM_ACCESS'&&session.currency===payment.currency.toLowerCase()&&session.amount_total===payment.amountCents;
-    if(!valid)throw new BadRequestException('Stripe payment verification failed');
-    await db.$transaction(async tx=>{
-      const updated=await tx.paymentReference.updateMany({where:{id:payment.id,status:'PENDING'},data:{status:'COMPLETED',providerCaptureId:session.id,metadata:{intent:'PLATFORM_ACCESS',stripeSessionId:session.id,paymentIntentId:session.payment_intent||null,paidAt:new Date().toISOString()}}});
-      if(!updated.count) {
-        const current=await tx.paymentReference.findUnique({where:{id:payment.id}});
-        if(current?.status==='COMPLETED')return;
-        throw new BadRequestException('Stripe payment is already being confirmed');
-      }
-      await tx.subscription.upsert({where:{userId:payment.userId},create:{userId:payment.userId,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}});
-    });
-}
-
-// Stripe authenticates this endpoint with a signature over the original bytes.
-@Controller('payments/stripe/webhook')
-export class StripeWebhookController {
-  constructor(private db:DbService){}
-  @Post() async receive(@Req() req:Request) {
-    const secret=process.env.STRIPE_WEBHOOK_SECRET?.trim();
-    if(!secret)throw new ServiceUnavailableException('Stripe webhook is not configured');
-    const signature=req.headers['stripe-signature'];
-    if(!Buffer.isBuffer(req.body)||typeof signature!=='string')throw new BadRequestException('Invalid Stripe signature');
-    const parts=signature.split(',').map(part=>part.trim().split('='));
-    const timestamps=parts.filter(([key])=>key==='t').map(([,value])=>value);
-    if(timestamps.length!==1||!/^\d+$/.test(timestamps[0])||Math.abs(Date.now()/1000-Number(timestamps[0]))>300)throw new BadRequestException('Invalid Stripe signature');
-    const expected=createHmac('sha256',secret).update(timestamps[0]+'.').update(req.body).digest();
-    const valid=parts.some(([key,value])=>key==='v1'&&/^[a-f0-9]{64}$/i.test(value||'')&&timingSafeEqual(expected,Buffer.from(value,'hex')));
-    if(!valid)throw new BadRequestException('Invalid Stripe signature');
-    let event:any;
-    try { event=JSON.parse(req.body.toString('utf8')); } catch { throw new BadRequestException('Invalid Stripe event'); }
-    if(!event||typeof event!=='object')throw new BadRequestException('Invalid Stripe event');
-    const key=process.env.STRIPE_SECRET_KEY?.trim()||'';
-    const testKey=/^(sk|rk)_test_/.test(key);
-    if(!/^(sk|rk)_(test|live)_/.test(key))throw new ServiceUnavailableException('Stripe is not configured');
-    if(stagingDiagnosticsEnabled()&&(!testKey||event.livemode!==false))throw new BadRequestException('Staging requires test-mode events');
-    if(event.livemode!==!testKey)throw new BadRequestException('Stripe event mode does not match configuration');
-    if(!['checkout.session.completed','checkout.session.async_payment_succeeded'].includes(event.type))return {received:true};
-    const session=event.data?.object;
-    if(!session||typeof session.id!=='string')throw new BadRequestException('Invalid Stripe session');
-    if(session.payment_status!=='paid')return {received:true};
-    const payment=await this.db.paymentReference.findUnique({where:{providerOrderId:session.id}});
-    // An event can race the checkout response's local payment-reference write.
-    // Return a retryable failure instead of silently dropping a paid activation.
-    if(!payment||payment.provider!=='stripe')throw new ServiceUnavailableException('Checkout reference is not ready');
-    if(payment.status==='COMPLETED')return {received:true};
-    if(payment.status!=='PENDING')throw new BadRequestException('Checkout cannot be activated');
-    await activateVerifiedStripeSession(this.db,payment,session);
-    return {received:true};
-  }
-}
+  @UseGuards(SessionGuard) @Post('ai/help') async aiHelp(@Req() req:Request & {user:any},@Body() dto:AiHelpInput){const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('CYB AI help is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');const context=JSON.stringify(dto.context||{}).slice(0,4000);const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB website-builder guide. Explain steps simply, help users understand the editor, and answer questions about designing their website. When users want design changes, direct them to the Edit my website tab, where their request will be applied as an editable change. Never claim to perform changes in this help chat. Keep the answer concise and do not invent features.',input:`Current website and recent conversation context: ${context}\nUser question: ${dto.message}`},apiKey,'AI help');const answer=aiResponseText(d
