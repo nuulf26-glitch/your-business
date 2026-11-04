@@ -1,65 +1,58 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { PayPalButtons } from "@paypal/react-paypal-js";
 import { customBackendRequest } from "../services/customBackendSession";
 import "../styles/platformPayment.css";
 
 function PlatformPayment() {
   const navigate = useNavigate();
 
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => (
+    new URLSearchParams(window.location.search).get("stripe_cancelled") === "1"
+      ? "The payment was cancelled. No money was taken."
+      : ""
+  ));
   const [paymentComplete, setPaymentComplete] = useState(false);
+  const [stripeLoading, setStripeLoading] = useState(() => Boolean(new URLSearchParams(window.location.search).get("session_id")));
 
-  async function createOrder() {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session_id");
+    if (params.get("stripe_cancelled") === "1") {
+      window.history.replaceState({}, "", window.location.pathname);
+      return;
+    }
+    if (!sessionId) return;
+    let active = true;
+    customBackendRequest("/payments/stripe/confirm-checkout", { method: "POST", body: JSON.stringify({ sessionId }) })
+      .then((result) => {
+        if (!active) return;
+        if (!result?.success) throw new Error("The payment could not be confirmed.");
+        setPaymentComplete(true);
+        window.history.replaceState({}, "", window.location.pathname);
+        window.setTimeout(() => navigate("/dashboard", { replace: true }), 1800);
+      })
+      .catch((paymentError) => {
+        if (!active) return;
+        console.error("Confirm Stripe payment error:", paymentError);
+        setError(paymentError.message || "The payment could not be confirmed.");
+        window.history.replaceState({}, "", window.location.pathname);
+      })
+      .finally(() => { if (active) setStripeLoading(false); });
+    return () => { active = false; };
+  }, [navigate]);
+
+  async function startStripeCheckout() {
     try {
       setError("");
-
-      const result = await customBackendRequest('/payments/paypal/orders', { method: 'POST' });
-      if (!result?.orderId) throw new Error('Could not start the PayPal payment.');
-      return result.orderId;
+      setStripeLoading(true);
+      const result = await customBackendRequest("/payments/stripe/checkout-sessions", { method: "POST" });
+      if (!result?.url || !result.url.startsWith("https://checkout.stripe.com/")) throw new Error("Stripe did not return a valid checkout link.");
+      window.location.assign(result.url);
     } catch (paymentError) {
-      console.error("Create PayPal order error:", paymentError);
-
-      setError(
-        paymentError.message ||
-          "Could not start the PayPal payment."
-      );
-
-      throw paymentError;
+      console.error("Create Stripe checkout error:", paymentError);
+      setError(paymentError.message || "Could not start Stripe checkout.");
+      setStripeLoading(false);
     }
-  }
-
-  async function captureOrder(data) {
-    try {
-      setError("");
-
-      const result = await customBackendRequest('/payments/paypal/capture', { method: 'POST', body: JSON.stringify({ orderId: data.orderID }) });
-      if (!result?.success) throw new Error('The payment could not be confirmed.');
-      setPaymentComplete(true);
-
-      window.setTimeout(() => {
-        navigate("/dashboard", {
-          replace: true,
-        });
-      }, 1800);
-    } catch (paymentError) {
-      console.error("Capture PayPal order error:", paymentError);
-
-      setError(
-        paymentError.message ||
-          "The payment could not be confirmed."
-      );
-
-      throw paymentError;
-    }
-  }
-
-  function handlePayPalError(paypalError) {
-    console.error("PayPal checkout error:", paypalError);
-
-    setError(
-      "PayPal could not complete the payment. Please try again."
-    );
   }
 
   if (paymentComplete) {
@@ -132,7 +125,7 @@ function PlatformPayment() {
         <section className="platform-payment-card">
           <span>Secure payment</span>
 
-          <h2>Pay with PayPal or card</h2>
+          <h2>Pay securely with Stripe</h2>
 
           <p>
             Complete the one-time payment to activate your account.
@@ -144,27 +137,12 @@ function PlatformPayment() {
             </div>
           )}
 
-          <div className="platform-paypal-buttons">
-            <PayPalButtons
-              style={{
-                layout: "vertical",
-                shape: "rect",
-                label: "pay",
-                height: 48,
-              }}
-              createOrder={createOrder}
-              onApprove={captureOrder}
-              onError={handlePayPalError}
-              onCancel={() => {
-                setError(
-                  "The payment was cancelled. No money was taken."
-                );
-              }}
-            />
-          </div>
+          <button type="button" className="platform-stripe-button" onClick={startStripeCheckout} disabled={stripeLoading}>
+            {stripeLoading ? "Checking payment…" : "Pay securely with Stripe"}
+          </button>
 
           <small>
-            Your account opens only after PayPal confirms the payment.
+            Your account activates only after the payment provider confirms your payment.
           </small>
         </section>
       </main>

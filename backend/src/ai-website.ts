@@ -4,6 +4,48 @@ import { validateWebsite } from './website-policy';
 
 const siteFields = new Set(['brandName', 'tagline', 'description', 'primaryColor', 'backgroundColor', 'textColor', 'bodyFont', 'headingFont', 'buttonRadius']);
 const sectionTypes = new Set(['hero', 'about', 'services', 'gallery', 'collection', 'faq', 'reviews', 'contact', 'footer', 'heading', 'text', 'button', 'photo', 'divider', 'spacer']);
+
+function generatedText(value: unknown, fallback = ''): string {
+  if (typeof value === 'string') return value.slice(0, 2000);
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (Array.isArray(value)) return value.map(item => generatedText(item)).filter(Boolean).join(' ').slice(0, 2000);
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    if (typeof record.text === 'string') return record.text.slice(0, 2000);
+    const question = generatedText(record.question);
+    const answer = generatedText(record.answer);
+    if (question || answer) return [question, answer].filter(Boolean).join(' — ').slice(0, 2000);
+  }
+  return fallback;
+}
+
+export function normalizeGeneratedWebsite(generated: Record<string, any>) {
+  const model = { ...generated };
+  for (const key of ['brandName', 'tagline', 'description', 'bodyFont', 'headingFont', 'buttonRadius']) {
+    if (model[key] !== undefined) model[key] = generatedText(model[key]);
+  }
+  model.sections = model.sections.map((section: Record<string, any>) => {
+    const clean = { ...section };
+    for (const key of ['label', 'title', 'body', 'buttonText', 'eyebrow', 'href']) {
+      if (clean[key] !== undefined) clean[key] = generatedText(clean[key]);
+    }
+    if (Array.isArray(clean.items) && clean.type === 'faq') {
+      clean.items = clean.items.slice(0, 12).map((item: unknown) => {
+        if (typeof item === 'string') return { question: generatedText(item), answer: '' };
+        const record = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {};
+        return { question: generatedText(record.question, 'Question'), answer: generatedText(record.answer) };
+      });
+    } else if (Array.isArray(clean.items) && clean.type === 'services') {
+      clean.items = clean.items.slice(0, 12).map((item: unknown) => {
+        if (typeof item === 'string') return generatedText(item);
+        const record = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {};
+        return { name: generatedText(record.name ?? record.title ?? record.question, 'Service'), description: generatedText(record.description ?? record.answer) };
+      });
+    }
+    return clean;
+  });
+  return model;
+}
 const sectionFields = new Set(['title', 'body', 'buttonText', 'eyebrow', 'href', 'variant', 'alt', 'limit', 'responsive', 'image', 'images', 'media', 'imagePlaceholderCount']);
 const styleFields = new Set(['fontFamily', 'fontSize', 'color', 'backgroundColor', 'textAlign', 'paddingY', 'letterSpacing', 'lineHeight', 'maxWidth', 'minHeight', 'hidden']);
 const deleteIntent = /\b(delete|remove|take out|erase|get rid of)\b/i;

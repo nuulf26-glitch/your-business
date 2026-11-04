@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import "../styles/auth.css";
 import { register } from "../services/authService";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 function Signup() {
   const navigate = useNavigate();
 
@@ -9,6 +10,7 @@ function Signup() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
@@ -27,21 +29,23 @@ async function handleSignup(event) {
       setError("Password must be at least 12 characters.");
       return;
     }
+    if (!acceptedTerms) {
+      setError("Please accept the Terms of Service and Privacy Policy to continue.");
+      return;
+    }
 
     try {
       setLoading(true);
 
-      await register(email.trim(), password, { fullName: fullName.trim(), businessName: businessName.trim() });
-      navigate("/login");
+      await register(email.trim(), password, { fullName: fullName.trim(), businessName: businessName.trim(), acceptedTerms });
+      navigate(new URLSearchParams(window.location.search).get("activate") === "1" ? "/platform-payment" : "/dashboard", { replace: true });
     } catch (signupError) {
-console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (signupError.status === 409 || signupError.code === "auth/email-already-in-use") {
+      if (signupError.status === 409 || signupError.code === "auth/email-already-in-use") {
         setError("An account already exists with this email.");
       } else if (signupError.code === "auth/invalid-email") {
         setError("Please enter a valid email address.");
       } else if (signupError.code === "auth/weak-password") {
         setError("Please choose a stronger password.");
-      } else if (signupError.message?.includes("account was created, but the verification email")) {
-        setError(signupError.message);
       } else {
         setError("We could not create your account. Please try again.");
       }
@@ -67,14 +71,14 @@ console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (
           </h1>
 
           <p>
-            Create your store, customize your design, add products, and start
-            accepting orders from one simple platform.
+            Create your website, customize its design, showcase your services
+            or products, and manage customer inquiries or orders in one place.
           </p>
 
           <div className="auth-benefits">
             <div>
               <span>01</span>
-              <p>14-day free trial</p>
+              <p>Private website preview</p>
             </div>
 
             <div>
@@ -105,9 +109,10 @@ console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (
 
             <h2>Start building your website</h2>
 
-            <p>
-              Enter your details below. You can customize everything after
-              creating your account.
+              <p>
+              Enter your details to keep your saved website preview. CYB Lifetime
+              Access is a one-time $246 payment through Stripe. You can review
+              the payment before confirming secure checkout.
             </p>
           </div>
 
@@ -122,6 +127,8 @@ console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (
                 onChange={(event) => setBusinessName(event.target.value)}
                 placeholder="Your business name"
                 autoComplete="organization"
+                required
+                maxLength={120}
               />
             </div>
 
@@ -135,6 +142,8 @@ console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (
                 onChange={(event) => setFullName(event.target.value)}
                 placeholder="Your full name"
                 autoComplete="name"
+                required
+                maxLength={120}
               />
             </div>
 
@@ -148,6 +157,7 @@ console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="name@example.com"
                 autoComplete="email"
+                required
               />
             </div>
 
@@ -162,6 +172,9 @@ console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder="At least 12 characters"
                   autoComplete="new-password"
+                  required
+                  minLength={12}
+                  maxLength={200}
                 />
 
                 <button
@@ -174,7 +187,7 @@ console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (
             </div>
 
             <label className="auth-checkbox">
-              <input type="checkbox" required />
+              <input type="checkbox" required checked={acceptedTerms} onChange={(event) => setAcceptedTerms(event.target.checked)} />
 
               <span>
                 I agree to the{" "}
@@ -184,6 +197,8 @@ console.error("SIGNUP ERROR:", signupError.code, signupError.message);      if (
             </label>
 
             {error && <p className="auth-error">{error}</p>}
+
+            <GoogleSignInButton acceptedTerms={acceptedTerms} />
 
             <button
               type="submit"

@@ -17,7 +17,7 @@ describe('PublicOrderController', () => {
 
     await controller.create({ data: {
       storeUrl: 'sample-shop', customerName: 'A Customer', email: 'a@example.com',
-      items: [{ id: 'prod_1', quantity: 1, price: 0.01 }], total: 0.01,
+      items: [{ productId: 'prod_1', quantity: 1, price: 0.01 }], total: 0.01,
     } });
 
     expect(tx.order.create).toHaveBeenCalledWith(expect.objectContaining({

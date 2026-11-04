@@ -14,6 +14,7 @@ export async function createApp() {
   app.enableCors({ origin: (origin: string | undefined, callback: (error: Error | null, allowed?: boolean) => void) => callback(null, !origin || isAllowedOrigin(origin, origins)), credentials: true, methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'] });
   const expressApp = app.getHttpAdapter().getInstance();
   expressApp.use('/api/v1/uploads', express.raw({ type: ['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','video/quicktime'], limit: '5mb' }));
+  expressApp.use('/api/v1/payments/stripe/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
   expressApp.use(express.json({ limit: '6mb' }));
   expressApp.use(express.urlencoded({ extended: true, limit: '6mb' }));
   app.use(helmet());

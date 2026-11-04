@@ -1,5 +1,5 @@
 import { WebsiteController } from '../src/routes';
-import { applyAiWebsiteOperations } from '../src/ai-website';
+import { applyAiWebsiteOperations, normalizeGeneratedWebsite } from '../src/ai-website';
 
 describe('AI website design', () => {
   const originalFetch=global.fetch;
@@ -24,6 +24,21 @@ describe('AI website design', () => {
     process.env.OPENAI_API_KEY='test-only';
     global.fetch=jest.fn().mockResolvedValue({ok:true,json:async()=>({status:'incomplete',output:[]})});
     await expect(new WebsiteController({} as any).aiDesign({user:{id:'test'}} as any,{prompt:'Create a luxury flower shop'})).rejects.toThrow('The design was interrupted');
+  });
+  it('normalizes object-shaped AI copy and FAQ data into render-safe editable text',async()=>{
+    process.env.OPENAI_API_KEY='test-only';
+    const generated={brandName:'LUNE',sections:[
+      {type:'hero',title:'Ritual, refined',body:'Thoughtful skincare.'},
+      {type:'about',title:'Our story',body:'Care in every detail.'},
+      {type:'faq',title:'Questions, answered.',body:{question:'How do I use it?',answer:'Follow the label.'},items:[{question:{text:'How do I use it?'},answer:{question:'How do I use it?',answer:'Follow the label.'}}]},
+      {type:'footer',title:'LUNE',body:'Skincare, considered.'}
+    ]};
+    global.fetch=jest.fn().mockResolvedValue({ok:true,json:async()=>({status:'completed',output_text:JSON.stringify(generated)})});
+    const result=await new WebsiteController({} as any).aiDesign({user:{id:'test'}} as any,{prompt:'Create a skincare website with a frequently asked questions section'});
+    const faq=result.model.pages[0].sections.find((section:any)=>section.type==='faq');
+    expect(faq.body).toBe('How do I use it? — Follow the label.');
+    expect(faq.items).toEqual([{question:'How do I use it?',answer:'How do I use it? — Follow the label.'}]);
+    expect(typeof faq.title).toBe('string');
   });
   it('applies focused AI edits and preserves all untouched website data',async()=>{
     process.env.OPENAI_API_KEY='test-only';
