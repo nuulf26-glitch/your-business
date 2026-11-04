@@ -4,12 +4,12 @@
 <button id="probe">Test access to the other captured account</button>
 <button id="verify">Verify own product is unchanged</button>
 <a href="/dashboard">Dashboard / switch account</a><pre id="output" aria-live="polite"></pre>
-<script>
+<script type="module">
 'use strict';
 const out=document.querySelector('#output');
 const enabled=location.origin==='https://getcyb-staging-web.onrender.com';
 const key='cyb-isolation-20261104-v1';
-const api='https://getcyb-staging-api.onrender.com/api/v1';
+const api=(import.meta.env.VITE_CUSTOM_BACKEND_URL || '').replace(/\/$/,'')+'/api/v1';
 function log(x){out.textContent+=JSON.stringify(x,null,2)+'\n';}
 function state(){return JSON.parse(localStorage.getItem(key)||'{"accounts":{}}');}
 function save(s){localStorage.setItem(key,JSON.stringify(s));}
