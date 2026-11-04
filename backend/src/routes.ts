@@ -231,7 +231,19 @@ export class AuthController {
   private async createEmailLink(userId:string,email:string,type:'verify'|'reset') {
     const token=randomBytes(32).toString('base64url'),expiresAt=new Date(Date.now()+(type==='verify'?24:0.5)*3600_000),hash=tokenHash(token);
     if(type==='verify') { await this.db.verificationToken.deleteMany({where:{userId}}); await this.db.verificationToken.create({data:{userId,tokenHash:hash,expiresAt}}); }
-    else { await this.db.passwordResetToken.deleteMany({where:{userId}}); await this.db.passwordResetToken.create({data:{userId,tokenHash:hash,expiresAt}}); }
+    else {
+      // Keep any prior usable link until SMTP accepts this one. If sending fails,
+      // remove only the token that was never delivered.
+      await this.db.passwordResetToken.create({data:{userId,tokenHash:hash,expiresAt}});
+      try {
+        await this.mail.sendAccountLink(email,token,type);
+      } catch(error) {
+        try { await this.db.passwordResetToken.deleteMany({where:{tokenHash:hash}}); }
+        catch { this.logger.error(JSON.stringify({event:'password_reset_token_cleanup_failed'})); }
+        throw error;
+      }
+      return;
+    }
     await this.mail.sendAccountLink(email,token,type);
   }
   private async issueSession(userId:string,res:Response):Promise<void> {
