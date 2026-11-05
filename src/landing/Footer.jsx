@@ -97,16 +97,17 @@ function Footer() {
           <div>
             <span>Built for modern businesses</span>
             <p>
-              Create your account, activate CYB with a one-time payment, and cancel within 30 days for a full refund.
+              Start with a free, private website preview. Activate lifetime
+              access when you are ready, with a full refund available within 30 days.
             </p>
           </div>
 
           <button
             type="button"
             className="footer-secondary-button"
-            onClick={() => navigate("/signup")}
+            onClick={() => navigate("/try")}
           >
-            Create account
+            Try it free
           </button>
         </div>
 

@@ -66,9 +66,7 @@ if (order.backendId) {
     try {
       setLoading(true);
 
-     if (paymentMethod === "cash") {
-  await completeOrder("Cash on delivery", "New");
-}
+      await completeOrder("Cash on delivery", "New");
 
     } catch (paymentError) {
       console.error("Payment failed:", paymentError);
@@ -124,7 +122,7 @@ if (order.backendId) {
           <h1>Complete your payment</h1>
 
           <p>
-            Choose your payment method and review your order.
+              Pay cash on delivery and review your order.
           </p>
         </div>
 
@@ -133,14 +131,11 @@ if (order.backendId) {
             <div className="payment-card-heading">
               <span>Payment method</span>
 
-              <h2>How would you like to pay?</h2>
+              <h2>Cash on delivery</h2>
             </div>
 
             <div className="payment-options">
-              <button
-                type="button"
-                className="payment-option selected"
-              >
+              <div className="payment-option selected">
                 <div className="payment-option-icon">C</div>
 
                 <div>
@@ -152,9 +147,9 @@ if (order.backendId) {
                 </div>
 
                 <span className="payment-radio">
-                  {paymentMethod === "cash" ? "✓" : ""}
+                  ✓
                 </span>
-              </button>
+              </div>
             </div>
 
             {error && (

@@ -1,0 +1,2 @@
+ALTER TABLE "Subscription" ALTER COLUMN "status" SET DEFAULT 'INACTIVE';
+ALTER TABLE "Subscription" ALTER COLUMN "billingType" SET DEFAULT 'ONE_TIME';

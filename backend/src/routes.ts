@@ -1,17 +1,24 @@
-import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, Logger, ServiceUnavailableException, Headers } from '@nestjs/common';
-import { IsEmail, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn } from 'class-validator';
+import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, ForbiddenException, Logger, ServiceUnavailableException, Headers, UnauthorizedException } from '@nestjs/common';
+import { IsEmail, IsNumber, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn, IsBoolean } from 'class-validator';
 import { Request, Response } from 'express';
 import * as argon2 from 'argon2';
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes, createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { MediaStorage, assertOwnedMedia } from './media-storage';
 import { getStore } from '@netlify/blobs';
 import { Throttle } from '@nestjs/throttler';
 import { DbService } from './database';
 import { Prisma } from '@prisma/client';
 import { SessionGuard, tokenHash } from './session';
 import { MailService } from './mail';
-import { publicWebsite, validateWebsite } from './website-policy';
-import { applyAiWebsiteOperations } from './ai-website';
+import { publicWebsite, publicationDifferencePaths, validateWebsite } from './website-policy';
+import { applyAiWebsiteOperations, normalizeGeneratedWebsite } from './ai-website';
 import { allocate, localParts } from './availability';
+
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
+function stagingDiagnosticsEnabled(){
+  try { const app=new URL(process.env.PUBLIC_APP_URL||''); return app.protocol==='https:'&&app.hostname==='getcyb-staging-web.onrender.com'; }
+  catch { return false; }
+}
 
 @Controller('health')
 export class HealthController {
@@ -32,6 +39,18 @@ class Credentials {
   @IsString() @MinLength(12) @MaxLength(200) password!: string;
   @IsOptional() @IsString() @MaxLength(120) fullName?: string;
   @IsOptional() @IsString() @MaxLength(120) businessName?: string;
+  @IsOptional() @IsBoolean() acceptedTerms?: boolean;
+}
+class LoginCredentials {
+  @IsEmail() email!: string;
+  @IsString() @MinLength(1) @MaxLength(200) password!: string;
+}
+class GoogleSignInInput {
+  @IsString() @MinLength(20) @MaxLength(10000) idToken!: string;
+  @IsOptional() @IsBoolean() acceptedTerms?: boolean;
+}
+class LegacySessionInput {
+  @IsString() @MinLength(32) @MaxLength(200) sessionToken!: string;
 }
 class StoreInput { @IsString() @MaxLength(120) name!: string; @IsString() @MaxLength(100) slug!: string; @IsString() category!: string; @IsObject() settings!: object; }
 class JsonInput { @IsObject() data!: Record<string, unknown>; }
@@ -41,7 +60,6 @@ class AiHelpInput { @IsString() @MinLength(1) @MaxLength(2000) message!: string;
 class TokenInput { @IsString() @MinLength(32) @MaxLength(200) token!: string; }
 class ResetInput extends TokenInput { @IsString() @MinLength(12) @MaxLength(200) password!: string; }
 class EmailInput { @IsEmail() email!: string; }
-class PayPalCaptureInput { @IsString() @MaxLength(100) orderId!: string; }
 class StripeSessionInput { @IsString() @MaxLength(200) sessionId!: string; }
 class OrderStatusInput { @IsString() @MaxLength(30) status!: string; }
 class CustomerStatusInput { @IsString() @MaxLength(30) status!: string; }
@@ -65,32 +83,100 @@ function aiResponseText(data:any){return String(data.output_text||data.output?.f
 // Keep the session cookie host-only on the API origin. A configured parent
 // domain (for example getcyb.fit) causes browsers to reject it on Render's
 // staging hostname and can also be unnecessary when the API is a subdomain.
-const cookieOptions = (expires: Date) => {const sameSite=(process.env.COOKIE_SAME_SITE||'lax') as 'lax'|'strict'|'none';return {httpOnly:true,secure:process.env.NODE_ENV==='production'||sameSite==='none',sameSite,expires,path:'/'};};
+const cookieOptions = (expires: Date) => {const sameSite=(process.env.NODE_ENV==='production'?'none':process.env.COOKIE_SAME_SITE||'lax') as 'lax'|'strict'|'none';return {httpOnly:true,secure:process.env.NODE_ENV==='production'||sameSite==='none',sameSite,expires,path:'/'};};
 
 @Controller('auth')
 export class AuthController {
   private logger=new Logger(AuthController.name);
   constructor(private db: DbService, private mail:MailService) {}
   @Throttle({default:{limit:5,ttl:60_000}})
-  @Post('signup') async signup(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
+  @Post('signup') async signup(@Req() req:Request, @Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
+    if (dto.acceptedTerms !== true) throw new BadRequestException('Accept the Terms of Service and Privacy Policy to create an account');
     const email = dto.email.trim().toLowerCase();
     if (await this.db.user.findUnique({ where:{email} })) throw new ConflictException('Account already exists');
+    const activationStartedAt = new Date();
     const businessName = dto.businessName?.trim() || '';
     const slugBase = businessName.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,70) || 'business';
-    const user = await this.db.$transaction(async tx => {
-      const created = await tx.user.create({ data:{ email, fullName:dto.fullName?.trim() || null, passwordHash:await argon2.hash(dto.password), role:'OWNER', emailVerifiedAt:new Date() } });
-      await tx.subscription.create({data:{userId:created.id,status:'INACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()}});
-      await tx.business.create({data:{ownerId:created.id,name:businessName,slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
-      return created;
-    });
-    const sessionToken=await this.issueSession(user.id,res);
-    return { id:user.id, email:user.email, emailVerified:true, ...(process.env.AUTH_BEARER_ENABLED==='true'&&sessionToken?{accessToken:sessionToken}:{}) };
+    let user;
+    try {
+      user = await this.db.$transaction(async tx => {
+        const created = await tx.user.create({ data:{ email, fullName:dto.fullName?.trim() || null, passwordHash:await argon2.hash(dto.password), role:'OWNER', emailVerifiedAt:new Date() } });
+        await tx.termsConsent.create({data:{userId:created.id,termsVersion:'2026-10-31',privacyVersion:'2026-10-31'}});
+        await tx.subscription.create({data:{userId:created.id,plan:'BASIC',status:'INACTIVE',billingType:'ONE_TIME',trialEndsAt:activationStartedAt}});
+        const business=await tx.business.create({data:{ownerId:created.id,name:businessName,slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
+        const previewToken=String((req as any).cookies?.cyb_preview||'');
+        if(previewToken.length>=32){
+          const preview=await tx.trialPreview.findFirst({where:{tokenHash:tokenHash(previewToken),expiresAt:{gt:new Date()},generatedAt:{not:null},claimedUserId:null}});
+          if(preview?.draft){
+            await tx.website.update({where:{businessId:business.id},data:{draft:validateWebsite(preview.draft,false) as any}});
+            await tx.trialPreview.update({where:{id:preview.id},data:{claimedUserId:created.id}});
+          }
+        }
+        return created;
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('Account already exists');
+      throw error;
+    }
+    await this.issueSession(user.id,res);
+    res.clearCookie('cyb_preview',{path:'/'});
+    return { id:user.id, email:user.email, emailVerified:true };
   }
   @Throttle({default:{limit:8,ttl:60_000}})
-  @Post('login') async login(@Body() dto: Credentials, @Res({ passthrough:true }) res: Response) {
+  @Post('login') async login(@Body() dto: LoginCredentials, @Res({ passthrough:true }) res: Response) {
     const user = await this.db.user.findUnique({ where:{ email:dto.email.trim().toLowerCase() } });
     if (!user?.passwordHash || !(await argon2.verify(user.passwordHash,dto.password))) throw new BadRequestException('Invalid email or password');
-    const sessionToken=await this.issueSession(user.id,res); return { id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt,...(process.env.AUTH_BEARER_ENABLED==='true'?{accessToken:sessionToken}:{}) };
+    await this.issueSession(user.id,res); return { id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt };
+  }
+  @Throttle({default:{limit:5,ttl:60_000}})
+  @Post('migrate-session') async migrateLegacySession(@Body() dto:LegacySessionInput,@Res({passthrough:true}) res:Response) {
+    const now=new Date(),expires=new Date(now.getTime()+14*864e5),oldHash=tokenHash(dto.sessionToken),token=randomBytes(32).toString('base64url');
+    const rotated=await this.db.$transaction(async tx=>{
+      const old=await tx.session.findUnique({where:{tokenHash:oldHash},include:{user:true}});
+      if(!old||old.expiresAt<=now)return null;
+      const removed=await tx.session.deleteMany({where:{id:old.id,expiresAt:{gt:now}}});
+      if(removed.count!==1)return null;
+      await tx.session.create({data:{userId:old.userId,tokenHash:tokenHash(token),expiresAt:expires}});
+      return old.user;
+    });
+    if(!rotated)throw new UnauthorizedException('Session expired');
+    res.cookie('getcyb_session',token,cookieOptions(expires));
+    return {id:rotated.id,email:rotated.email,emailVerified:!!rotated.emailVerifiedAt,role:rotated.role};
+  }
+  @Throttle({default:{limit:8,ttl:60_000}})
+  @Post('google') async googleSignIn(@Body() dto:GoogleSignInInput,@Res({passthrough:true}) res:Response) {
+    const clientId=process.env.GOOGLE_CLIENT_ID;
+    if(!clientId)throw new ServiceUnavailableException('Google sign-in is not configured');
+    let claims:any;
+    try {
+      const response=await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(dto.idToken)}`,{signal:AbortSignal.timeout(8000)});
+      if(!response.ok)throw new Error('rejected');
+      claims=await response.json();
+    } catch { throw new BadRequestException('Google sign-in could not be verified. Please try again.'); }
+    if(claims.aud!==clientId||!['accounts.google.com','https://accounts.google.com'].includes(claims.iss)||!claims.sub||Number(claims.exp)*1000<=Date.now()||!(claims.email_verified===true||claims.email_verified==='true'))
+      throw new BadRequestException('Google sign-in could not be verified. Please try again.');
+    const email=String(claims.email||'').trim().toLowerCase();
+    if(!/^\S+@\S+\.\S+$/.test(email))throw new BadRequestException('Google did not provide a verified email address.');
+    let user=await this.db.googleIdentity.findUnique({where:{subject:String(claims.sub)},include:{user:true}}).then((identity:any)=>identity?.user||null);
+    if(user){await this.issueSession(user.id,res);return {id:user.id,email:user.email,emailVerified:!!user.emailVerifiedAt};}
+    if(await this.db.user.findUnique({where:{email}}))throw new ConflictException('An account already exists. Sign in with email and password to access it.');
+    if(dto.acceptedTerms!==true)throw new BadRequestException('Accept the Terms of Service and Privacy Policy to create an account');
+    const activationStartedAt=new Date(),fullName=String(claims.name||'').trim().slice(0,120)||null;
+    const slugBase=(fullName||email.split('@')[0]).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,70)||'business';
+    try {
+      user=await this.db.$transaction(async tx=>{
+        const created=await tx.user.create({data:{email,fullName,role:'OWNER',emailVerifiedAt:new Date()}});
+        await tx.googleIdentity.create({data:{userId:created.id,subject:String(claims.sub)}});
+        await tx.termsConsent.create({data:{userId:created.id,termsVersion:'2026-10-31',privacyVersion:'2026-10-31'}});
+        await tx.subscription.create({data:{userId:created.id,plan:'BASIC',status:'INACTIVE',billingType:'ONE_TIME',trialEndsAt:activationStartedAt}});
+        await tx.business.create({data:{ownerId:created.id,name:fullName||'',slug:`${slugBase}-${created.id.slice(-6)}`,website:{create:{}}}});
+        return created;
+      });
+    } catch(error) {
+      if(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==='P2002')throw new ConflictException('This Google account is already registered. Please sign in again.');
+      throw error;
+    }
+    await this.issueSession(user.id,res);return {id:user.id,email:user.email,emailVerified:true};
   }
   @Throttle({default:{limit:6,ttl:60_000}})
   @Post('verify-email') async verifyEmail(@Body() dto:TokenInput) {
@@ -106,9 +192,24 @@ export class AuthController {
     return {ok:true};
   }
   @Throttle({default:{limit:3,ttl:60_000}})
+  @UseGuards(SessionGuard) @Get('staging-mail-diagnostic') async stagingMailDiagnostic() {
+    if (!stagingDiagnosticsEnabled()) throw new NotFoundException();
+    return this.mail.verifySmtp();
+  }
+  @Throttle({default:{limit:3,ttl:60_000}})
   @Post('forgot-password') async forgotPassword(@Body() dto:EmailInput) {
     const user=await this.db.user.findUnique({where:{email:dto.email.trim().toLowerCase()}});
-    if(user) { try { await this.createEmailLink(user.id,user.email,'reset'); } catch(error) { this.logger.error('Password reset email delivery failed'); } }
+    if(user) {
+      try { await this.createEmailLink(user.id,user.email,'reset'); this.logger.log(JSON.stringify({event:'password_reset_email_submitted',type:'reset'})); }
+      catch(error) {
+        const code=typeof error==='object'&&error&&'code' in error?String(error.code):'';
+        const responseCode=typeof error==='object'&&error&&'responseCode' in error?Number(error.responseCode):undefined;
+        const reason=error instanceof ServiceUnavailableException?error.message:code==='EAUTH'||(responseCode!==undefined&&responseCode>=530&&responseCode<=539)?'SMTP authentication failed':['ECONNECTION','ETIMEDOUT','ENOTFOUND','ESOCKET'].includes(code)?'SMTP connection failed':'SMTP submission failed';
+        this.logger.error(JSON.stringify({event:'password_reset_email_failed',reason,code:code||undefined,responseCode}));
+      }
+    } else if(stagingDiagnosticsEnabled()) {
+      this.logger.log(JSON.stringify({event:'password_reset_account_not_found',type:'reset'}));
+    }
     return {ok:true,message:'If the account exists, a password reset link will be sent.'};
   }
   @Throttle({default:{limit:5,ttl:60_000}})
@@ -116,34 +217,50 @@ export class AuthController {
     const record=await this.db.passwordResetToken.findUnique({where:{tokenHash:tokenHash(dto.token)}});
     if(!record||record.expiresAt<=new Date()) throw new BadRequestException('Password reset link is invalid or expired');
     const passwordHash=await argon2.hash(dto.password);
-    await this.db.$transaction([
-      this.db.user.update({where:{id:record.userId},data:{passwordHash}}),
-      this.db.passwordResetToken.deleteMany({where:{userId:record.userId}}),
-      this.db.session.deleteMany({where:{userId:record.userId}}),
-    ]);
+    const consumed=await this.db.$transaction(async tx=>{
+      const consumed=await tx.passwordResetToken.deleteMany({where:{tokenHash:tokenHash(dto.token),expiresAt:{gt:new Date()}}});
+      if(consumed.count!==1)return false;
+      await tx.user.update({where:{id:record.userId},data:{passwordHash}});
+      await tx.passwordResetToken.deleteMany({where:{userId:record.userId}});
+      await tx.session.deleteMany({where:{userId:record.userId}});
+      return true;
+    });
+    if(!consumed)throw new BadRequestException('Password reset link is invalid or expired');
     return {reset:true};
   }
   private async createEmailLink(userId:string,email:string,type:'verify'|'reset') {
-    const token=randomBytes(32).toString('base64url'),expiresAt=new Date(Date.now()+(type==='verify'?24:1)*3600_000),hash=tokenHash(token);
+    const token=randomBytes(32).toString('base64url'),expiresAt=new Date(Date.now()+(type==='verify'?24:0.5)*3600_000),hash=tokenHash(token);
     if(type==='verify') { await this.db.verificationToken.deleteMany({where:{userId}}); await this.db.verificationToken.create({data:{userId,tokenHash:hash,expiresAt}}); }
-    else { await this.db.passwordResetToken.deleteMany({where:{userId}}); await this.db.passwordResetToken.create({data:{userId,tokenHash:hash,expiresAt}}); }
+    else {
+      // Keep any prior usable link until SMTP accepts this one. If sending fails,
+      // remove only the token that was never delivered.
+      await this.db.passwordResetToken.create({data:{userId,tokenHash:hash,expiresAt}});
+      try {
+        await this.mail.sendAccountLink(email,token,type);
+      } catch(error) {
+        try { await this.db.passwordResetToken.deleteMany({where:{tokenHash:hash}}); }
+        catch { this.logger.error(JSON.stringify({event:'password_reset_token_cleanup_failed'})); }
+        throw error;
+      }
+      return;
+    }
     await this.mail.sendAccountLink(email,token,type);
   }
-  private async issueSession(userId:string,res:Response) {
+  private async issueSession(userId:string,res:Response):Promise<void> {
     const token=randomBytes(32).toString('base64url'), expires=new Date(Date.now()+14*864e5);
-    await this.db.session.create({ data:{ userId, tokenHash:tokenHash(token), expiresAt:expires } }); res.cookie('getcyb_session',token,cookieOptions(expires)); return token;
+    await this.db.session.create({ data:{ userId, tokenHash:tokenHash(token), expiresAt:expires } }); res.cookie('getcyb_session',token,cookieOptions(expires));
   }
   @UseGuards(SessionGuard) @Get('me') async me(@Req() req:Request & {user:any}) {
     const subscription=await this.db.subscription.findUnique({where:{userId:req.user.id}});
-    const trialActive=false;
+    const paid=subscription?.status==='ACTIVE'&&subscription?.billingType==='ONE_TIME';
     return {
       id:req.user.id,
       email:req.user.email,
       emailVerified:!!req.user.emailVerifiedAt,
       role:req.user.role,
-      paid:subscription?.status==='ACTIVE',
-      trialActive,
-      trialEndsAt:subscription?.trialEndsAt.toISOString()||null,
+      paid,
+      trialActive:false,
+      trialEndsAt:null,
     };
   }
   @UseGuards(SessionGuard) @Post('logout') async logout(@Req() req:Request & {user:any;sessionToken?:string},@Res({passthrough:true}) res:Response) {
@@ -254,8 +371,8 @@ export class ProductController {
   constructor(private db:DbService){}
   private async business(userId:string){const b=await this.db.business.findFirst({where:{ownerId:userId}});if(!b)throw new NotFoundException('Create a business first');return b;}
   @Get() async list(@Req() req:Request & {user:any}) {const b=await this.business(req.user.id);return this.db.product.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'}});}
-  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const name=String(dto.data.name||'').trim();if(!name)throw new BadRequestException('Product name required');return this.db.product.create({data:{businessId:b.id,name,data:dto.data as any}});}
-  @Put(':id') async update(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');const merged={...(prior.data as Record<string,unknown>),...dto.data};const name=String(merged.name||prior.name).trim();if(!name)throw new BadRequestException('Product name required');const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{name,data:merged as any}});if(!result.count)throw new NotFoundException('Product not found');return this.db.product.findUnique({where:{id}});}
+  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const name=String(dto.data.name||'').trim();if(!name)throw new BadRequestException('Product name required');await assertOwnedMedia(this.db,req.user.id,dto.data);return this.db.product.create({data:{businessId:b.id,name,data:dto.data as any}});}
+  @Put(':id') async update(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');await assertOwnedMedia(this.db,req.user.id,dto.data);const merged={...(prior.data as Record<string,unknown>),...dto.data};const name=String(merged.name||prior.name).trim();if(!name)throw new BadRequestException('Product name required');const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{name,data:merged as any}});if(!result.count)throw new NotFoundException('Product not found');return this.db.product.findUnique({where:{id}});}
   @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.business(req.user.id);const result=await this.db.product.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Product not found');return {deleted:true};}
 }
 
@@ -267,10 +384,10 @@ export class PublicProductController {
     const rows=await this.db.product.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:300});
     return rows.filter(row=>(row.data as any)?.status!=='hidden').map(row=>{
       const data=row.data as Record<string,unknown>;
-      return {id:row.id,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};
+      return {id:row.id,storeUrl:business.slug,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,images:data.images,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};
     });
   }
-  @Get('item/:id') async one(@Req() req:Request){const id=String(req.params['id']||'');const row=await this.db.product.findUnique({where:{id},include:{business:{include:{website:true}}}});if(!row||!row.business.website?.published||(row.data as any)?.status==='hidden')throw new NotFoundException('Product not found');const data=row.data as Record<string,unknown>;return {id:row.id,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};}
+  @Get('item/:id') async one(@Req() req:Request){const id=String(req.params['id']||'');const row=await this.db.product.findUnique({where:{id},include:{business:{include:{website:true}}}});if(!row||!row.business.website?.published||(row.data as any)?.status==='hidden')throw new NotFoundException('Product not found');const data=row.data as Record<string,unknown>;return {id:row.id,storeUrl:row.business.slug,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,images:data.images,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};}
 }
 
 @Controller('customers')
@@ -305,27 +422,79 @@ export class OrderController {
 @Controller('public/orders')
 export class PublicOrderController {
   constructor(private db:DbService){}
-  @Post() async create(@Body() dto:JsonInput){const data=dto.data as Record<string,any>;const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===item.id),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||(product.data as any)?.status==='hidden')throw new BadRequestException('A product in this order is unavailable');const p=product.data as any,price=Number(p.salePrice||p.sellingPrice||p.price||0);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');return {...item,id:product.id,name:product.name,price,quantity};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),shipping=subtotal>=300?0:25,amount=subtotal+shipping;const normalized={...data,items,subtotal,shipping,total:amount,currency:'USD',status:'New',paymentStatus:'Pending',createdAt:new Date().toISOString()};const order=await this.db.$transaction(async tx=>{const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:'USD',data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0)+amount};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;});return {...(order.data as object),id:order.id,status:order.status,createdAt:order.createdAt};}
+  @Post() async create(@Body() dto:JsonInput){const data=dto.data as Record<string,any>;const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===String(item.id||item.productId||'')),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||(product.data as any)?.status==='hidden')throw new BadRequestException('A product in this order is unavailable');const p=product.data as any,price=Number(p.salePrice||p.sellingPrice||p.price||0);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');return {...item,id:product.id,name:product.name,price,quantity};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),shipping=subtotal>=300?0:25,amount=subtotal+shipping;const normalized={...data,items,subtotal,shipping,total:amount,currency:'USD',status:'New',paymentStatus:'Pending',createdAt:new Date().toISOString()};const order=await this.db.$transaction(async tx=>{const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:'USD',data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0)+amount};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;});return {...(order.data as object),id:order.id,status:order.status,createdAt:order.createdAt};}
   @Post(':id/cash-on-delivery') async setCashOnDelivery(@Req() req:Request,@Body() dto:JsonInput){const id=String(req.params['id']);const row=await this.db.order.findUnique({where:{id}});if(!row||row.status!=='new')throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...(dto.data||{}),paymentMethod:'cash',paymentStatus:'Cash on delivery'};await this.db.order.update({where:{id},data:{data:data as any}});return {ok:true};}
+}
+
+function deterministicTrialWebsite(prompt:string){
+  const clean=prompt.trim().replace(/\s+/g,' ').slice(0,1200),lower=clean.toLowerCase();
+  const kind=/\b(consult(?:ing|ant)?|advisory|advisor|consultant|strategy)\b/.test(lower)?'consulting':/\b(portfolio|creative|designer|photographer|illustrator|artist)\b/.test(lower)?'portfolio':lower.includes('skin')||lower.includes('beauty')?'skincare':lower.includes('coffee')||lower.includes('cafe')?'coffee':lower.includes('fashion')||lower.includes('clothing')?'fashion':lower.includes('fitness')||lower.includes('gym')?'wellness':'studio';
+  const profiles:Record<string,any>={
+    skincare:{name:'ATELIER BOTANIQUE',eyebrow:'SKINCARE · MADE WITH INTENTION',title:'A softer ritual. A brighter kind of care.',body:'Thoughtful formulas and everyday rituals, created to make caring for your skin feel beautifully simple.',accent:'#9b765a',image:'https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?auto=format&fit=crop&w=1200&q=85',offer:'The daily ritual',items:['Gentle by design','Made for everyday','Care that feels considered']},
+    coffee:{name:'SUNDAY ROAST',eyebrow:'SMALL BATCH · SLOW MORNINGS',title:'Make room for a better cup.',body:'Carefully sourced coffee, roasted in small batches and made for the moments worth slowing down for.',accent:'#76543d',image:'https://images.unsplash.com/photo-1442512595331-e89e73853f31?auto=format&fit=crop&w=1200&q=85',offer:'From our roastery',items:['Thoughtful sourcing','Roasted in small batches','A ritual worth keeping']},
+    fashion:{name:'FORME STUDIO',eyebrow:'CONSIDERED WARDROBE · EST. 2026',title:'Fewer pieces. More ways to be you.',body:'A considered collection of modern essentials, made to move with you and stay in your wardrobe for years.',accent:'#7c6653',image:'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1200&q=85',offer:'The essentials edit',items:['Easy, timeless silhouettes','Designed for repeat wear','A quieter kind of statement']},
+    wellness:{name:'STILL FORM',eyebrow:'MOVEMENT · WELLNESS · BALANCE',title:'Find your own kind of strong.',body:'A welcoming space to move with purpose, build a lasting practice and feel more at home in your body.',accent:'#547060',image:'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&w=1200&q=85',offer:'Move at your pace',items:['Classes for every level','Guidance that meets you here','Progress without pressure']},
+    studio:{name:'FORM & FIELD',eyebrow:'INDEPENDENT BUSINESS · MADE PERSONAL',title:'Good work deserves a beautiful home.',body:'A clear, considered introduction to your business, your approach and the work you are proud to share.',accent:'#776b5e',image:'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=85',offer:'A little about us',items:['Thoughtful, personal service','Made around what matters','Here to help you begin'],cta:'Explore our approach',offerType:'services',offerTitle:'A clearer way to introduce your work',offerBody:'Show people what you do, how you work, and the best way to take the next step.',offerItems:['What you offer','How you work','How to get in touch']},
+    consulting:{name:'NORTHLINE ADVISORY',eyebrow:'CONSULTING · PRACTICAL CLARITY',title:'Make your next move with confidence.',body:'Clear, thoughtful advice for businesses working through an important decision or a new stage of growth.',accent:'#667268',image:'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=85',offer:'A more considered way forward',items:['Understand what matters most','Turn questions into clear next steps','Move forward with a trusted perspective'],cta:'Explore our approach',valuesTitle:'Clear thinking. Practical next steps.',offerType:'services',offerTitle:'A practical path forward',offerBody:'Introduce the areas you support and help people understand where to begin.',offerItems:['Strategy and planning','Operations and growth','Workshops and facilitation']},
+    portfolio:{name:'STUDIO MARGINALIA',eyebrow:'SELECTED WORK · CREATIVE PRACTICE',title:'A considered home for your creative work.',body:'Bring selected projects, process, and the ideas behind your practice together in one clear portfolio.',accent:'#8b7159',image:'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=85',offer:'A practice, told through its work',items:['Projects with a point of view','Process and perspective','A direct way to enquire'],cta:'Explore the work',valuesTitle:'Selected work. Thoughtfully presented.',offerType:'services',offerTitle:'What your portfolio can show',offerBody:'Make space for the projects and context you choose to share when you make this design your own.',offerItems:['Selected projects','Process and point of view','Contact and availability']}
+  };
+  const p=profiles[kind];
+  const explicitBrand = clean.match(/(?:\bbrand\s+name\s+(?:(?:is|called|named|:|=)\s+)?|\bbrand\s+(?:is|called|named|:|=)\s+|\b(?:called|named)\s+)[“"']?([\p{L}][\p{L}\p{N} &'’-]{1,48})/iu)?.[1];
+  const titledBusiness = clean.match(/\bfor\s+([\p{Lu}][\p{L}\p{N}&'’-]*(?:\s+[\p{Lu}][\p{L}\p{N}&'’-]*){0,3})/u)?.[1];
+  const requested=(explicitBrand||titledBusiness)?.trim().replace(/[“"'.,!?]+$/g,'').replace(/\s+(with|that|and|featuring|using|selling|offering)\s+.*$/i,'').slice(0,32);
+  const brandName=requested||p.name;
+  const sections=[
+    {id:'preview-hero',type:'hero',variant:'luxury',eyebrow:p.eyebrow,title:p.title,body:p.body,buttonText:p.cta||'Explore the collection',href:'#preview-offer',image:p.image,alt:`Editorial ${kind} preview`},
+    {id:'preview-intro',type:'about',eyebrow:'A MORE PERSONAL APPROACH',title:p.offer,body:p.body,image:p.image,alt:`${kind} studio`},
+    {id:'preview-values',type:'services',title:p.valuesTitle||'Made to feel like you.',body:'A few things that guide everything we do.',items:p.items},
+    p.offerType==='services'
+      ? {id:'preview-offer',type:'services',title:p.offerTitle,body:p.offerBody,items:p.offerItems}
+      : {id:'preview-offer',type:'collection',title:'The thoughtful edit',body:'A preview of how your offer can come to life. Add your real products and details when you make your website yours.',limit:3},
+    {id:'preview-faq',type:'faq',title:'A few good questions',body:'Clear answers help people feel at home.',items:[{question:'What makes this different?',answer:'A considered approach, shaped around what you need.'},{question:'How do I get started?',answer:'Tell us what you are looking for and we will help you take the next step.'}]},
+    {id:'preview-footer',type:'footer',title:brandName,body:'A little more care in every detail.'}
+  ];
+  const dark=/\b(black|dark|midnight|charcoal)\b/.test(lower),primaryColor=/\b(green|sage|olive)\b/.test(lower)?'#647261':/\b(blue|navy)\b/.test(lower)?'#35465e':p.accent;
+  return {editorVersion:2,brandName,description:p.body,tagline:p.eyebrow,backgroundColor:dark?'#211f1d':'#f7f3ec',textColor:dark?'#f4efe8':'#28231f',primaryColor:dark?'#c9a785':primaryColor,bodyFont:'Arial, sans-serif',headingFont:/\b(sans|modern|minimalist)\b/.test(lower)?'DM Sans, Arial, sans-serif':'Georgia, serif',buttonRadius:'0px',pages:[{id:'home',slug:'',title:'Home',sections}]};
+}
+
+@Controller('try')
+export class TrialPreviewController {
+  constructor(private db:DbService){}
+  private cookie(res:Response,token:string){res.cookie('cyb_preview',token,{httpOnly:true,secure:true,sameSite:'none',path:'/',maxAge:7*864e5});}
+  @Throttle({default:{limit:12,ttl:60_000}})
+  @Post('session') async session(@Req() req:Request,@Res({passthrough:true}) res:Response){
+    await this.db.trialPreview.deleteMany({where:{expiresAt:{lte:new Date()}}});
+    const token=String((req as any).cookies?.cyb_preview||'');
+    if(token.length>=32){const found=await this.db.trialPreview.findFirst({where:{tokenHash:tokenHash(token),expiresAt:{gt:new Date()},claimedUserId:null}});if(found){this.cookie(res,token);return {expiresAt:found.expiresAt.toISOString(),generated:!!found.generatedAt};}}
+    const next=randomBytes(32).toString('base64url'),expiresAt=new Date(Date.now()+7*864e5);
+    await this.db.trialPreview.create({data:{tokenHash:tokenHash(next),expiresAt}});this.cookie(res,next);return {expiresAt:expiresAt.toISOString(),generated:false};
+  }
+  @Throttle({default:{limit:5,ttl:60_000}})
+  @Get('preview') async getPreview(@Req() req:Request){const token=String((req as any).cookies?.cyb_preview||'');if(token.length<32)throw new UnauthorizedException('Start a free preview first.');const row=await this.db.trialPreview.findFirst({where:{tokenHash:tokenHash(token),expiresAt:{gt:new Date()},claimedUserId:null}});if(!row)throw new NotFoundException('This preview has expired. Start a new preview to continue.');return {model:row.draft,generated:!!row.generatedAt,expiresAt:row.expiresAt.toISOString()};}
+  @Throttle({default:{limit:5,ttl:60_000}})
+  @Post('generate') async generate(@Req() req:Request,@Body() dto:AiPromptInput){const token=String((req as any).cookies?.cyb_preview||'');if(token.length<32)throw new UnauthorizedException('Start a free preview first.');const hash=tokenHash(token),prior=await this.db.trialPreview.findFirst({where:{tokenHash:hash,expiresAt:{gt:new Date()},claimedUserId:null}});if(!prior)throw new NotFoundException('This preview has expired. Start a new preview to continue.');if(prior.generatedAt)return {model:prior.draft,generated:true,expiresAt:prior.expiresAt.toISOString()};const model=validateWebsite(deterministicTrialWebsite(dto.prompt),false),result=await this.db.trialPreview.updateMany({where:{id:prior.id,generatedAt:null,expiresAt:{gt:new Date()},claimedUserId:null},data:{draft:model as any,prompt:dto.prompt.trim().slice(0,1200),generatedAt:new Date()}});if(!result.count){const latest=await this.db.trialPreview.findUnique({where:{id:prior.id}});if(latest?.draft)return {model:latest.draft,generated:true,expiresAt:latest.expiresAt.toISOString()};throw new ConflictException('The free preview has already been used.');}return {model,generated:true,expiresAt:prior.expiresAt.toISOString()};}
+  @Throttle({default:{limit:30,ttl:60_000}})
+  @Put('draft') async save(@Req() req:Request,@Body() dto:WebsiteInput){const token=String((req as any).cookies?.cyb_preview||'');if(token.length<32)throw new UnauthorizedException('Start a free preview first.');const model=validateWebsite(dto.model,false),result=await this.db.trialPreview.updateMany({where:{tokenHash:tokenHash(token),expiresAt:{gt:new Date()},generatedAt:{not:null},claimedUserId:null},data:{draft:model as any}});if(!result.count)throw new NotFoundException('This preview has expired or is no longer available.');return {saved:true};}
 }
 
 @Controller('websites')
 export class WebsiteController {
   constructor(private db:DbService){}
   private async businessFor(req:Request & {user:any}){const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)throw new NotFoundException('Create a business first');return business;}
-  @UseGuards(SessionGuard) @Get('ai/status') async aiStatus(){return {available:true,usageLimited:false};}
-  @UseGuards(SessionGuard) @Post('ai/design') async aiDesign(@Req() req:Request & {user:any},@Body() dto:AiPromptInput){
-    const apiKey=process.env.OPENAI_API_KEY;if(!apiKey)throw new ServiceUnavailableException('AI design is being set up. Please try again later.');
+  private async requirePaidPublishing(userId:string){const access=await this.db.subscription.findUnique({where:{userId}});if(access?.status!=='ACTIVE'||access.billingType!=='ONE_TIME')throw new ForbiddenException('Activate CYB Lifetime Access before publishing your website. Your draft is saved.');}
+  @UseGuards(SessionGuard) @Get('ai/status') async aiStatus(){return {available:Boolean(process.env.OPENAI_API_KEY?.trim()),usageLimited:false};}
+  @UseGuards(SessionGuard) @Throttle({default:{limit:8,ttl:60_000}}) @Post('ai/design') async aiDesign(@Req() req:Request & {user:any},@Body() dto:AiPromptInput){
+    const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('AI design is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');
     const modelName=process.env.OPENAI_MODEL||'gpt-4o-mini';
     const isModify=dto.mode==='modify';
     const currentModel=isModify?validateWebsite(dto.model,false):null;
     const instructions=isModify
-      ? 'Edit the existing CYB website through a small set of structured operations. Return JSON only: {operations:[...]} . Allowed operations: {type:"site_style",fields:{brandName?,tagline?,description?,primaryColor?,backgroundColor?,textColor?,bodyFont?,headingFont?,buttonRadius?}}; {type:"update_section",pageId?,sectionId,fields:{title?,body?,buttonText?,eyebrow?,href?,variant?,limit?,style?:{fontFamily?,fontSize?,color?,backgroundColor?,textAlign?,paddingY?,letterSpacing?,lineHeight?,maxWidth?,minHeight?,hidden?},responsive?:{laptop?:style,ipad?:style,phone?:style}}}; {type:"add_section",pageId?,afterSectionId?,section:{type,label,title,body,buttonText?,eyebrow?,href?,variant?,limit?,items?}}. Add sections may use hero, about, services, gallery, collection, faq, reviews, contact, footer, heading, text, button, photo, divider, or spacer. A collection section renders real products already in the store; use limit:6 when asked for six products and never invent product records. For a mobile-friendly request, use responsive.phone and responsive.ipad overrides on relevant sections (smaller fontSize, reasonable paddingY and maxWidth; do not set fixed minHeight). {type:"move_section",pageId?,sectionId,beforeSectionId}; {type:"delete_section",pageId?,sectionId}. Use exact existing pageId and sectionId values from the website JSON. Do not replace the model or remove any content unless the user explicitly asks for deletion. Do not invent customer reviews, products, prices, metrics, or image URLs. For a request for reviews, add a section with clear editable placeholders requesting real customer quotes. For a visual or copy change, update only the relevant site or section fields. Return a short summary in an optional summary string. If the request cannot be mapped safely, return {operations:[]}.'
-      : 'Create a polished ecommerce or service-business website for CYB. Return JSON only with {brandName,primaryColor,backgroundColor,textColor,bodyFont,headingFont,buttonRadius,sections}. sections is an array of 4 to 7 objects with unique id, type, label, title, body and optional buttonText/items. Use only types hero, about, services, collection, gallery, faq, reviews, contact, footer. Include one hero and one footer. Keep copy specific to the business. Never invent products, prices, customer reviews, ratings, or image URLs. If reviews are requested, create a reviews section with an editable placeholder for genuine customer quotes. Use collection for products. Colors must be 6-digit hex.';
+      ? 'Edit the existing CYB website through a small set of structured operations. Return JSON only: {operations:[...]} . Allowed operations: {type:"site_style",fields:{brandName?,tagline?,description?,primaryColor?,backgroundColor?,textColor?,bodyFont?,headingFont?,buttonRadius?}}; {type:"update_section",pageId?,sectionId,fields:{title?,body?,buttonText?,eyebrow?,href?,variant?,limit?,image?,images?,media?,imagePlaceholderCount?,style?:{fontFamily?,fontSize?,color?,backgroundColor?,textAlign?,paddingY?,letterSpacing?,lineHeight?,maxWidth?,minHeight?,hidden?},responsive?:{laptop?:style,ipad?:style,phone?:style}}}; {type:"add_section",pageId?,afterSectionId?,section:{type,label,title,body,buttonText?,eyebrow?,href?,variant?,limit?,items?,images?,imagePlaceholderCount?}}. Add sections may use hero, about, services, gallery, collection, faq, reviews, contact, footer, heading, text, button, photo, divider, or spacer. For gallery placeholders use imagePlaceholderCount:3 (1–8) or images with safe HTTPS/upload URLs; do not create `items` for galleries. A collection section renders real products already in the store; use limit:6 when asked for six products and never invent product records. For a mobile-friendly request, use responsive.phone and responsive.ipad overrides on relevant sections (smaller fontSize, reasonable paddingY and maxWidth; do not set fixed minHeight). {type:"move_section",pageId?,sectionId,beforeSectionId}; {type:"delete_section",pageId?,sectionId}. Use exact existing pageId and sectionId values from the website JSON. Do not replace the model or remove any content unless the user explicitly asks for deletion. Do not invent customer reviews, products, prices, metrics, or image URLs. For a request for reviews, add a section with clear editable placeholders requesting real customer quotes. For a visual or copy change, update only the relevant site or section fields. Return a short summary in an optional summary string. If the request cannot be mapped safely, return {operations:[]}.'
+      : 'Create a complete, polished ecommerce or service-business website for CYB. Return JSON only with {brandName,primaryColor,backgroundColor,textColor,bodyFont,headingFont,buttonRadius,sections}. sections is an array of 4 to 10 objects with unique id, type, label, title, body and optional buttonText/items/imagePlaceholderCount. Use only types hero, about, services, collection, gallery, faq, reviews, contact, footer. Include one hero and one footer, plus the relevant sections for this business such as about, product collection, gallery, FAQ, and contact. The website renderer adds an editable navigation header from the page list. Keep copy specific to the business. For unknown details, use clearly marked editable placeholders such as [Add your ingredients] instead of making claims. Never invent products, prices, customer reviews, ratings, or image URLs. If images are requested, add an editable gallery with imagePlaceholderCount:3 so the editor visibly shows replaceable image placeholders; do not return gallery items or fake URLs. If reviews are requested, create a reviews section with an editable placeholder for genuine customer quotes. Use collection for products that already exist in the store; otherwise say products will appear after they are added. Colors must be 6-digit hex.';
     let response:globalThis.Response;
-    try { response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(65000),body:JSON.stringify({model:modelName,max_output_tokens:isModify?1800:2500,instructions,input:isModify?`Existing editable website JSON:\n${JSON.stringify(currentModel)}\n\nUser request:\n${dto.prompt}\n\nReturn JSON operations only. Do not repeat the existing website.`:`Return a JSON object for this website design request: ${dto.prompt}`,text:{format:{type:'json_object'}}})}); }
+    try { response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(50000),body:JSON.stringify({model:modelName,max_output_tokens:isModify?1800:2500,instructions,input:isModify?`Existing editable website JSON:\n${JSON.stringify(currentModel)}\n\nUser request:\n${dto.prompt}\n\nReturn JSON operations only. Do not repeat the existing website.`:`Return a JSON object for this website design request: ${dto.prompt}`,text:{format:{type:'json_object'}}})}); }
     catch(error){Logger.error(JSON.stringify({code:error instanceof Error?error.name:'unknown'}),'AiDesign');throw new ServiceUnavailableException('AI design timed out or could not be reached. Your current website was not changed. Please try again.');}
-    const data=await response.json() as any;if(!response.ok){
+    const data=await response.json().catch(()=>null) as any;if(!data||typeof data!=='object'||Array.isArray(data)){Logger.error(JSON.stringify({status:response.status,requestId:response.headers?.get('x-request-id')}),'AiDesign');throw new ServiceUnavailableException('AI returned an unreadable response. Your current website was not changed. Please try again.');}if(!response.ok){
       const code=String(data.error?.code||'unknown'),param=String(data.error?.param||'');
       Logger.error(JSON.stringify({status:response.status,code,param,requestId:response.headers?.get('x-request-id')}),'AiDesign');
       const message=response.status===401?'AI connection needs attention. Please contact support.':response.status===429?'AI is temporarily busy or its API balance is unavailable. Please try again shortly.':response.status===400?'AI design request was rejected. Please contact support with code AI_DESIGN_REQUEST.':'AI design service is temporarily unavailable. Please try again.';
@@ -337,138 +506,77 @@ export class WebsiteController {
       if(!currentModel)throw new BadRequestException('Choose a website to edit first.');
       try{return applyAiWebsiteOperations(currentModel,generated,dto.prompt);}catch(error){if(error instanceof BadRequestException)throw error;throw new ServiceUnavailableException('AI returned an edit that could not be safely applied. Your current website was not changed. Please try a more specific request.');}
     }
-    const sections=Array.isArray(generated.sections)?generated.sections:[];if(sections.length<3||sections.length>12)throw new ServiceUnavailableException('AI returned an incomplete design. Please try again.');
-    for(const section of sections)if(section.type==='reviews')section.items=[{name:'Customer name',quote:'Add a real customer review here.'}];
-    const draft=validateWebsite({editorVersion:2,...generated,pages:[{id:'home',slug:'',title:'Home',sections:sections.map((section:any,index:number)=>({...section,id:`ai-${Date.now()}-${index}`,style:{fontFamily:section.type==='hero'?'Georgia':'Arial',fontSize:section.type==='hero'?56:28,color:generated.textColor||'#171513'}}))}]},false);
+    const rawSections=Array.isArray(generated.sections)?generated.sections:[];const generatedSectionTypes=new Set(['hero','about','services','collection','gallery','faq','reviews','contact','footer']);if(rawSections.length<4||rawSections.length>10||!rawSections.some((section:any)=>section?.type==='hero')||!rawSections.some((section:any)=>section?.type==='footer')||rawSections.some((section:any)=>!section||typeof section!=='object'||Array.isArray(section)||!generatedSectionTypes.has(section.type)))throw new ServiceUnavailableException('AI returned an incomplete design. Please try again.');
+    const safeGenerated=normalizeGeneratedWebsite(generated);const sections=safeGenerated.sections;
+    for(const section of sections){
+      if(section.type==='reviews')section.items=[{name:'Customer name',quote:'Add a real customer review here.'}];
+      if(section.type==='gallery'&&/\b(images?|photos?|pictures?)\b/i.test(dto.prompt))section.imagePlaceholderCount=Math.max(1,Math.min(8,Number.isInteger(section.imagePlaceholderCount)?section.imagePlaceholderCount:3));
+    }
+    const draft=validateWebsite({editorVersion:2,...safeGenerated,pages:[{id:'home',slug:'',title:'Home',sections:sections.map((section:any,index:number)=>({...section,id:`ai-${Date.now()}-${index}`,style:{fontFamily:section.type==='hero'?'Georgia':'Arial',fontSize:section.type==='hero'?56:28,color:safeGenerated.textColor||'#171513'}}))}]},true);
     return {model:draft};
   }
-  @UseGuards(SessionGuard) @Post('ai/help') async aiHelp(@Req() req:Request & {user:any},@Body() dto:AiHelpInput){const apiKey=process.env.OPENAI_API_KEY;if(!apiKey)throw new ServiceUnavailableException('CYB AI help is not configured yet. Please try again later.');const context=JSON.stringify(dto.context||{}).slice(0,4000);const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB website-builder guide. Explain steps simply, help users understand the editor, and answer questions about designing their website. When users want design changes, direct them to the Edit my website tab, where their request will be applied as an editable change. Never claim to perform changes in this help chat. Keep the answer concise and do not invent features.',input:`Current website and recent conversation context: ${context}\nUser question: ${dto.message}`},apiKey,'AI help');const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};}
-  @Post('public/ai/help') async publicAiHelp(@Body() dto:AiHelpInput){
-    const apiKey=process.env.OPENAI_API_KEY;if(!apiKey)throw new ServiceUnavailableException('CYB AI help is not configured yet. Please try again later.');
+  @UseGuards(SessionGuard) @Post('ai/help') async aiHelp(@Req() req:Request & {user:any},@Body() dto:AiHelpInput){const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('CYB AI help is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');const context=JSON.stringify(dto.context||{}).slice(0,4000);const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB website-builder guide. Explain steps simply, help users understand the editor, and answer questions about designing their website. When users want design changes, direct them to the Edit my website tab, where their request will be applied as an editable change. Never claim to perform changes in this help chat. Keep the answer concise and do not invent features.',input:`Current website and recent conversation context: ${context}\nUser question: ${dto.message}`},apiKey,'AI help');const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};}
+  @Throttle({default:{limit:5,ttl:60_000}}) @Post('public/ai/help') async publicAiHelp(@Body() dto:AiHelpInput){
+    const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('CYB AI help is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');
     const context=JSON.stringify(dto.context||{}).slice(0,4000);
     const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB guide for visitors who have not created an account yet. Answer concise questions about CYB, starting a website, and the general website-building process. Do not claim to see or change a visitor’s account or website. If a question needs account-specific details, tell them to sign in. If you are unsure about a CYB feature, say so instead of guessing.',input:`Visitor context: ${context}\nQuestion: ${dto.message}`},apiKey,'AI help');
     const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};
   }
   @UseGuards(SessionGuard) @Get('draft') async draft(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});return b?.website||null;}
-  @UseGuards(SessionGuard) @Put('draft') async saveDraft(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');const model=validateWebsite(dto.model,false);return this.db.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any},update:{draft:model as any,revision:{increment:1}}});}
-  @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)throw new NotFoundException('Website draft not found');const model=validateWebsite(dto.model,true);return this.db.$transaction(async tx=>{const site=await tx.website.update({where:{id:b.website!.id},data:{draft:model as any,published:publicWebsite(model) as any,publishedAt:new Date(),revision:{increment:1}}});const version=await tx.websiteVersion.create({data:{websiteId:site.id,snapshot:site.draft as any}});return {published:true,revision:site.revision,slug:b.slug,versionId:version.id};});}
+  @UseGuards(SessionGuard) @Get('publication-diagnostic') async publicationDiagnostic(@Req() req:Request & {user:any}) {
+    if(!stagingDiagnosticsEnabled())throw new NotFoundException();
+    const business=await this.businessFor(req),website=await this.db.website.findUnique({where:{businessId:business.id}});
+    const paths=publicationDifferencePaths(website?.draft as any,website?.published as any);
+    const hasPublished=!!website?.published,hasPublishedAt=!!website?.publishedAt;
+    const status=!hasPublished||!hasPublishedAt?'Draft':paths.length?'Unpublished changes':'Published';
+    return {status,hasDraft:!!website?.draft,hasPublished,hasPublishedAt,changedPathCount:paths.length,changedPaths:paths.slice(0,80),truncated:paths.length>80};
+  }
+  @UseGuards(SessionGuard) @Put('draft') async saveDraft(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');const model=validateWebsite(dto.model,false);await assertOwnedMedia(this.db,req.user.id,model);return this.db.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any},update:{draft:model as any,revision:{increment:1}}});}
+  @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business before publishing');await this.requirePaidPublishing(req.user.id);const model=validateWebsite(dto.model,true);await assertOwnedMedia(this.db,req.user.id,model);return this.db.$transaction(async tx=>{const publishedAt=new Date();const site=await tx.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any,published:publicWebsite(model) as any,publishedAt},update:{draft:model as any,published:publicWebsite(model) as any,publishedAt,revision:{increment:1}}});const version=await tx.websiteVersion.create({data:{websiteId:site.id,snapshot:site.draft as any}});return {published:true,revision:site.revision,slug:b.slug,versionId:version.id};});}
   @UseGuards(SessionGuard) @Post('unpublish') async unpublish(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');return this.db.website.updateMany({where:{businessId:b.id},data:{published:Prisma.DbNull,publishedAt:null}});}
   @UseGuards(SessionGuard) @Get('versions') async versions(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)return [];return (await this.db.websiteVersion.findMany({where:{websiteId:b.website.id},orderBy:{createdAt:'desc'},take:10})).map(({snapshot,createdAt,...version})=>({...version,model:snapshot,publishedAt:createdAt}));}
   @UseGuards(SessionGuard) @Post('restore/:id') async restore(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)throw new NotFoundException('Website not found');const version=await this.db.websiteVersion.findFirst({where:{id:String(req.params['id']),websiteId:b.website.id}});if(!version)throw new NotFoundException('Version not found');const model=validateWebsite(version.snapshot,false);return this.db.website.update({where:{businessId:b.id},data:{draft:model as any,revision:{increment:1}}});}
   @Get('public/:slug') async publicSite(@Req() req:Request){const slug=String(req.params['slug']||'');const business=await this.db.business.findUnique({where:{slug}});if(!business)throw new NotFoundException('Website not found');const site=await this.db.website.findUnique({where:{businessId:business.id}});return {business:{name:business.name,slug:business.slug,category:business.category},website:site?.published||null,published:!!site?.published};}
 }
 
+class MediaUploadInput {
+  @IsString() @IsIn(['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm']) contentType!: string;
+  @IsNumber() size!: number;
+  @IsString() @MaxLength(44) checksum!: string;
+}
+
 @Controller('uploads')
 export class UploadController {
+  constructor(private mediaStorage: MediaStorage) {}
+  @UseGuards(SessionGuard) @Get('status') status() { return this.mediaStorage.status(); }
+  @UseGuards(SessionGuard) @Post('authorize') authorize(@Req() req: Request & {user:any}, @Body() dto: MediaUploadInput) { return this.mediaStorage.authorize(req.user.id, dto); }
+  @UseGuards(SessionGuard) @Post('complete/:id') complete(@Req() req: Request & {user:any}) { return this.mediaStorage.complete(req.user.id, String(req.params['id'])); }
+  @Throttle({default:{limit:600,ttl:60_000}})
+  @Get('media/:id') async media(@Req() req: Request, @Res() response: Response) { response.setHeader('Cache-Control','no-store'); response.setHeader('Cross-Origin-Resource-Policy','cross-origin'); return response.redirect(307, await this.mediaStorage.publicUrl(String(req.params['id']))); }
+
   @UseGuards(SessionGuard)
   @Post() async upload(@Req() req:Request & {user:any},@Headers('content-type') contentType:string,@Req() request:Request,@Res() response:Response) {
-    const allowed=['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','video/quicktime'];
-    if(!allowed.includes(contentType))throw new BadRequestException('Unsupported media type');
     const bytes=Buffer.isBuffer(request.body)?request.body:Buffer.alloc(0);
-    if(bytes.length<1||bytes.length>5*1024*1024)throw new BadRequestException('Media files must be 5 MB or smaller');
-    const key=`businesses/${req.user.id}/${randomBytes(18).toString('hex')}`;
-    const store=getStore('getcyb-assets');
-    const image=new ArrayBuffer(bytes.length);new Uint8Array(image).set(bytes);
-    await store.set(key,image,{metadata:{owner:req.user.id,contentType}});
-    return response.status(201).json({key,publicUrl:`/api/v1/uploads/${key}`});
+    if(bytes.length<1||bytes.length>MAX_UPLOAD_BYTES)throw new BadRequestException('Media files must be 4 MB or smaller on this legacy upload endpoint. Use direct uploads for larger files.');
+    const result=await this.mediaStorage.uploadSmall(req.user.id,contentType,bytes);
+    return response.status(201).json(result);
   }
   @Get(['businesses/:owner/:name', ':owner/:name']) async read(@Req() req:Request,@Res() response:Response) {
     const owner=String(req.params['owner']||''),name=String(req.params['name']||'');
     if(!/^[a-zA-Z0-9_-]{1,120}$/.test(owner)||!/^[a-f0-9]{36}$/.test(name))throw new NotFoundException('Image not found');
-    const key=`businesses/${owner}/${name}`,store=getStore('getcyb-assets');
+    const key=`businesses/${owner}/${name}`,store=legacyMediaStore();
     const metadata=await store.getMetadata(key);
     if(!metadata)throw new NotFoundException('Image not found');
     const image=await store.get(key,{type:'arrayBuffer'});
+    response.setHeader('Cross-Origin-Resource-Policy','cross-origin');
     response.setHeader('Content-Type',String(metadata.metadata.contentType||'application/octet-stream'));
     response.setHeader('Cache-Control','public, max-age=31536000, immutable');
     return response.status(200).send(Buffer.from(image));
   }
 }
 
-@Controller('payments/paypal')
-@UseGuards(SessionGuard)
-export class PayPalController {
-  constructor(private db:DbService){}
-  private async accessToken(){
-    const id=process.env.PAYPAL_CLIENT_ID,secret=process.env.PAYPAL_CLIENT_SECRET;if(!id||!secret)throw new BadRequestException('PayPal is not configured');
-    const base=process.env.PAYPAL_API_BASE||'https://api-m.sandbox.paypal.com';
-    const response=await fetch(`${base}/v1/oauth2/token`,{method:'POST',headers:{Authorization:`Basic ${Buffer.from(`${id}:${secret}`).toString('base64')}`,'Content-Type':'application/x-www-form-urlencoded'},body:'grant_type=client_credentials'});
-    const body=await response.json() as any;if(!response.ok||!body.access_token)throw new BadRequestException('PayPal authentication failed');return {token:body.access_token,base};
-  }
-  @Post('orders') async createOrder(@Req() req:Request & {user:any}){
-    const {token,base}=await this.accessToken(),amount=process.env.PAYPAL_BASIC_AMOUNT||'246.00';
-    if(!/^\d+\.\d{2}$/.test(amount))throw new BadRequestException('PayPal price configuration is invalid');
-    const response=await fetch(`${base}/v2/checkout/orders`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','PayPal-Request-Id':`getcyb-${randomBytes(16).toString('hex')}`},body:JSON.stringify({intent:'CAPTURE',purchase_units:[{reference_id:req.user.id,custom_id:req.user.id,description:'GETCYB Basic lifetime access',amount:{currency_code:'USD',value:amount}}]})});
-    const body=await response.json() as any;if(!response.ok||!body.id)throw new BadRequestException('Could not create PayPal order');
-    await this.db.paymentReference.create({data:{provider:'paypal',providerOrderId:body.id,status:'PENDING',amountCents:Math.round(Number(amount)*100),currency:'USD',userId:req.user.id,metadata:{intent:'PLATFORM_ACCESS'}}});
-    return {orderId:body.id};
-  }
-  @Post('capture') async capture(@Req() req:Request & {user:any},@Body() dto:PayPalCaptureInput){
-    const payment=await this.db.paymentReference.findUnique({where:{providerOrderId:dto.orderId}});if(!payment||payment.userId!==req.user.id)throw new NotFoundException('PayPal order not found');
-    if(payment.status==='COMPLETED')return {success:true,status:'COMPLETED',orderId:dto.orderId};
-    if(payment.status!=='PENDING')throw new BadRequestException('PayPal order cannot be captured');
-    const {token,base}=await this.accessToken();
-    const response=await fetch(`${base}/v2/checkout/orders/${encodeURIComponent(dto.orderId)}/capture`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json','PayPal-Request-Id':`gcb-${payment.id}`}});
-    const capture=await response.json() as any;if(!response.ok)throw new BadRequestException('Could not capture PayPal payment');
-    const unit=capture.purchase_units?.[0],item=unit?.payments?.captures?.[0];
-    const valid=capture.status==='COMPLETED'&&item?.status==='COMPLETED'&&unit?.reference_id===req.user.id&&item?.amount?.currency_code===payment.currency&&Math.round(Number(item?.amount?.value)*100)===payment.amountCents;
-    if(!valid)throw new BadRequestException('PayPal payment verification failed');
-    await this.db.$transaction([
-      this.db.paymentReference.update({where:{id:payment.id},data:{status:'COMPLETED',providerCaptureId:item.id,metadata:{intent:'PLATFORM_ACCESS',paypalOrderId:capture.id,paidAt:new Date().toISOString()}}}),
-      this.db.subscription.upsert({where:{userId:req.user.id},create:{userId:req.user.id,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}}),
-    ]);
-    return {success:true,status:'COMPLETED',orderId:capture.id};
-  }
-}
-
-
-
-@Controller('payments')
-@UseGuards(SessionGuard)
-export class PlatformRefundController {
-  constructor(private db:DbService){}
-  @Post('platform-access/refund') async refund(@Req() req:Request & {user:any}) {
-    const payments=await this.db.paymentReference.findMany({
-      where:{userId:req.user.id,provider:{in:['stripe','paypal']},status:{in:['COMPLETED','REFUNDED']}},
-      orderBy:{createdAt:'desc'},
-      take:20,
-    });
-    const payment=payments.find(item=>(item.metadata as any)?.intent==='PLATFORM_ACCESS');
-    if(!payment)throw new NotFoundException('No completed platform payment was found');
-    if(payment.status==='REFUNDED')return {success:true,status:'REFUNDED'};
-    const paymentDate=new Date((payment.metadata as any)?.paidAt||payment.createdAt);
-    if(!Number.isFinite(paymentDate.getTime())||Date.now()-paymentDate.getTime()>30*864e5)throw new BadRequestException('The 30-day refund period has ended');
-    let refundId:string|undefined;
-    if(payment.provider==='stripe') {
-      const key=process.env.STRIPE_SECRET_KEY;
-      const paymentIntentId=(payment.metadata as any)?.paymentIntentId;
-      if(!key||typeof paymentIntentId!=='string'||!paymentIntentId.startsWith('pi_'))throw new ServiceUnavailableException('This Stripe payment cannot be refunded automatically. Please contact support.');
-      const form=new URLSearchParams({payment_intent:paymentIntentId});
-      let response:globalThis.Response;
-      try { response=await fetch('https://api.stripe.com/v1/refunds',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/x-www-form-urlencoded','Idempotency-Key':`getcyb-refund-${payment.id}`},body:form.toString(),signal:AbortSignal.timeout(20000)}); }
-      catch { throw new ServiceUnavailableException('The refund provider could not be reached. Please try again.'); }
-      const result=await response.json().catch(()=>({})) as any;
-      if(!response.ok||!result.id)throw new BadRequestException('Stripe could not process the refund. Please try again.');
-      refundId=result.id;
-    } else {
-      const id=process.env.PAYPAL_CLIENT_ID,secret=process.env.PAYPAL_CLIENT_SECRET;
-      const captureId=payment.providerCaptureId;
-      if(!id||!secret||!captureId)throw new ServiceUnavailableException('This PayPal payment cannot be refunded automatically. Please contact support.');
-      const base=process.env.PAYPAL_API_BASE||'https://api-m.sandbox.paypal.com';
-      const tokenResponse=await fetch(`${base}/v1/oauth2/token`,{method:'POST',headers:{Authorization:`Basic ${Buffer.from(`${id}:${secret}`).toString('base64')}`,'Content-Type':'application/x-www-form-urlencoded'},body:'grant_type=client_credentials',signal:AbortSignal.timeout(20000)});
-      const tokenData=await tokenResponse.json().catch(()=>({})) as any;
-      if(!tokenResponse.ok||!tokenData.access_token)throw new ServiceUnavailableException('PayPal could not authorize the refund. Please try again.');
-      const response=await fetch(`${base}/v2/payments/captures/${encodeURIComponent(captureId)}/refund`,{method:'POST',headers:{Authorization:`Bearer ${tokenData.access_token}`,'Content-Type':'application/json','PayPal-Request-Id':`getcyb-refund-${payment.id}`},body:JSON.stringify({})});
-      const result=await response.json().catch(()=>({})) as any;
-      if(!response.ok||!result.id)throw new BadRequestException('PayPal could not process the refund. Please try again.');
-      refundId=result.id;
-    }
-    await this.db.$transaction([
-      this.db.paymentReference.update({where:{id:payment.id},data:{status:'REFUNDED',metadata:{...(payment.metadata as any),refundId,refundedAt:new Date().toISOString()}}}),
-      this.db.subscription.updateMany({where:{userId:req.user.id},data:{status:'INACTIVE',billingType:'ONE_TIME'}}),
-    ]);
-    return {success:true,status:'REFUNDED'};
-  }
+function legacyMediaStore() {
+  try { return process.env.NETLIFY_BLOBS_SITE_ID && process.env.NETLIFY_BLOBS_TOKEN ? getStore({name:'getcyb-assets',siteID:process.env.NETLIFY_BLOBS_SITE_ID,token:process.env.NETLIFY_BLOBS_TOKEN}) : getStore('getcyb-assets'); } catch { throw new ServiceUnavailableException('Legacy media storage is unavailable on this API. Use the updated direct upload flow or configure legacy Netlify Blobs access.'); }
 }
 
 
@@ -476,6 +584,9 @@ export class PlatformRefundController {
 @UseGuards(SessionGuard)
 export class StripeController {
   constructor(private db:DbService){}
+  private isStripeTestKey(key=process.env.STRIPE_SECRET_KEY||'') {
+    return /^(sk|rk)_test_/.test(key.trim());
+  }
   private async stripeRequest(path:string, init:RequestInit={}) {
     const key=process.env.STRIPE_SECRET_KEY;
     if(!key)throw new BadRequestException('Stripe is not configured');
@@ -489,8 +600,22 @@ export class StripeController {
     }
     return body;
   }
+  @Get('staging-status') async stagingStatus() {
+    if(!stagingDiagnosticsEnabled())throw new NotFoundException();
+    const key=process.env.STRIPE_SECRET_KEY?.trim()||'';
+    const testMode=this.isStripeTestKey(key);
+    let verified=false;
+    if(testMode) {
+      try { const balance=await this.stripeRequest('/balance'); verified=balance.object==='balance'&&balance.livemode===false; }
+      catch { verified=false; }
+    }
+    const amount=process.env.STRIPE_BASIC_AMOUNT||'24600';
+    const currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
+    return {configured:!!key,testMode,verified,amountCents:/^\d+$/.test(amount)?Number(amount):null,currency:/^[a-z]{3}$/.test(currency)?currency:null};
+  }
   @Post('checkout-sessions') async createCheckoutSession(@Req() req:Request & {user:any}) {
     const amount=process.env.STRIPE_BASIC_AMOUNT||'24600',currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
+    if(stagingDiagnosticsEnabled()&&!this.isStripeTestKey())throw new ServiceUnavailableException('Staging checkout requires a Stripe test-mode key.');
     if(!/^\d+$/.test(amount)||Number(amount)<50||!/^[a-z]{3}$/.test(currency))throw new BadRequestException('Stripe price configuration is invalid');
     let appUrl:string;
     try { const parsed=new URL(process.env.PUBLIC_APP_URL||'https://getcyb.fit'); if(!['https:','http:'].includes(parsed.protocol))throw new Error(); appUrl=parsed.origin; }
@@ -504,8 +629,8 @@ export class StripeController {
       'metadata[intent]':'PLATFORM_ACCESS',
       'line_items[0][price_data][currency]':currency,
       'line_items[0][price_data][unit_amount]':amount,
-      'line_items[0][price_data][product_data][name]':'CYB Lifetime Access',
-      'line_items[0][price_data][product_data][description]':'One-time payment for lifetime access to CYB',
+      'line_items[0][price_data][product_data][name]':Number(amount)===100?'CYB Stripe Test Payment':'CYB Lifetime Access',
+      'line_items[0][price_data][product_data][description]':Number(amount)===100?'Temporary staging payment verification':'One-time payment for lifetime access to CYB',
       'line_items[0][quantity]':'1',
     });
     const session=await this.stripeRequest('/checkout/sessions',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:form.toString()});
@@ -514,22 +639,65 @@ export class StripeController {
     return {url:session.url};
   }
   @Post('confirm-checkout') async confirmCheckout(@Req() req:Request & {user:any},@Body() dto:StripeSessionInput) {
+    if(stagingDiagnosticsEnabled()&&!this.isStripeTestKey())throw new ServiceUnavailableException('Staging checkout requires a Stripe test-mode key.');
     const payment=await this.db.paymentReference.findUnique({where:{providerOrderId:dto.sessionId}});
     if(!payment||payment.provider!=='stripe'||payment.userId!==req.user.id)throw new NotFoundException('Stripe checkout session not found');
     if(payment.status==='COMPLETED')return {success:true,status:'COMPLETED'};
     if(payment.status!=='PENDING')throw new BadRequestException('Stripe checkout session cannot be confirmed');
     const session=await this.stripeRequest(`/checkout/sessions/${encodeURIComponent(dto.sessionId)}`);
-    const valid=session.mode==='payment'&&session.payment_status==='paid'&&session.client_reference_id===req.user.id&&session.metadata?.userId===req.user.id&&session.metadata?.intent==='PLATFORM_ACCESS'&&session.currency===payment.currency.toLowerCase()&&session.amount_total===payment.amountCents;
+    await activateVerifiedStripeSession(this.db,payment,session);
+    return {success:true,status:'COMPLETED'};
+  }
+}
+
+async function activateVerifiedStripeSession(db:DbService,payment:any,session:any) {
+    const valid=session.id===payment.providerOrderId&&(!stagingDiagnosticsEnabled()||session.livemode===false)&&session.mode==='payment'&&session.payment_status==='paid'&&session.client_reference_id===payment.userId&&session.metadata?.userId===payment.userId&&session.metadata?.intent==='PLATFORM_ACCESS'&&session.currency===payment.currency.toLowerCase()&&session.amount_total===payment.amountCents;
     if(!valid)throw new BadRequestException('Stripe payment verification failed');
-    await this.db.$transaction(async tx=>{
-      const updated=await tx.paymentReference.updateMany({where:{id:payment.id,status:'PENDING'},data:{status:'COMPLETED',providerCaptureId:dto.sessionId,metadata:{intent:'PLATFORM_ACCESS',stripeSessionId:dto.sessionId,paymentIntentId:session.payment_intent||null,paidAt:new Date().toISOString()}}});
+    await db.$transaction(async tx=>{
+      const updated=await tx.paymentReference.updateMany({where:{id:payment.id,status:'PENDING'},data:{status:'COMPLETED',providerCaptureId:session.id,metadata:{intent:'PLATFORM_ACCESS',stripeSessionId:session.id,paymentIntentId:session.payment_intent||null}}});
       if(!updated.count) {
         const current=await tx.paymentReference.findUnique({where:{id:payment.id}});
         if(current?.status==='COMPLETED')return;
         throw new BadRequestException('Stripe payment is already being confirmed');
       }
-      await tx.subscription.upsert({where:{userId:req.user.id},create:{userId:req.user.id,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}});
+      await tx.subscription.upsert({where:{userId:payment.userId},create:{userId:payment.userId,plan:'BASIC',status:'ACTIVE',billingType:'ONE_TIME',trialEndsAt:new Date()},update:{status:'ACTIVE',billingType:'ONE_TIME'}});
     });
-    return {success:true,status:'COMPLETED'};
+}
+
+// Stripe authenticates this endpoint with a signature over the original bytes.
+@Controller('payments/stripe/webhook')
+export class StripeWebhookController {
+  constructor(private db:DbService){}
+  @Post() async receive(@Req() req:Request) {
+    const secret=process.env.STRIPE_WEBHOOK_SECRET?.trim();
+    if(!secret)throw new ServiceUnavailableException('Stripe webhook is not configured');
+    const signature=req.headers['stripe-signature'];
+    if(!Buffer.isBuffer(req.body)||typeof signature!=='string')throw new BadRequestException('Invalid Stripe signature');
+    const parts=signature.split(',').map(part=>part.trim().split('='));
+    const timestamps=parts.filter(([key])=>key==='t').map(([,value])=>value);
+    if(timestamps.length!==1||!/^\d+$/.test(timestamps[0])||Math.abs(Date.now()/1000-Number(timestamps[0]))>300)throw new BadRequestException('Invalid Stripe signature');
+    const expected=createHmac('sha256',secret).update(timestamps[0]+'.').update(req.body).digest();
+    const valid=parts.some(([key,value])=>key==='v1'&&/^[a-f0-9]{64}$/i.test(value||'')&&timingSafeEqual(expected,Buffer.from(value,'hex')));
+    if(!valid)throw new BadRequestException('Invalid Stripe signature');
+    let event:any;
+    try { event=JSON.parse(req.body.toString('utf8')); } catch { throw new BadRequestException('Invalid Stripe event'); }
+    if(!event||typeof event!=='object')throw new BadRequestException('Invalid Stripe event');
+    const key=process.env.STRIPE_SECRET_KEY?.trim()||'';
+    const testKey=/^(sk|rk)_test_/.test(key);
+    if(!/^(sk|rk)_(test|live)_/.test(key))throw new ServiceUnavailableException('Stripe is not configured');
+    if(stagingDiagnosticsEnabled()&&(!testKey||event.livemode!==false))throw new BadRequestException('Staging requires test-mode events');
+    if(event.livemode!==!testKey)throw new BadRequestException('Stripe event mode does not match configuration');
+    if(!['checkout.session.completed','checkout.session.async_payment_succeeded'].includes(event.type))return {received:true};
+    const session=event.data?.object;
+    if(!session||typeof session.id!=='string')throw new BadRequestException('Invalid Stripe session');
+    if(session.payment_status!=='paid')return {received:true};
+    const payment=await this.db.paymentReference.findUnique({where:{providerOrderId:session.id}});
+    // An event can race the checkout response's local payment-reference write.
+    // Return a retryable failure instead of silently dropping a paid activation.
+    if(!payment||payment.provider!=='stripe')throw new ServiceUnavailableException('Checkout reference is not ready');
+    if(payment.status==='COMPLETED')return {received:true};
+    if(payment.status!=='PENDING')throw new BadRequestException('Checkout cannot be activated');
+    await activateVerifiedStripeSession(this.db,payment,session);
+    return {received:true};
   }
 }

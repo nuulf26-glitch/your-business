@@ -93,9 +93,10 @@ function Pricing() {
             <div style={{ display: "flex", gap: "20px", alignItems: "flex-start", borderTop: "1px solid #e5e5e0", paddingTop: "20px" }}>
               <span style={{ fontSize: "0.85rem", fontWeight: "600", color: "#666", fontFamily: "'Mograp', sans-serif" }}>03</span>
               <div>
-                <h3 style={{ fontSize: "1.1rem", fontWeight: "500", margin: "0 0 8px 0", color: "#111", fontFamily: "'Mograp', sans-serif" }}>30-day money-back guarantee</h3>
+                <h3 style={{ fontSize: "1.1rem", fontWeight: "500", margin: "0 0 8px 0", color: "#111", fontFamily: "'Mograp', sans-serif" }}>Start before you pay</h3>
                 <p style={{ color: "#555", fontSize: "0.95rem", lineHeight: "1.5", margin: 0, fontFamily: "'Mograp', sans-serif" }}>
-                  Activate your account with a one-time payment. If it is not right for you, cancel within 30 days for a full refund.
+                  Start with a private website preview. When you are ready,
+                  lifetime access is a one-time $246 payment. Your payment includes a full refund within 30 days.
                 </p>
               </div>
             </div>
@@ -139,7 +140,7 @@ function Pricing() {
 
             <button
               type="button"
-              onClick={() => navigate("/signup")}
+              onClick={() => navigate("/try")}
               style={{
                 background: "#111",
                 color: "#fff",
@@ -155,11 +156,14 @@ function Pricing() {
                 marginBottom: "10px"
               }}
             >
-              Create your account to activate CYB
+              Build Your Website for Free
             </button>
 
             <p style={{ textAlign: "center", fontSize: "0.80rem", color: "#666", margin: "0 0 30px 0", fontFamily: "'Mograp', sans-serif" }}>
-              One-time payment · Full refund available within 30 days
+              No payment required to create your account
+            </p>
+            <p style={{ textAlign: "center", fontSize: "0.80rem", color: "#666", margin: "-22px 0 30px 0", fontFamily: "'Mograp', sans-serif" }}>
+              Full refund available within 30 days after payment
             </p>
 
             <div style={{ borderTop: "1px solid #e5e5e0", paddingTop: "30px" }}>
