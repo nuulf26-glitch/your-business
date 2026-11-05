@@ -167,4 +167,32 @@ function Pricing() {
             </p>
 
             <div style={{ borderTop: "1px solid #e5e5e0", paddingTop: "30px" }}>
-              <h4 style={{ fontSize
+              <h4 style={{ fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "1.5px", color: "#888", margin: "0 0 20px 0", fontFamily: "'Mograp', sans-serif" }}>Everything included:</h4>
+
+              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "12px" }}>
+                {includedFeatures.map((feature) => (
+                  <li key={feature} style={{ display: "flex", alignItems: "center", gap: "12px", fontSize: "0.9rem", color: "#333", fontFamily: "'Mograp', sans-serif" }}>
+                    <span style={{ color: "#111", fontWeight: "bold" }}>✓</span>
+                    <p style={{ margin: 0 }}>{feature}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </article>
+
+        </div>
+
+        {/* Bottom Note */}
+        <div style={{ borderTop: "1px solid #e5e5e0", paddingTop: "25px", textAlign: "center" }}>
+          <p style={{ color: "#666", fontSize: "0.85rem", margin: 0, fontFamily: "'Mograp', sans-serif" }}>
+            Payment processing fees, custom domains, and third-party delivery
+            services may have separate charges from their providers.
+          </p>
+        </div>
+
+      </div>
+    </section>
+  );
+}
+
+export default Pricing;

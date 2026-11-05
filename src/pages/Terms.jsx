@@ -124,3 +124,45 @@ function Terms() {
               Accounts may be restricted or terminated when these terms are
               violated, payments are overdue, illegal activity is suspected,
               or continued access creates a security or legal risk.
+            </p>
+          </article>
+
+          <article>
+            <h2>12. Service availability</h2>
+            <p>
+              The platform may occasionally be unavailable because of updates,
+              maintenance, technical problems, or events outside our control.
+            </p>
+          </article>
+
+          <article>
+            <h2>13. Limitation of liability</h2>
+            <p>
+              To the extent permitted by law, the platform is not responsible
+              for indirect losses, lost profits, business interruptions, or
+              disputes between business owners and customers.
+            </p>
+          </article>
+
+          <article>
+            <h2>14. Changes to these terms</h2>
+            <p>
+              These terms may be updated from time to time. Continued use of
+              the platform after an update means you accept the revised terms.
+            </p>
+          </article>
+
+          <article>
+            <h2>15. Contact</h2>
+            <p>
+              Questions about these terms may be sent to:
+              legal@yourbusiness.example
+            </p>
+          </article>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+export default Terms;

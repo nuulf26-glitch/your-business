@@ -131,4 +131,26 @@ function PlatformPayment() {
             Complete the one-time payment to activate your account.
           </p>
           <p className="platform-payment-guarantee">
-            Cancel within 30 days for a full refu
+            Cancel within 30 days for a full refund.
+          </p>
+
+          {error && (
+            <div className="platform-payment-error">
+              {error}
+            </div>
+          )}
+
+          <button type="button" className="platform-stripe-button" onClick={startStripeCheckout} disabled={stripeLoading}>
+            {stripeLoading ? "Checking payment…" : "Pay securely with Stripe"}
+          </button>
+
+          <small>
+            Your account activates only after the payment provider confirms your payment.
+          </small>
+        </section>
+      </main>
+    </div>
+  );
+}
+
+export default PlatformPayment;

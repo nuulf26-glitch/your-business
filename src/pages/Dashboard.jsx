@@ -510,4 +510,106 @@ const [userProfile, setUserProfile] = useState(null);
                 onClick={() => navigate("/orders")}
               >
                 View all
- 
+              </button>
+            </div>
+
+            {recentOrders.length === 0 ? (
+              <div className="dashboard-empty-state">
+                <h3>No orders yet</h3>
+                <p>
+                  Recent customer orders will appear here.
+                </p>
+              </div>
+            ) : (
+              <div className="dashboard-orders-table">
+                <div className="dashboard-order-row header">
+                  <span>Order</span>
+                  <span>Customer</span>
+                  <span>Product</span>
+                  <span>Total</span>
+                  <span>Status</span>
+                </div>
+
+                {recentOrders.map((order) => {
+                  const status = getOrderStatus(order);
+
+                  return (
+                    <div
+                      className="dashboard-order-row"
+                      key={order.id}
+                    >
+                      <strong>
+                        #{getOrderId(order)}
+                      </strong>
+
+                      <span>
+                        {getCustomerName(order)}
+                      </span>
+
+                      <span>
+                        {order.productName || "Product"}
+                      </span>
+
+                      <span>
+                        {formatCurrency(order.total)}
+                      </span>
+
+                      <span
+                        className={`dashboard-status ${getStatusClass(
+                          status
+                        )}`}
+                      >
+                        {status}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </article>
+
+          <article className="dashboard-card dashboard-quick-card">
+            <div className="dashboard-card-heading">
+              <div>
+                <span>Quick actions</span>
+                <h2>Keep building</h2>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => navigate("/products")}
+            >
+              Add a new product
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate("/editor")}
+            >
+              Customize website
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate("/orders")}
+            >
+              Manage orders
+            </button>
+
+            <button
+              type="button"
+              onClick={() => navigate("/customers")}
+            >
+              View customers
+            </button>
+          </article>
+        </section>
+          </>
+        )}
+      </main>
+    </div>
+  );
+}
+
+export default Dashboard;
