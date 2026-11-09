@@ -1,7 +1,6 @@
 import { cacheAppUser, clearCustomBackendSession, customBackendRequest, notifyAppUserChanged } from './customBackendSession';
 
 function acceptSession(user) {
-  if (user?.accessToken) sessionStorage.setItem('getcyb_session_token', user.accessToken);
   if (user?.id) localStorage.setItem('getcyb_account_id', user.id);
   cacheAppUser(user);
   notifyAppUserChanged();
@@ -19,6 +18,13 @@ export async function login(email, password) {
   return acceptSession(await customBackendRequest('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
+  }));
+}
+
+export async function googleSignIn(idToken, acceptedTerms = false) {
+  return acceptSession(await customBackendRequest('/auth/google', {
+    method: 'POST',
+    body: JSON.stringify({ idToken, acceptedTerms }),
   }));
 }
 

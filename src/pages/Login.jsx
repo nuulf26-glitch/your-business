@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { login } from "../services/authService";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 
 import "../styles/auth.css";
 
@@ -31,8 +32,6 @@ await login(email.trim(), password);
 
       navigate("/dashboard");
     } catch (loginError) {
-      console.error(loginError);
-
       if (loginError.status === 400 ||
         loginError.code === "auth/invalid-credential" ||
         loginError.code === "auth/wrong-password" ||
@@ -43,6 +42,8 @@ await login(email.trim(), password);
         setError("Please enter a valid email address.");
       } else if (loginError.code === "auth/too-many-requests") {
         setError("Too many attempts. Please wait and try again.");
+      } else if (loginError.status === 429) {
+        setError("Too many attempts. Please wait a minute and try again.");
       } else {
         setError("We could not log you in. Please try again.");
       }
@@ -122,6 +123,7 @@ await login(email.trim(), password);
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="name@example.com"
                 autoComplete="email"
+                required
               />
             </div>
 
@@ -140,6 +142,7 @@ await login(email.trim(), password);
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder="Enter your password"
                   autoComplete="current-password"
+                  required
                 />
 
                 <button
@@ -152,6 +155,8 @@ await login(email.trim(), password);
             </div>
 
             {error && <p className="auth-error">{error}</p>}
+
+            <GoogleSignInButton />
 
             <button
               type="submit"
