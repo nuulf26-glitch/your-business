@@ -7,7 +7,9 @@ import { useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
 import { getOrders } from "../services/orderService";
 import { getCustomers } from "../services/customerService";
-import { getAppUser, customBackendRequest } from "../services/customBackendSession";
+import { customBackendRequest, getAppUser } from "../services/customBackendSession";
+import { loadWebsiteRecord } from "../editor/versionService";
+import { websitePublicationStatus } from "../editor/websiteStatus";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -25,36 +27,58 @@ function Dashboard() {
 const [customers, setCustomers] = useState([]);
 const [products, setProducts] = useState([]);
 const [userProfile, setUserProfile] = useState(null);
-const [refundLoading, setRefundLoading] = useState(false);
-const [refundMessage, setRefundMessage] = useState("");
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundMessage, setRefundMessage] = useState("");
+  const [websiteRecord, setWebsiteRecord] = useState(null);
+  const [websiteStatus, setWebsiteStatus] = useState("Checking…");
+  const [stripeStatus, setStripeStatus] = useState(null);
+  const [stripeStatusError, setStripeStatusError] = useState("");
+  const [stripeStatusLoading, setStripeStatusLoading] = useState(false);
+  const [dashboardLoadState, setDashboardLoadState] = useState("loading");
+  const [dashboardRetryCount, setDashboardRetryCount] = useState(0);
   useEffect(() => {
+    let active = true;
+
     async function loadDashboardData() {
+      setDashboardLoadState("loading");
       try {
         const user = await getAppUser();
+        if (!active) return;
         setUserProfile(user || null);
         if (!user) {
-          setOrders([]);
-          setCustomers([]);
+          navigate("/login", { replace: true });
           return;
         }
 
-        const currentStore = await getStore();
-        setStore(currentStore);
-        setProducts(await getProducts());
-        const [ordersData, customersData] = await Promise.all([getOrders(), getCustomers()]);
+        const [storeResult, websiteResult, productResult, ordersResult, customersResult] = await Promise.allSettled([getStore(), loadWebsiteRecord(), getProducts(), getOrders(), getCustomers()]);
+        if (!active) return;
+        const failedResult = [storeResult, websiteResult, productResult, ordersResult, customersResult].find((result) => result.status === "rejected");
+        if (failedResult) throw failedResult.reason;
+
+        if (storeResult.status === 'fulfilled') setStore(storeResult.value);
+        if (websiteResult.status === 'fulfilled') {
+          setWebsiteRecord(websiteResult.value);
+          setWebsiteStatus(websitePublicationStatus(websiteResult.value));
+        } else setWebsiteStatus('Unavailable');
+        if (productResult.status === 'fulfilled') setProducts(productResult.value);
+        const ordersData = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
+        const customersData = customersResult.status === 'fulfilled' ? customersResult.value : [];
         setOrders(ordersData);
         setCustomers(customersData);
+        setDashboardLoadState("ready");
 
       } catch (error) {
         console.error(
           "Could not load dashboard data:",
           error
         );
+        if (active) setDashboardLoadState("error");
       }
     }
 
     loadDashboardData();
-  }, []);
+    return () => { active = false; };
+  }, [dashboardRetryCount, navigate]);
   async function requestRefund() {
     if (!window.confirm("Cancel your CYB access and refund the $246 lifetime payment?")) return;
     setRefundLoading(true);
@@ -71,7 +95,8 @@ const [refundMessage, setRefundMessage] = useState("");
   }
 
   const websiteSetup = store;
-  const editorData = store?.draftEditorData || store?.editorData;
+  const isStaging = window.location.hostname === "getcyb-staging-web.onrender.com";
+  const editorData = websiteRecord?.draft || store?.draftEditorData || store?.editorData;
   const businessName = editorData?.brandName || store?.businessName || store?.storeName || 'Your Business';
   const selectedTemplate = editorData?.template || store?.template || 'minimal';
   const metrics = useMemo(() => orderMetrics(orders), [orders]);
@@ -186,7 +211,22 @@ const [refundMessage, setRefundMessage] = useState("");
         </div>
       </aside>
 
-      <main className="dashboard-main">
+      <main className="dashboard-main" aria-busy={dashboardLoadState === "loading"}>
+        {dashboardLoadState === "loading" ? (
+          <div className="dashboard-load-state" role="status" aria-live="polite">
+            <span className="dashboard-loading-indicator" aria-hidden="true" />
+            <p>Loading your business dashboard…</p>
+          </div>
+        ) : dashboardLoadState === "error" ? (
+          <div className="dashboard-load-state dashboard-load-error" role="alert">
+            <h1>We couldn’t load your dashboard.</h1>
+            <p>Your business data is unchanged. Check your connection and try again.</p>
+            <button type="button" className="dashboard-primary-button" onClick={() => setDashboardRetryCount((count) => count + 1)}>
+              Try again
+            </button>
+          </div>
+        ) : (
+          <>
         <header className="dashboard-header">
           <div>
             <span>Business dashboard</span>
@@ -223,11 +263,14 @@ const [refundMessage, setRefundMessage] = useState("");
           </div>
         </header>
 <section className="dashboard-payment-card">
+
   {userProfile?.paid ? (
     <>
       <span>Account status</span>
       <h2>Active account ✅</h2>
-      <p>Your Business platform is unlocked.</p>
+      <p>
+        Your Business platform is unlocked.
+      </p>
       <p>You can cancel and request a full refund within 30 days of payment.</p>
       <button type="button" className="dashboard-secondary-button" onClick={requestRefund} disabled={refundLoading}>
         {refundLoading ? "Processing refund…" : "Cancel account & get refund"}
@@ -235,14 +278,58 @@ const [refundMessage, setRefundMessage] = useState("");
     </>
   ) : (
     <>
-      <span>Account inactive</span>
-      <h2>Activate your account</h2>
-      <p>Complete your payment to unlock your website builder, store, and dashboard features.</p>
-      <button type="button" className="dashboard-primary-button" onClick={() => navigate("/platform-payment")}>Pay Now</button>
+      <span>Account status</span>
+      <h2>Your account is ready</h2>
+      <p>
+        Your draft is saved. Activate CYB Lifetime Access with a one-time
+        $246 payment to publish your website and unlock the full platform.
+      </p>
+
+      <button
+        type="button"
+        className="dashboard-primary-button"
+        onClick={() => navigate("/platform-payment")}
+      >
+        Activate for $246 — one-time
+      </button>
     </>
   )}
   {refundMessage && <p role="status">{refundMessage}</p>}
+
 </section>
+        {isStaging && (
+          <section className="dashboard-payment-card" aria-labelledby="staging-stripe-title">
+            <span>Staging diagnostics</span>
+            <h2 id="staging-stripe-title">Verify Stripe test mode</h2>
+            <p>Read-only check. No checkout or payment is created.</p>
+            <button
+              type="button"
+              className="dashboard-secondary-button"
+              disabled={stripeStatusLoading}
+              onClick={async () => {
+                setStripeStatusLoading(true);
+                setStripeStatusError("");
+                try {
+                  setStripeStatus(await customBackendRequest("/payments/stripe/staging-status"));
+                } catch (error) {
+                  setStripeStatusError(error instanceof Error ? error.message : "Could not verify Stripe configuration.");
+                } finally {
+                  setStripeStatusLoading(false);
+                }
+              }}
+            >
+              {stripeStatusLoading ? "Checking…" : "Check test-mode status"}
+            </button>
+            {stripeStatus && (
+              <p role="status" aria-live="polite">
+                {stripeStatus.verified && stripeStatus.amountCents === 24600
+                  ? `Verified test mode · $${(stripeStatus.amountCents / 100).toFixed(2)} ${stripeStatus.currency?.toUpperCase()}`
+                  : `Test mode: ${stripeStatus.testMode ? "yes" : "no"} · Verified: ${stripeStatus.verified ? "yes" : "no"} · Amount: ${stripeStatus.amountCents == null ? "invalid" : `$${(stripeStatus.amountCents / 100).toFixed(2)}`} ${stripeStatus.currency?.toUpperCase() || ""}`}
+              </p>
+            )}
+            {stripeStatusError && <p role="alert">{stripeStatusError}</p>}
+          </section>
+        )}
         <button type="button" className="dashboard-secondary-button" onClick={() => navigate('/business')}>Business workspace ↗</button>
         <section className="dashboard-stats-grid"><article className="dashboard-stat-card"><span>Net profit</span><strong>{metrics.profit == null ? 'Not available' : formatCurrency(metrics.profit)}</strong><p>{metrics.profit == null ? 'Add order cost of goods and expenses to calculate profit.' : 'Based on recorded order costs and expenses.'}</p></article><article className="dashboard-stat-card"><span>Profit margin</span><strong>{metrics.margin == null ? '—' : `${metrics.margin.toFixed(1)}%`}</strong></article></section>
         {/* Top Stat Summary Grid */}
@@ -380,10 +467,7 @@ const [refundMessage, setRefundMessage] = useState("");
               <div>
                 <span>Status</span>
                 <strong>
-                  {localStorage.getItem("websitePublished") ===
-                  "true"
-                    ? "Published"
-                    : "Draft"}
+                  {websiteStatus}
                 </strong>
               </div>
 
@@ -521,6 +605,8 @@ const [refundMessage, setRefundMessage] = useState("");
             </button>
           </article>
         </section>
+          </>
+        )}
       </main>
     </div>
   );

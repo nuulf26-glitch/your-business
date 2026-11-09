@@ -8,10 +8,7 @@ export class SessionGuard implements CanActivate {
   constructor(private readonly db: DbService) {}
   async canActivate(context: ExecutionContext) {
     const req = context.switchToHttp().getRequest();
-    const bearer = process.env.AUTH_BEARER_ENABLED === 'true'
-      ? String(req.headers?.authorization || '').match(/^Bearer\s+(.+)$/i)?.[1]
-      : undefined;
-    const token = req.cookies?.getcyb_session || bearer;
+    const token = req.cookies?.getcyb_session;
     if (!token) throw new UnauthorizedException('Sign in required');
     const session = await this.db.session.findUnique({ where: { tokenHash: tokenHash(token) }, include: { user: true } });
     if (!session || session.expiresAt <= new Date()) throw new UnauthorizedException('Session expired');

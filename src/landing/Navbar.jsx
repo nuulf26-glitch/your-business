@@ -117,7 +117,7 @@ function Navbar() {
           <button
             type="button"
             className="navbar-signup-button"
-            onClick={() => navigate("/signup")}
+            onClick={() => navigate("/try")}
           >
             Try it free
           </button>

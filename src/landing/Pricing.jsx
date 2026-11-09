@@ -95,8 +95,8 @@ function Pricing() {
               <div>
                 <h3 style={{ fontSize: "1.1rem", fontWeight: "500", margin: "0 0 8px 0", color: "#111", fontFamily: "'Mograp', sans-serif" }}>Start before you pay</h3>
                 <p style={{ color: "#555", fontSize: "0.95rem", lineHeight: "1.5", margin: 0, fontFamily: "'Mograp', sans-serif" }}>
-                  Create your website draft first. Activate lifetime access with a
-                  one-time $246 payment when you are ready to publish.
+                  Start with a private website preview. When you are ready,
+                  lifetime access is a one-time $246 payment.
                 </p>
               </div>
             </div>
@@ -140,7 +140,7 @@ function Pricing() {
 
             <button
               type="button"
-              onClick={() => navigate("/signup")}
+              onClick={() => navigate("/try")}
               style={{
                 background: "#111",
                 color: "#fff",
