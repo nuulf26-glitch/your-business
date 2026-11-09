@@ -2,9 +2,9 @@ import { useNavigate } from "react-router-dom";
 import "./landing.css";
 
 const steps = [
-  { number: "01", title: "Create your account", text: "Sign up in minutes and start building your business website." },
-  { number: "02", title: "Customize your website", text: "Choose your colors, fonts, layouts, products, and website sections without writing code." },
-  { number: "03", title: "Publish when you are ready", text: "Activate lifetime access to publish your website and start managing customer orders." },
+  { number: "01", title: "Describe your business", text: "Create your account, then share what you do and the look you have in mind." },
+  { number: "02", title: "Edit your website draft", text: "Edit your website draft. Adjust the copy, colors, type and section order, then preview it on desktop or mobile." },
+  { number: "03", title: "Join CYB when you are ready", text: "Edit your website draft and activate lifetime access when you are ready to publish." },
 ];
 
 function HowItWorks() {
@@ -66,7 +66,7 @@ function HowItWorks() {
                 fontFamily: "'Mograp', sans-serif",
               }}
             >
-              Start building →
+              Build Your Website for Free →
             </button>
           </div>
         </div>
@@ -98,7 +98,7 @@ function HowItWorks() {
               Make changes visually. See every update instantly.
             </h3>
             <p style={{ color: "#555", fontSize: "1rem", lineHeight: "1.6", fontFamily: "'Mograp', sans-serif" }}>
-              Build your website draft, adjust its content and design, then activate lifetime access when you are ready to publish.
+              Create a website draft first. Change its copy, colors, typography and section order before activating CYB.
             </p>
           </div>
 
@@ -109,11 +109,11 @@ function HowItWorks() {
             </div>
             <div>
               <strong style={{ display: "block", fontSize: "1rem", marginBottom: "8px", color: "#111", fontFamily: "'Mograp', sans-serif" }}>− Remove anything</strong>
-              <p style={{ color: "#666", fontSize: "0.9rem", margin: 0, fontFamily: "'Mograp', sans-serif" }}>Reorder sections and tailor your headlines and descriptions.</p>
+              <p style={{ color: "#666", fontSize: "0.9rem", margin: 0, fontFamily: "'Mograp', sans-serif" }}>Reorder the sections and tailor the headline and intro.</p>
             </div>
             <div>
               <strong style={{ display: "block", fontSize: "1rem", marginBottom: "8px", color: "#111", fontFamily: "'Mograp', sans-serif" }}>✓ Save your design</strong>
-              <p style={{ color: "#666", fontSize: "0.9rem", margin: 0, fontFamily: "'Mograp', sans-serif" }}>Preview your changes on desktop, tablet, and mobile before publishing.</p>
+              <p style={{ color: "#666", fontSize: "0.9rem", margin: 0, fontFamily: "'Mograp', sans-serif" }}>Preview changes on desktop, tablet and mobile. Publishing needs activation.</p>
             </div>
           </div>
         </div>

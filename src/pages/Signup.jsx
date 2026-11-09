@@ -5,7 +5,7 @@ import { register } from "../services/authService";
 function Signup() {
   const navigate = useNavigate();
 
-  const [businessName, setBusinessName] = useState("");
+  const [businessName, setBusinessName] = useState(() => new URLSearchParams(window.location.search).get("businessName") || "");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,8 +36,6 @@ async function handleSignup(event) {
     try {
       setLoading(true);
 
-      // Keep the current production API contract; consent is required by this
-      // form but the existing API does not accept an acceptedTerms field.
       await register(email.trim(), password, { fullName: fullName.trim(), businessName: businessName.trim() });
       navigate(new URLSearchParams(window.location.search).get("activate") === "1" ? "/platform-payment" : "/dashboard", { replace: true });
     } catch (signupError) {
@@ -79,7 +77,7 @@ async function handleSignup(event) {
           <div className="auth-benefits">
             <div>
               <span>01</span>
-              <p>Private website preview</p>
+              <p>Website draft before publishing</p>
             </div>
 
             <div>
@@ -111,8 +109,9 @@ async function handleSignup(event) {
             <h2>Start building your website</h2>
 
               <p>
-              Enter your details to start building your website. CYB Lifetime
-              Access is a one-time $246 payment, required before publishing.
+              Enter your details to start building your website. Customize its design
+              and products before publishing. CYB Lifetime Access is a one-time
+              $246 payment.
             </p>
           </div>
 
