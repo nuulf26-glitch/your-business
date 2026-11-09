@@ -2,36 +2,9 @@ import { useNavigate } from "react-router-dom";
 import "./landing.css";
 
 const steps = [
-  {
-    number: "01",
-    title: "Create your account",
-    text: "Sign up in minutes and access everything you need to start building your online business.",
-  },
-  {
-    number: "02",
-    title: "Choose a template",
-    text: "Select a professionally designed template that matches your business and style.",
-  },
-  {
-    number: "03",
-    title: "Upload your brand",
-    text: "Add your logo, cover images, product photos, and business information directly from your device.",
-  },
-  {
-    number: "04",
-    title: "Customize everything",
-    text: "Choose your colors, fonts, layouts, product cards, and website sections without writing code.",
-  },
-  {
-    number: "05",
-    title: "Add your products",
-    text: "Upload products, set prices in USD, organize categories, and prepare your store for customers.",
-  },
-  {
-    number: "06",
-    title: "Publish and start selling",
-    text: "Launch your website, receive orders, manage customers, and track your business performance.",
-  },
+  { number: "01", title: "Create your account", text: "Sign up in minutes and start building your business website." },
+  { number: "02", title: "Customize your website", text: "Choose your colors, fonts, layouts, products, and website sections without writing code." },
+  { number: "03", title: "Publish when you are ready", text: "Activate lifetime access to publish your website and start managing customer orders." },
 ];
 
 function HowItWorks() {
@@ -68,8 +41,8 @@ function HowItWorks() {
               textTransform: "lowercase",
               fontFamily: "'Mograp', sans-serif"
             }}>
-              From idea to online store <br/>
-              <span style={{ color: "#666" }}>in six simple steps.</span>
+              From idea to online business <br/>
+              <span style={{ color: "#666" }}>in three simple steps.</span>
             </h2>
           </div>
 
@@ -93,7 +66,7 @@ function HowItWorks() {
                 fontFamily: "'Mograp', sans-serif",
               }}
             >
-              Start Building →
+              Start building →
             </button>
           </div>
         </div>
@@ -125,22 +98,22 @@ function HowItWorks() {
               Make changes visually. See every update instantly.
             </h3>
             <p style={{ color: "#555", fontSize: "1rem", lineHeight: "1.6", fontFamily: "'Mograp', sans-serif" }}>
-              Add sections, remove sections, change colors, upload images, rearrange content, and preview your website before publishing.
+              Build your website draft, adjust its content and design, then activate lifetime access when you are ready to publish.
             </p>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "30px", borderTop: "1px solid #dcdad4", paddingTop: "40px" }}>
             <div>
               <strong style={{ display: "block", fontSize: "1rem", marginBottom: "8px", color: "#111", fontFamily: "'Mograp', sans-serif" }}>+ Add sections</strong>
-              <p style={{ color: "#666", fontSize: "0.9rem", margin: 0, fontFamily: "'Mograp', sans-serif" }}>Build your page with ready-made blocks.</p>
+              <p style={{ color: "#666", fontSize: "0.9rem", margin: 0, fontFamily: "'Mograp', sans-serif" }}>Start with a professional website layout for your business.</p>
             </div>
             <div>
               <strong style={{ display: "block", fontSize: "1rem", marginBottom: "8px", color: "#111", fontFamily: "'Mograp', sans-serif" }}>− Remove anything</strong>
-              <p style={{ color: "#666", fontSize: "0.9rem", margin: 0, fontFamily: "'Mograp', sans-serif" }}>Keep only the sections your business needs.</p>
+              <p style={{ color: "#666", fontSize: "0.9rem", margin: 0, fontFamily: "'Mograp', sans-serif" }}>Reorder sections and tailor your headlines and descriptions.</p>
             </div>
             <div>
               <strong style={{ display: "block", fontSize: "1rem", marginBottom: "8px", color: "#111", fontFamily: "'Mograp', sans-serif" }}>✓ Save your design</strong>
-              <p style={{ color: "#666", fontSize: "0.9rem", margin: 0, fontFamily: "'Mograp', sans-serif" }}>Preview and publish when everything looks right.</p>
+              <p style={{ color: "#666", fontSize: "0.9rem", margin: 0, fontFamily: "'Mograp', sans-serif" }}>Preview your changes on desktop, tablet, and mobile before publishing.</p>
             </div>
           </div>
         </div>

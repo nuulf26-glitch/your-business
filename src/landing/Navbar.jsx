@@ -119,7 +119,7 @@ function Navbar() {
             className="navbar-signup-button"
             onClick={() => navigate("/signup")}
           >
-            Start free
+            Start building
           </button>
 
           <button
