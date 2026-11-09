@@ -18,10 +18,13 @@ const faqs = [
       "Yes. You can connect your own custom domain whenever you're ready.",
   },
   {
-    question: "Can I build before paying?",
-    answer: "Yes. Create an account and customize your website draft. Publishing requires CYB Lifetime Access.",
+    question: "What can I do before paying?",
+    answer: "Create a free account to build and edit a website draft. Publishing is available after CYB Lifetime Access is activated.",
   },
-  { question: "How much is lifetime access?", answer: "CYB Lifetime Access is a one-time payment of $246 USD. The 30-day refund terms are explained in our Terms of Service." },
+  { question: "Can I build my website before paying?", answer: "Yes. Create a free account and work on your website draft. Activate lifetime access when you are ready to publish." },
+  { question: "How much is lifetime access?", answer: "CYB Lifetime Access is a one-time payment of $246 USD. Review the current Terms of Service for the applicable 30-day refund terms." },
+  { question: "Can I save my website draft?", answer: "Yes. Your website changes are saved to your account so you can return and continue editing." },
+  { question: "When can I publish my website?", answer: "You can publish after activating CYB Lifetime Access with the one-time payment." },
   {
     question: "Can I edit my website later?",
     answer:
