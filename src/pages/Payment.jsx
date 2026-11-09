@@ -38,7 +38,7 @@ async function completeOrder(paymentStatus, orderStatus) {
       completedAt: new Date().toISOString(),
     };
 if (order.backendId) {
-  if (paymentMethod === 'cash') await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/cash-on-delivery`, { method: 'POST', body: JSON.stringify({ data: { completedAt: new Date().toISOString() } }) });
+  if (paymentMethod === 'cash') await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/cash-on-delivery`, { method: 'POST', body: JSON.stringify({ token: order.cashOnDeliveryToken }) });
   else await customBackendRequest(`/orders/${encodeURIComponent(order.backendId)}`, { method: 'PATCH', body: JSON.stringify({ data: { paymentMethod, paymentStatus, completedAt: new Date().toISOString() } }) });
 } else {
   throw new Error('This order is not connected to the custom backend.');

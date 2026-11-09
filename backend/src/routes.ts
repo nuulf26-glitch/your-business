@@ -13,6 +13,7 @@ import { MailService } from './mail';
 import { publicWebsite, publicationDifferencePaths, validateWebsite } from './website-policy';
 import { applyAiWebsiteOperations, normalizeGeneratedWebsite } from './ai-website';
 import { allocate, localParts } from './availability';
+import { expectedStripeMode, stripeKeyMode, stripeModeMatchesApplication } from './stripe-mode';
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 function stagingDiagnosticsEnabled(){
@@ -404,8 +405,8 @@ export class CustomerController {
 @UseGuards(SessionGuard)
 export class OrderController {
   constructor(private db:DbService){}
-  @Get() async list(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)return [];return this.db.order.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'},take:300});}
-  @Get(':id') async one(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const row=await this.db.order.findFirst({where:{id:String(req.params['id']),businessId:b.id}});if(!row)throw new NotFoundException('Order not found');return {...(row.data as object),id:row.id,status:row.status,createdAt:row.createdAt};}
+  @Get() async list(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)return [];return (await this.db.order.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'},take:300})).map(row=>({...row,data:publicOrderData(row.data)}));}
+  @Get(':id') async one(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const row=await this.db.order.findFirst({where:{id:String(req.params['id']),businessId:b.id}});if(!row)throw new NotFoundException('Order not found');return {...publicOrderData(row.data),id:row.id,status:row.status,createdAt:row.createdAt};}
   @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const data=dto.data as Record<string,any>;const amount=Number(data.total??data.amount);return this.db.order.create({data:{businessId:b.id,status:String(data.status||'pending'),amountCents:Number.isFinite(amount)?Math.round(amount*100):null,currency:String(data.currency||'USD'),data:data as any}});}
   @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:OrderStatusInput){
     const valid=['new','pending','paid','processing','shipped','delivered','cancelled','refunded'];if(!valid.includes(dto.status.toLowerCase()))throw new BadRequestException('Invalid order status');
@@ -413,17 +414,31 @@ export class OrderController {
     const id=String(req.params['id']);const result=await this.db.order.updateMany({where:{id,businessId:b.id},data:{status:dto.status.toLowerCase()}});if(!result.count)throw new NotFoundException('Order not found');
     return this.db.order.findUnique({where:{id}});
   }
-  @Patch(':id') async updateDetails(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const row=await this.db.order.findFirst({where:{id,businessId:b.id}});if(!row)throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...dto.data};const result=await this.db.order.update({where:{id},data:{data:data as any}});return {...(result.data as object),id:result.id,status:result.status,createdAt:result.createdAt};}
+  @Patch(':id') async updateDetails(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const row=await this.db.order.findFirst({where:{id,businessId:b.id}});if(!row)throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...dto.data};const result=await this.db.order.update({where:{id},data:{data:data as any}});return {...publicOrderData(result.data),id:result.id,status:result.status,createdAt:result.createdAt};}
   @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const result=await this.db.order.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Order not found');return {deleted:true};}
 }
 
 // Customer checkout is intentionally public. The order is attached to a published
 // business by its public slug; private order reads remain owner-scoped above.
+function publicOrderData(value: unknown): Record<string, unknown> {
+  const data = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const { customerActionTokenHash: _privateTokenHash, ...publicData } = data;
+  return publicData;
+}
+
+function authoritativeProductPrice(productData: Record<string, unknown>) {
+  const salePrice = productData.salePrice;
+  const raw = salePrice !== undefined && salePrice !== null && String(salePrice).trim() !== ''
+    ? salePrice
+    : productData.sellingPrice ?? productData.price ?? 0;
+  return Number(raw);
+}
+
 @Controller('public/orders')
 export class PublicOrderController {
   constructor(private db:DbService){}
-  @Post() async create(@Body() dto:JsonInput){const data=dto.data as Record<string,any>;const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===String(item.id||item.productId||'')),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||(product.data as any)?.status==='hidden')throw new BadRequestException('A product in this order is unavailable');const p=product.data as any,price=Number(p.salePrice||p.sellingPrice||p.price||0);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');return {...item,id:product.id,name:product.name,price,quantity};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),shipping=subtotal>=300?0:25,amount=subtotal+shipping;const normalized={...data,items,subtotal,shipping,total:amount,currency:'USD',status:'New',paymentStatus:'Pending',createdAt:new Date().toISOString()};const order=await this.db.$transaction(async tx=>{const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:'USD',data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0)+amount};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;});return {...(order.data as object),id:order.id,status:order.status,createdAt:order.createdAt};}
-  @Post(':id/cash-on-delivery') async setCashOnDelivery(@Req() req:Request,@Body() dto:JsonInput){const id=String(req.params['id']);const row=await this.db.order.findUnique({where:{id}});if(!row||row.status!=='new')throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...(dto.data||{}),paymentMethod:'cash',paymentStatus:'Cash on delivery'};await this.db.order.update({where:{id},data:{data:data as any}});return {ok:true};}
+  @Post() async create(@Body() dto:JsonInput){const data=dto.data as Record<string,any>;const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===String(item.id||item.productId||'')),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||(product.data as any)?.status==='hidden')throw new BadRequestException('A product in this order is unavailable');const price=authoritativeProductPrice(product.data as Record<string,unknown>);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');return {...item,id:product.id,name:product.name,price,quantity};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),shipping=subtotal>=300?0:25,amount=subtotal+shipping,customerActionToken=randomBytes(32).toString('base64url');const normalized={...data,items,subtotal,shipping,total:amount,currency:'USD',status:'New',paymentStatus:'Pending',createdAt:new Date().toISOString(),customerActionTokenHash:tokenHash(customerActionToken)};const order=await this.db.$transaction(async tx=>{const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:'USD',data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0)+amount};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;});return {...publicOrderData(order.data),id:order.id,status:order.status,createdAt:order.createdAt,cashOnDeliveryToken:customerActionToken};}
+  @Post(':id/cash-on-delivery') async setCashOnDelivery(@Req() req:Request,@Body() dto:TokenInput){const id=String(req.params['id']);const row=await this.db.order.findUnique({where:{id}});const storedHash=(row?.data as any)?.customerActionTokenHash;if(!row||row.status!=='new'||typeof storedHash!=='string'||!/^[a-f0-9]{64}$/i.test(storedHash)||!timingSafeEqual(Buffer.from(tokenHash(dto.token),'hex'),Buffer.from(storedHash,'hex')))throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),paymentMethod:'cash',paymentStatus:'Cash on delivery',completedAt:new Date().toISOString()};const result=await this.db.order.updateMany({where:{id,status:'new'},data:{data:data as any}});if(!result.count)throw new NotFoundException('Order not found');return {ok:true};}
 }
 
 function deterministicTrialWebsite(prompt:string){
@@ -585,7 +600,7 @@ function legacyMediaStore() {
 export class StripeController {
   constructor(private db:DbService){}
   private isStripeTestKey(key=process.env.STRIPE_SECRET_KEY||'') {
-    return /^(sk|rk)_test_/.test(key.trim());
+    return stripeKeyMode(key)==='test';
   }
   private async stripeRequest(path:string, init:RequestInit={}) {
     const key=process.env.STRIPE_SECRET_KEY;
@@ -615,7 +630,7 @@ export class StripeController {
   }
   @Post('checkout-sessions') async createCheckoutSession(@Req() req:Request & {user:any}) {
     const amount=process.env.STRIPE_BASIC_AMOUNT||'24600',currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
-    if(stagingDiagnosticsEnabled()&&!this.isStripeTestKey())throw new ServiceUnavailableException('Staging checkout requires a Stripe test-mode key.');
+    if(!stripeModeMatchesApplication())throw new ServiceUnavailableException('The Stripe key mode does not match this application environment.');
     if(!/^\d+$/.test(amount)||Number(amount)<50||!/^[a-z]{3}$/.test(currency))throw new BadRequestException('Stripe price configuration is invalid');
     let appUrl:string;
     try { const parsed=new URL(process.env.PUBLIC_APP_URL||'https://getcyb.fit'); if(!['https:','http:'].includes(parsed.protocol))throw new Error(); appUrl=parsed.origin; }
@@ -639,7 +654,7 @@ export class StripeController {
     return {url:session.url};
   }
   @Post('confirm-checkout') async confirmCheckout(@Req() req:Request & {user:any},@Body() dto:StripeSessionInput) {
-    if(stagingDiagnosticsEnabled()&&!this.isStripeTestKey())throw new ServiceUnavailableException('Staging checkout requires a Stripe test-mode key.');
+    if(!stripeModeMatchesApplication())throw new ServiceUnavailableException('The Stripe key mode does not match this application environment.');
     const payment=await this.db.paymentReference.findUnique({where:{providerOrderId:dto.sessionId}});
     if(!payment||payment.provider!=='stripe'||payment.userId!==req.user.id)throw new NotFoundException('Stripe checkout session not found');
     if(payment.status==='COMPLETED')return {success:true,status:'COMPLETED'};
@@ -651,7 +666,8 @@ export class StripeController {
 }
 
 async function activateVerifiedStripeSession(db:DbService,payment:any,session:any) {
-    const valid=session.id===payment.providerOrderId&&(!stagingDiagnosticsEnabled()||session.livemode===false)&&session.mode==='payment'&&session.payment_status==='paid'&&session.client_reference_id===payment.userId&&session.metadata?.userId===payment.userId&&session.metadata?.intent==='PLATFORM_ACCESS'&&session.currency===payment.currency.toLowerCase()&&session.amount_total===payment.amountCents;
+    const expectedMode=expectedStripeMode(),configuredMode=stripeKeyMode();
+    const valid=session.id===payment.providerOrderId&&(expectedMode===null||session.livemode===(expectedMode==='live'))&&(configuredMode===null||session.livemode===(configuredMode==='live'))&&session.mode==='payment'&&session.payment_status==='paid'&&session.client_reference_id===payment.userId&&session.metadata?.userId===payment.userId&&session.metadata?.intent==='PLATFORM_ACCESS'&&session.currency===payment.currency.toLowerCase()&&session.amount_total===payment.amountCents;
     if(!valid)throw new BadRequestException('Stripe payment verification failed');
     await db.$transaction(async tx=>{
       const updated=await tx.paymentReference.updateMany({where:{id:payment.id,status:'PENDING'},data:{status:'COMPLETED',providerCaptureId:session.id,metadata:{intent:'PLATFORM_ACCESS',stripeSessionId:session.id,paymentIntentId:session.payment_intent||null}}});
@@ -683,8 +699,8 @@ export class StripeWebhookController {
     try { event=JSON.parse(req.body.toString('utf8')); } catch { throw new BadRequestException('Invalid Stripe event'); }
     if(!event||typeof event!=='object')throw new BadRequestException('Invalid Stripe event');
     const key=process.env.STRIPE_SECRET_KEY?.trim()||'';
-    const testKey=/^(sk|rk)_test_/.test(key);
-    if(!/^(sk|rk)_(test|live)_/.test(key))throw new ServiceUnavailableException('Stripe is not configured');
+    const configuredMode=stripeKeyMode(key),testKey=configuredMode==='test';
+    if(!configuredMode||!stripeModeMatchesApplication(key))throw new ServiceUnavailableException('Stripe key mode does not match this application environment');
     if(stagingDiagnosticsEnabled()&&(!testKey||event.livemode!==false))throw new BadRequestException('Staging requires test-mode events');
     if(event.livemode!==!testKey)throw new BadRequestException('Stripe event mode does not match configuration');
     if(!['checkout.session.completed','checkout.session.async_payment_succeeded'].includes(event.type))return {received:true};

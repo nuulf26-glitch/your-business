@@ -64,7 +64,16 @@ describe('Stripe staging checkout authorization and activation', () => {
   });
   it('blocks live-key confirmation before any database or Stripe access', async () => {
     const { controller, db } = fixture(); process.env.STRIPE_SECRET_KEY = 'sk_live_fixture_only';
-    await expect(controller.confirmCheckout(req, { sessionId: 'cs_test_fixture' })).rejects.toThrow('test-mode key');
+    await expect(controller.confirmCheckout(req, { sessionId: 'cs_test_fixture' })).rejects.toThrow('mode does not match');
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(db.paymentReference.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('blocks test-mode payments when configured for the production domain', async () => {
+    const { controller, db } = fixture();
+    process.env.PUBLIC_APP_URL = 'https://getcyb.fit';
+
+    await expect(controller.confirmCheckout(req, { sessionId: 'cs_test_fixture' })).rejects.toThrow('mode does not match');
     expect(global.fetch).not.toHaveBeenCalled();
     expect(db.paymentReference.findUnique).not.toHaveBeenCalled();
   });

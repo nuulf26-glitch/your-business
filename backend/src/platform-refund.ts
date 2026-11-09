@@ -2,6 +2,7 @@ import { BadRequestException, Controller, NotFoundException, Post, Req, ServiceU
 import { Request } from 'express';
 import { DbService } from './database';
 import { SessionGuard } from './session';
+import { stripeModeMatchesApplication } from './stripe-mode';
 
 @Controller('payments')
 @UseGuards(SessionGuard)
@@ -24,8 +25,11 @@ export class PlatformRefundController {
     }
     let refundId: string | undefined;
     if (payment.provider === 'stripe') {
-      const key = process.env.STRIPE_SECRET_KEY;
+      const key = process.env.STRIPE_SECRET_KEY?.trim() || '';
       const paymentIntentId = (payment.metadata as any)?.paymentIntentId;
+      if (!stripeModeMatchesApplication(key)) {
+        throw new ServiceUnavailableException('The Stripe key mode does not match this application environment.');
+      }
       if (!key || typeof paymentIntentId !== 'string' || !paymentIntentId.startsWith('pi_')) {
         throw new ServiceUnavailableException('This Stripe payment cannot be refunded automatically. Please contact support.');
       }
