@@ -70,9 +70,8 @@ function WebsiteBuilder() {
             </h2>
 
             <p style={{ color: "#555", fontSize: "1rem", lineHeight: "1.6", marginBottom: "40px", fontFamily: "'Mograp', sans-serif" }}>
-              Build a professional online store using a simple visual editor.
-              Customize every part of your website and preview your changes
-              before publishing.
+              Create a professional business website with a simple visual editor.
+              Customize its sections and preview changes before publishing.
             </p>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "30px", marginBottom: "40px" }}>

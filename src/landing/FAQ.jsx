@@ -18,10 +18,10 @@ const faqs = [
       "Yes. You can connect your own custom domain whenever you're ready.",
   },
   {
-    question: "Can I try the platform before paying?",
-    answer:
-      "There is no free trial. Your account activates after the one-time payment, and you can cancel within 30 days for a full refund.",
+    question: "Can I build before paying?",
+    answer: "Yes. Create an account and customize your website draft. Publishing requires CYB Lifetime Access.",
   },
+  { question: "How much is lifetime access?", answer: "CYB Lifetime Access is a one-time payment of $246 USD. The 30-day refund terms are explained in our Terms of Service." },
   {
     question: "Can I edit my website later?",
     answer:

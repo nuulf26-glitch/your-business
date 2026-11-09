@@ -97,7 +97,7 @@ function Footer() {
           <div>
             <span>Built for modern businesses</span>
             <p>
-              Create your account, activate CYB with a one-time payment, and cancel within 30 days for a full refund.
+              Create your website, activate lifetime access, and publish when you are ready.
             </p>
           </div>
 
