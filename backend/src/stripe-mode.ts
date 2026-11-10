@@ -9,7 +9,7 @@ export function expectedStripeMode(appUrl = process.env.PUBLIC_APP_URL || ''): S
   try {
     const url = new URL(appUrl);
     if (url.protocol !== 'https:') return null;
-    if (url.hostname === 'getcyb-staging-web.onrender.com') return 'test';
+    if (url.hostname === 'getcyb-staging-web.onrender.com' || url.hostname.endsWith('.onrender.com')) return 'test';
     if (url.hostname === 'getcyb.fit' || url.hostname === 'www.getcyb.fit') return 'live';
   } catch {
     return null;
