@@ -4,7 +4,7 @@ services:
     runtime: static
     repo: https://github.com/nuulf26-glitch/your-business
     branch: codex/cyb-render-integration-20261109
-    buildCommand: npm install --prefix backend --no-audit --no-fund && DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/getcyb npm --prefix backend run prisma:generate && mkdir -p node_modules/.prisma && cp -R backend/node_modules/.prisma/client node_modules/.prisma/client && npm run build
+    buildCommand: npm install --prefix backend --no-audit --no-fund && DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/getcyb npm --prefix backend run prisma:generate && mkdir -p node_modules/.prisma && cp -R backend/node_modules/.prisma/client node_modules/.prisma/ && npm run build
     staticPublishPath: ./dist
     autoDeployTrigger: checksPass
     domains:
