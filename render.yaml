@@ -31,8 +31,6 @@ services:
     region: frankfurt
     autoDeployTrigger: commit
     healthCheckPath: /api/v1/health
-    domains:
-      - api.getcyb.fit
     envVars:
       - key: NODE_ENV
         value: production
