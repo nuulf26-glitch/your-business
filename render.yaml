@@ -6,7 +6,7 @@ services:
     branch: codex/cyb-render-integration-20261109
     buildCommand: npm install --prefix backend --no-audit --no-fund && DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/getcyb npm --prefix backend run prisma:generate && mkdir -p node_modules/.prisma && cp -R backend/node_modules/.prisma/client node_modules/.prisma/ && npm run build
     staticPublishPath: ./dist
-    autoDeployTrigger: checksPass
+    autoDeployTrigger: commit
     domains:
       - getcyb.fit
     envVars:
@@ -29,7 +29,7 @@ services:
     dockerfilePath: ./backend/Dockerfile
     plan: 0.5c-512mb
     region: frankfurt
-    autoDeployTrigger: checksPass
+    autoDeployTrigger: commit
     healthCheckPath: /api/v1/health
     domains:
       - api.getcyb.fit
