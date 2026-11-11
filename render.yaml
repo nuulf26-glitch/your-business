@@ -11,11 +11,11 @@ services:
       - getcyb.fit
     envVars:
       - key: VITE_CUSTOM_BACKEND_URL
-        fromService:
-          name: cyb-production-api
-          type: web
-          envVarKey: RENDER_EXTERNAL_URL
+        value: /
     routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://cyb-production-api-uzsq.onrender.com/api/*
       - type: rewrite
         source: /*
         destination: /index.html
@@ -41,9 +41,11 @@ services:
           name: cyb-production-db
           property: connectionString
       - key: PUBLIC_APP_URL
-        value: https://cyb-production-web-uzsq.onrender.com
+        value: https://getcyb.fit
       - key: FRONTEND_ORIGIN
-        value: https://cyb-production-web-uzsq.onrender.com,https://getcyb.fit
+        value: https://getcyb.fit,https://www.getcyb.fit,https://cyb-production-web-uzsq.onrender.com
+      - key: COOKIE_SAME_SITE
+        value: lax
       - key: SESSION_SECRET
         generateValue: true
       - key: S3_ENDPOINT
