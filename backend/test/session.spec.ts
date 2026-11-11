@@ -118,6 +118,38 @@ describe('backend critical operations', () => {
     }
   });
 
+  it('preserves a first-party session through /auth/me and clears it on logout', async () => {
+    const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:new Date(),role:'OWNER',passwordHash:await argon2.hash('a-secure-password')};
+    let stored:any=null;
+    const db:any={
+      user:{findUnique:jest.fn().mockResolvedValue(user)},
+      session:{
+        create:jest.fn(async({data}:any)=>{stored={...data,user,expiresAt:new Date(Date.now()+60_000)};return stored;}),
+        findUnique:jest.fn(async({where}:any)=>stored?.tokenHash===where.tokenHash?stored:null),
+        deleteMany:jest.fn(async()=>{stored=null;return {count:1};}),
+      },
+      subscription:{findUnique:jest.fn().mockResolvedValue(null)},
+    };
+    const res:any={cookie:jest.fn(),clearCookie:jest.fn()};
+    const previousNodeEnv=process.env.NODE_ENV, previousSameSite=process.env.COOKIE_SAME_SITE;
+    process.env.NODE_ENV='production';process.env.COOKIE_SAME_SITE='lax';
+    try {
+      const controller=new AuthController(db,{} as any);
+      await controller.login({email:'owner@example.com',password:'a-secure-password'} as any,res);
+      const token=res.cookie.mock.calls[0][1];
+      const req:any={cookies:{getcyb_session:token}};
+      const context:any={switchToHttp:()=>({getRequest:()=>req})};
+      await expect(new SessionGuard(db).canActivate(context)).resolves.toBe(true);
+      await expect(controller.me(req)).resolves.toEqual(expect.objectContaining({email:'owner@example.com'}));
+      await expect(controller.logout(req,res)).resolves.toEqual({ok:true});
+      expect(db.session.deleteMany).toHaveBeenCalledTimes(1);
+      expect(res.clearCookie).toHaveBeenCalledWith('getcyb_session',expect.objectContaining({httpOnly:true,secure:true,sameSite:'lax'}));
+    } finally {
+      if(previousNodeEnv===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previousNodeEnv;
+      if(previousSameSite===undefined)delete process.env.COOKIE_SAME_SITE;else process.env.COOKIE_SAME_SITE=previousSameSite;
+    }
+  });
+
   it('keeps login validation compatible with older passwords under 12 characters', async () => {
     const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:new Date(),passwordHash:await argon2.hash('short-pass')};
     const db:any={user:{findUnique:jest.fn().mockResolvedValue(user)},session:{create:jest.fn().mockResolvedValue({})}};
