@@ -4,9 +4,10 @@ import { applyAiWebsiteOperations } from '../src/ai-website';
 describe('AI website design', () => {
   const originalFetch=global.fetch;
   const originalKey=process.env.OPENAI_API_KEY;
-  afterEach(()=>{global.fetch=originalFetch;if(originalKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=originalKey;});
+  afterEach(()=>{jest.restoreAllMocks();global.fetch=originalFetch;if(originalKey===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=originalKey;});
   it('requests JSON explicitly and converts raw Responses output to an editable website',async()=>{
     process.env.OPENAI_API_KEY='test-only';
+    const timeoutSpy=jest.spyOn(AbortSignal,'timeout');
     global.fetch=jest.fn(async (_url,init:any)=>{
       const body=JSON.parse(init.body);
       // The provider rejects JSON mode if the input does not request JSON.
@@ -14,6 +15,7 @@ describe('AI website design', () => {
       return {ok:true,json:async()=>({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify({brandName:'LUNE',sections:[{type:'hero',title:'Flowers for every moment'},{type:'collection',title:'Bouquets'},{type:'footer',title:'Contact'}]})}]}]})} as any;
     });
     const result=await new WebsiteController({} as any).aiDesign({user:{id:'test'}} as any,{prompt:'Create a luxury flower shop'});
+    expect(timeoutSpy).toHaveBeenCalledWith(50000);
     expect(result.model.brandName).toBe('LUNE');
     expect(result.model.pages[0].sections).toHaveLength(3);
     expect(result).not.toHaveProperty('freeDesignUsed');
