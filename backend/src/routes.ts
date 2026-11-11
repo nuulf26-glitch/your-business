@@ -81,10 +81,13 @@ async function requestAiResponse(payload:Record<string,unknown>,apiKey:string,fe
   return data;
 }
 function aiResponseText(data:any){return String(data.output_text||data.output?.flatMap((item:any)=>item.content||[]).filter((item:any)=>item.type==='output_text').map((item:any)=>item.text||'').join('\n')||'').trim();}
-// Keep the session cookie host-only on the API origin. A configured parent
-// domain (for example getcyb.fit) causes browsers to reject it on Render's
-// staging hostname and can also be unnecessary when the API is a subdomain.
-const cookieOptions = (expires: Date) => {const sameSite=(process.env.NODE_ENV==='production'?'none':process.env.COOKIE_SAME_SITE||'lax') as 'lax'|'strict'|'none';return {httpOnly:true,secure:process.env.NODE_ENV==='production'||sameSite==='none',sameSite,expires,path:'/'};};
+// Keep the HttpOnly session cookie host-only. SameSite=Lax works when the
+// frontend proxies /api on its own origin; use None only for cross-site APIs.
+const cookieOptions = (expires: Date) => {
+  const configured = process.env.COOKIE_SAME_SITE?.trim().toLowerCase();
+  const sameSite = (configured || (process.env.NODE_ENV === 'production' ? 'none' : 'lax')) as 'lax' | 'strict' | 'none';
+  return { httpOnly: true, secure: process.env.NODE_ENV === 'production' || sameSite === 'none', sameSite, expires, path: '/' };
+};
 
 @Controller('auth')
 export class AuthController {

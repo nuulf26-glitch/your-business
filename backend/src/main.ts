@@ -44,6 +44,8 @@ function validateRuntimeEnvironment() {
   if (process.env.NODE_ENV !== 'production') return;
   const required = ['DATABASE_URL', 'PUBLIC_APP_URL'];
   const missing = required.filter((key) => !process.env[key]?.trim());
+  const configuredSameSite = process.env.COOKIE_SAME_SITE?.trim().toLowerCase();
+  if (configuredSameSite && !['lax', 'strict', 'none'].includes(configuredSameSite)) missing.push('COOKIE_SAME_SITE (must be lax, strict, or none)');
   const origins = (process.env.FRONTEND_ORIGIN || '').split(',').map((value) => value.trim()).filter(Boolean);
   if (!origins.length || origins.some((origin) => {
     try { return new URL(origin).protocol !== 'https:'; } catch { return true; }
