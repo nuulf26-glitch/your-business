@@ -54,7 +54,7 @@ describe('PublicOrderController', () => {
 
     const update = db.order.updateMany.mock.calls[0][0];
     expect(update.where).toEqual({ id: 'order_1', status: 'new' });
-    expect(update.data.data).toMatchObject({ total: 35, status: 'New', paymentStatus: 'Cash on delivery', paymentMethod: 'cash' });
+    expect(update.data.data).toMatchObject({ total: 35, status: 'New', paymentStatus: 'Unpaid', paymentMethod: 'cash' });
     expect(update.data.data.customerActionTokenHash).toBe(tokenHash(token));
   });
 
