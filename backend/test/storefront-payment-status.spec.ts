@@ -61,7 +61,7 @@ describe("storefront payment accounting", () => {
 
   it("keeps unpaid cancellations out of collected totals", async () => {
     const h = harness();
-    const result = await h.controller.updateStatus(ownerReq(), status("cancelled"));
+    const result: any = await h.controller.updateStatus(ownerReq(), status("cancelled"));
     expect(result.status).toBe("cancelled");
     expect(result.paymentStatus).toBe("Unpaid");
     expect(h.customer.data.totalSpent).toBe(0);
