@@ -91,15 +91,22 @@ describe('backend critical operations', () => {
     const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:null,passwordHash:await argon2.hash('a-secure-password')};
     const db:any={user:{findUnique:jest.fn().mockResolvedValue(user)},session:{create:jest.fn().mockResolvedValue({})}};
     const res:any={cookie:jest.fn()};
-    const previous=process.env.NODE_ENV;process.env.NODE_ENV='production';
-    const result=await new AuthController(db,{} as any).login({email:'owner@example.com',password:'a-secure-password'} as any,res);
-    if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
+    const previousNodeEnv=process.env.NODE_ENV, previousSameSite=process.env.COOKIE_SAME_SITE;
+    process.env.NODE_ENV='production';
+    delete process.env.COOKIE_SAME_SITE;
+    let result:any;
+    try {
+      result=await new AuthController(db,{} as any).login({email:'owner@example.com',password:'a-secure-password'} as any,res);
+    } finally {
+      if(previousNodeEnv===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previousNodeEnv;
+      if(previousSameSite===undefined)delete process.env.COOKIE_SAME_SITE;else process.env.COOKIE_SAME_SITE=previousSameSite;
+    }
     expect(result.emailVerified).toBe(false);
     expect(result).not.toHaveProperty('accessToken');
     expect(db.session.create).toHaveBeenCalled();
     expect(res.cookie).toHaveBeenCalled();
     expect(res.cookie.mock.calls[0][2]).not.toHaveProperty('domain');
-    expect(res.cookie.mock.calls[0][2]).toEqual(expect.objectContaining({httpOnly:true,secure:true,sameSite:'none'}));
+    expect(res.cookie.mock.calls[0][2]).toEqual(expect.objectContaining({httpOnly:true,secure:true,sameSite:'lax'}));
   });
 
   it('issues a first-party Lax cookie when configured for the same-origin API proxy', async () => {
