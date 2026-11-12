@@ -14,6 +14,7 @@ import { publicWebsite, publicationDifferencePaths, validateWebsite } from './we
 import { applyAiWebsiteOperations, normalizeGeneratedWebsite } from './ai-website';
 import { allocate, localParts } from './availability';
 import { expectedStripeMode, stripeKeyMode, stripeModeMatchesApplication } from './stripe-mode';
+import { stripePriceForUser } from './stripe-pricing';
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 function stagingDiagnosticsEnabled(){
@@ -631,8 +632,14 @@ export class StripeController {
     const currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
     return {configured:!!key,testMode,verified,amountCents:/^\d+$/.test(amount)?Number(amount):null,currency:/^[a-z]{3}$/.test(currency)?currency:null};
   }
+  @Get('price') getPrice(@Req() req:Request & {user:any}) {
+    const price=stripePriceForUser(req.user.email);
+    const currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
+    if(!Number.isSafeInteger(price.amountCents)||price.amountCents<50||!/^[a-z]{3}$/.test(currency))throw new BadRequestException('Stripe price configuration is invalid');
+    return {amountCents:price.amountCents,currency,temporary:price.temporary};
+  }
   @Post('checkout-sessions') async createCheckoutSession(@Req() req:Request & {user:any}) {
-    const amount=process.env.STRIPE_BASIC_AMOUNT||'24600',currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
+    const price=stripePriceForUser(req.user.email),amount=String(price.amountCents),currency=(process.env.STRIPE_CURRENCY||'usd').toLowerCase();
     if(!stripeModeMatchesApplication())throw new ServiceUnavailableException('The Stripe key mode does not match this application environment.');
     if(!/^\d+$/.test(amount)||Number(amount)<50||!/^[a-z]{3}$/.test(currency))throw new BadRequestException('Stripe price configuration is invalid');
     let appUrl:string;
@@ -645,15 +652,16 @@ export class StripeController {
       client_reference_id:req.user.id,
       'metadata[userId]':req.user.id,
       'metadata[intent]':'PLATFORM_ACCESS',
+      'metadata[temporaryTestPrice]':String(price.temporary),
       'line_items[0][price_data][currency]':currency,
       'line_items[0][price_data][unit_amount]':amount,
-      'line_items[0][price_data][product_data][name]':Number(amount)===100?'CYB Stripe Test Payment':'CYB Lifetime Access',
-      'line_items[0][price_data][product_data][description]':Number(amount)===100?'Temporary staging payment verification':'One-time payment for lifetime access to CYB',
+      'line_items[0][price_data][product_data][name]':price.temporary?'CYB Lifetime Access — Authorized Pre-launch Test':'CYB Lifetime Access',
+      'line_items[0][price_data][product_data][description]':price.temporary?'One-time lifetime access purchase at the temporary authorized pre-launch test price':'One-time payment for lifetime access to CYB',
       'line_items[0][quantity]':'1',
     });
     const session=await this.stripeRequest('/checkout/sessions',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:form.toString()});
     if(!session.id||!session.url)throw new ServiceUnavailableException('Stripe did not return a checkout link. Please try again.');
-    await this.db.paymentReference.create({data:{provider:'stripe',providerOrderId:session.id,status:'PENDING',amountCents:Number(amount),currency:currency.toUpperCase(),userId:req.user.id,metadata:{intent:'PLATFORM_ACCESS'}}});
+    await this.db.paymentReference.create({data:{provider:'stripe',providerOrderId:session.id,status:'PENDING',amountCents:Number(amount),currency:currency.toUpperCase(),userId:req.user.id,metadata:{intent:'PLATFORM_ACCESS',temporaryTestPrice:price.temporary}}});
     return {url:session.url};
   }
   @Post('confirm-checkout') async confirmCheckout(@Req() req:Request & {user:any},@Body() dto:StripeSessionInput) {
