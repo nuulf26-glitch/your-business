@@ -19,6 +19,7 @@ describe('PublicOrderController', () => {
     const result = await controller.create({ data: {
       storeUrl: 'sample-shop', customerName: 'A Customer', email: 'a@example.com',
       items: [{ productId: 'prod_1', quantity: 1, price: 0.01 }], total: 0.01,
+      paymentStatus: 'Paid', paymentHistory: [{ type: 'collected', amountCents: 1 }],
     } });
 
     expect(tx.order.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -29,6 +30,10 @@ describe('PublicOrderController', () => {
     expect(stored.shipping).toBe(25);
     expect(stored.total).toBe(35);
     expect(stored.customerActionTokenHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(stored.paymentStatus).toBe('Pending');
+    expect(stored.paymentMethod).toBe('cash');
+    expect(stored.paymentHistory).toEqual([]);
+    expect(tx.customer.create.mock.calls[0][0].data.data.totalSpent).toBe(0);
     expect(result).toHaveProperty('cashOnDeliveryToken');
     expect(result).not.toHaveProperty('customerActionTokenHash');
   });
