@@ -409,10 +409,14 @@ export class OrderController {
   @Get(':id') async one(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const row=await this.db.order.findFirst({where:{id:String(req.params['id']),businessId:b.id}});if(!row)throw new NotFoundException('Order not found');return {...publicOrderData(row.data),id:row.id,status:row.status,createdAt:row.createdAt};}
   @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const data=dto.data as Record<string,any>;const amount=Number(data.total??data.amount);return this.db.order.create({data:{businessId:b.id,status:String(data.status||'pending'),amountCents:Number.isFinite(amount)?Math.round(amount*100):null,currency:String(data.currency||'USD'),data:data as any}});}
   @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:OrderStatusInput){
-    const valid=['new','pending','paid','processing','shipped','delivered','cancelled','refunded'];if(!valid.includes(dto.status.toLowerCase()))throw new BadRequestException('Invalid order status');
+    const status=dto.status.toLowerCase();
+    const valid=['new','pending','paid','processing','shipped','delivered','cancelled','refunded'];if(!valid.includes(status))throw new BadRequestException('Invalid order status');
     const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');
-    const id=String(req.params['id']);const result=await this.db.order.updateMany({where:{id,businessId:b.id},data:{status:dto.status.toLowerCase()}});if(!result.count)throw new NotFoundException('Order not found');
-    return this.db.order.findUnique({where:{id}});
+    const id=String(req.params['id']),row=await this.db.order.findFirst({where:{id,businessId:b.id}});if(!row)throw new NotFoundException('Order not found');
+    const data={...(row.data as Record<string,unknown>)};
+    if(status==='paid'&&data.paymentStatus!=='Paid'){data.paymentStatus='Paid';data.paymentCollectedAt=new Date().toISOString();}
+    const result=await this.db.order.update({where:{id},data:{status,data:data as any}});
+    return {...publicOrderData(result.data),id:result.id,status:result.status,createdAt:result.createdAt};
   }
   @Patch(':id') async updateDetails(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const row=await this.db.order.findFirst({where:{id,businessId:b.id}});if(!row)throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...dto.data};const result=await this.db.order.update({where:{id},data:{data:data as any}});return {...publicOrderData(result.data),id:result.id,status:result.status,createdAt:result.createdAt};}
   @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const result=await this.db.order.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Order not found');return {deleted:true};}
