@@ -66,7 +66,7 @@ if (order.backendId) {
     try {
       setLoading(true);
 
-      await completeOrder("Cash on delivery", "New");
+      await completeOrder("Unpaid", "New");
 
     } catch (paymentError) {
       console.error("Payment failed:", paymentError);
@@ -122,7 +122,7 @@ if (order.backendId) {
           <h1>Complete your payment</h1>
 
           <p>
-              Pay cash on delivery and review your order.
+              Choose Cash on Delivery. The order remains unpaid until payment is collected.
           </p>
         </div>
 

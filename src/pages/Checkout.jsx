@@ -306,7 +306,7 @@ Object.assign(newOrder, saved, { id: saved.id, backendId: saved.id });
             </button>
 
             <p>
-              Your order will not be completed until payment is confirmed.
+              Cash on Delivery orders remain unpaid until payment is collected.
             </p>
           </aside>
         </form>
