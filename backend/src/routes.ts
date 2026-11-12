@@ -416,6 +416,7 @@ export class OrderController {
     return this.db.$transaction(async tx=>{
       const row=await tx.order.findFirst({where:{id,businessId:business.id}});if(!row)throw new NotFoundException('Order not found');
       const data={...(row.data as Record<string,unknown>)},history=paymentHistory(data),amountCents=orderAmountCents(row),now=new Date().toISOString();
+      if(['Refunded','Reversed'].includes(String(data.paymentStatus))&&status!==String(data.paymentStatus).toLowerCase())throw new BadRequestException('A refunded or reversed payment cannot be reversed a second time');
       const hasCollection=history.some(event=>event.type==='collected');
       if(status==='paid'){
         if(['Refunded','Reversed'].includes(String(data.paymentStatus)))throw new BadRequestException('A refunded or reversed order cannot be marked paid again');
