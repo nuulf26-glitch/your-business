@@ -85,7 +85,7 @@ function aiResponseText(data:any){return String(data.output_text||data.output?.f
 // frontend proxies /api on its own origin; use None only for cross-site APIs.
 const cookieOptions = (expires: Date) => {
   const configured = process.env.COOKIE_SAME_SITE?.trim().toLowerCase();
-  const sameSite = (configured || (process.env.NODE_ENV === 'production' ? 'none' : 'lax')) as 'lax' | 'strict' | 'none';
+  const sameSite = (configured || 'lax') as 'lax' | 'strict' | 'none';
   return { httpOnly: true, secure: process.env.NODE_ENV === 'production' || sameSite === 'none', sameSite, expires, path: '/' };
 };
 
