@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { subscribeAppUser } from "../services/customBackendSession";
 import "./landing.css";
 
 const navigationLinks = [
@@ -18,6 +19,15 @@ function Navbar() {
   const [menuPath, setMenuPath] = useState(null);
   const menuOpen = menuPath === location.pathname;
   const [scrolled, setScrolled] = useState(false);
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+
+  useEffect(() => {
+    return subscribeAppUser((currentUser) => {
+      setUser(currentUser);
+      setAuthReady(true);
+    });
+  }, []);
 
   useEffect(() => {
     function handleScroll() {
@@ -110,16 +120,20 @@ function Navbar() {
         </nav>
 
         <div className="navbar-actions">
-          <Link className="navbar-login-link" to="/login">
-            Log in
+          <Link
+            className="navbar-login-link"
+            to={user ? "/dashboard" : "/login"}
+            aria-busy={!authReady}
+          >
+            {!authReady ? "Checking…" : user ? "Dashboard" : "Log in"}
           </Link>
 
           <button
             type="button"
             className="navbar-signup-button"
-            onClick={() => navigate("/try")}
+            onClick={() => navigate(user ? "/dashboard" : "/try")}
           >
-            Try it free
+            {user ? "Open dashboard" : "Try it free"}
           </button>
 
           <button

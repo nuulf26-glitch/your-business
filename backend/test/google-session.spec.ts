@@ -28,7 +28,7 @@ describe('Google identity validation and cookie session', () => {
     const {db,controller}=setup(); const res={cookie:jest.fn()};
     await controller.googleSignIn({idToken:'fixture-token',acceptedTerms:false} as any,res as any);
     const [name,token,options]=res.cookie.mock.calls[0];
-    expect(name).toBe('getcyb_session'); expect(options).toMatchObject({httpOnly:true,secure:true,sameSite:'none'});
+    expect(name).toBe('getcyb_session'); expect(options).toMatchObject({httpOnly:true,secure:true,sameSite:'lax'});
     expect(db.session.create.mock.calls[0][0].data.tokenHash).toBe(tokenHash(token));
     const req:any={cookies:{getcyb_session:token}};
     await expect(new SessionGuard(db).canActivate({switchToHttp:()=>({getRequest:()=>req})} as any)).resolves.toBe(true);
