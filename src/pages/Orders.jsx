@@ -8,6 +8,8 @@ const statuses = [
   "Shipped",
   "Delivered",
   "Cancelled",
+  "Refunded",
+  "Reversed",
 ];
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -68,7 +70,7 @@ function Orders() {
   const totals = useMemo(() => {
     return orders.reduce(
       (result, order) => {
-        result.revenue += Number(order.total) || 0;
+        if (String(order.paymentStatus || '').toLowerCase() === 'paid') result.revenue += Number(order.total) || 0;
 
         if (order.status === "New") {
           result.newOrders += 1;
@@ -185,7 +187,7 @@ function Orders() {
         <article>
           <span>Total revenue</span>
           <strong>{formatCurrency(totals.revenue)}</strong>
-          <p>Revenue from all orders</p>
+          <p>Confirmed collected payments, less recorded refunds</p>
         </article>
 
         <article>
