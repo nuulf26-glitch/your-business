@@ -1,6 +1,13 @@
 const baseUrl = (import.meta.env?.VITE_CUSTOM_BACKEND_URL || '').replace(/\/$/, '');
 const apiBase = `${baseUrl}/api/v1`;
 const cachedUserKey = 'getcyb_session_user';
+const authSyncKey = 'getcyb_auth_sync';
+let authChannel = null;
+try {
+  if (typeof BroadcastChannel !== 'undefined') authChannel = new BroadcastChannel('getcyb-auth');
+} catch {
+  // The storage event below remains the cross-tab fallback.
+}
 
 function readCachedUser() {
   try { return JSON.parse(sessionStorage.getItem(cachedUserKey) || 'null'); }
@@ -35,7 +42,9 @@ export async function customBackendRequest(path, options = {}) {
 }
 
 export async function clearCustomBackendSession() {
-  if (readCachedUser()) await customBackendRequest('/auth/logout', { method: 'POST' }).catch(() => {});
+  // The cookie is shared across tabs, but the per-tab sessionStorage cache is not.
+  // Always ask the server to revoke the cookie-backed session.
+  await customBackendRequest('/auth/logout', { method: 'POST' }).catch(() => {});
   sessionStorage.removeItem('getcyb_session_token');
   sessionStorage.removeItem(cachedUserKey);
 }
@@ -69,13 +78,34 @@ export async function getAppUser() {
 export function subscribeAppUser(callback) {
   let active = true;
   const refresh = () => getAppUser().then((user) => { if (active) callback(user); });
+  const handleStorage = (event) => {
+    if (event.key === authSyncKey) refresh();
+  };
+  const handleBroadcast = () => refresh();
+
   window.addEventListener('getcyb-auth-changed', refresh);
+  window.addEventListener('storage', handleStorage);
+  authChannel?.addEventListener('message', handleBroadcast);
+
   const cachedUser = readCachedUser();
   if (cachedUser) callback(cachedUser);
   refresh();
-  return () => { active = false; window.removeEventListener('getcyb-auth-changed', refresh); };
+
+  return () => {
+    active = false;
+    window.removeEventListener('getcyb-auth-changed', refresh);
+    window.removeEventListener('storage', handleStorage);
+    authChannel?.removeEventListener('message', handleBroadcast);
+  };
 }
 
 export function notifyAppUserChanged() {
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event('getcyb-auth-changed'));
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event('getcyb-auth-changed'));
+  try {
+    localStorage.setItem(authSyncKey, `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  } catch {
+    // BroadcastChannel still synchronizes tabs when storage is unavailable.
+  }
+  authChannel?.postMessage({ type: 'auth-changed' });
 }
