@@ -395,7 +395,7 @@ export class PublicProductController {
 @UseGuards(SessionGuard)
 export class CustomerController {
   constructor(private db:DbService){}
-  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)return [];return this.db.customer.findMany({where:{businessId:b.id},orderBy:{id:'desc'}});}
+  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)return [];const [customers,orders]=await Promise.all([this.db.customer.findMany({where:{businessId:b.id},orderBy:{id:'desc'}}),this.db.order.findMany({where:{businessId:b.id}})]);return customers.map(customer=>{const data=customer.data as Record<string,any>;const email=String(data.email||'').trim().toLowerCase();const totalCents=orders.filter(order=>String((order.data as any)?.email||'').trim().toLowerCase()===email).reduce((sum,order)=>sum+collectedCents(order),0);return {...customer,data:{...data,totalSpent:totalCents/100}};});}
   @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');return this.db.customer.create({data:{businessId:b.id,data:dto.data as any}});}
   @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:CustomerStatusInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const customer=await this.db.customer.findFirst({where:{id,businessId:b.id}});if(!customer)throw new NotFoundException('Customer not found');const data={...(customer.data as Record<string,unknown>),status:dto.status};return this.db.customer.update({where:{id},data:{data:data as any}});}
   @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const result=await this.db.customer.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Customer not found');return {deleted:true};}
@@ -410,20 +410,74 @@ export class OrderController {
   @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const data=dto.data as Record<string,any>;const amount=Number(data.total??data.amount);return this.db.order.create({data:{businessId:b.id,status:String(data.status||'pending'),amountCents:Number.isFinite(amount)?Math.round(amount*100):null,currency:String(data.currency||'USD'),data:data as any}});}
   @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:OrderStatusInput){
     const status=dto.status.toLowerCase();
-    const valid=['new','pending','paid','processing','shipped','delivered','cancelled','refunded'];if(!valid.includes(status))throw new BadRequestException('Invalid order status');
-    const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');
-    const id=String(req.params['id']),row=await this.db.order.findFirst({where:{id,businessId:b.id}});if(!row)throw new NotFoundException('Order not found');
-    const data={...(row.data as Record<string,unknown>)};
-    if(status==='paid'&&data.paymentStatus!=='Paid'){data.paymentStatus='Paid';data.paymentCollectedAt=new Date().toISOString();}
-    const result=await this.db.order.update({where:{id},data:{status,data:data as any}});
-    return {...publicOrderData(result.data),id:result.id,status:result.status,createdAt:result.createdAt};
+    const valid=['new','pending','paid','processing','shipped','delivered','cancelled','refunded','reversed'];if(!valid.includes(status))throw new BadRequestException('Invalid order status');
+    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)throw new NotFoundException('Business not found');
+    const id=String(req.params['id']);
+    return this.db.$transaction(async tx=>{
+      const row=await tx.order.findFirst({where:{id,businessId:business.id}});if(!row)throw new NotFoundException('Order not found');
+      const data={...(row.data as Record<string,unknown>)},history=paymentHistory(data),amountCents=orderAmountCents(row),now=new Date().toISOString();
+      const hasCollection=history.some(event=>event.type==='collected');
+      if(status==='paid'){
+        if(['Refunded','Reversed'].includes(String(data.paymentStatus)))throw new BadRequestException('A refunded or reversed order cannot be marked paid again');
+        if(data.paymentStatus!=='Paid'){
+          history.push({type:'collected',amountCents,recordedAt:now,source:String(data.paymentMethod||'merchant-confirmed')});
+          data.paymentStatus='Paid';data.paymentCollectedAt=now;
+        }
+      } else if(status==='refunded'||status==='reversed'){
+        if(data.paymentStatus!=='Paid'&&!hasCollection)throw new BadRequestException('Only a collected payment can be refunded or reversed');
+        if(!hasCollection)history.push({type:'collected',amountCents,recordedAt:String(data.paymentCollectedAt||now),source:'legacy-paid-record'});
+        const eventType=status==='refunded'?'refunded':'reversed';
+        if(!history.some(event=>event.type===eventType))history.push({type:eventType,amountCents,recordedAt:now});
+        data.paymentStatus=status==='refunded'?'Refunded':'Reversed';
+      }
+      data.paymentHistory=history;
+      const result=await tx.order.update({where:{id},data:{status,data:data as any}});
+      const email=String(data.email||'').trim().toLowerCase();
+      if(email){
+        const [customer,orders]=await Promise.all([
+          tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}}),
+          tx.order.findMany({where:{businessId:business.id}}),
+        ]);
+        if(customer){
+          const reconciledCents=orders.map(order=>order.id===id?result:order).filter(order=>String(((order.data as any)?.email)||'').trim().toLowerCase()===email).reduce((sum,order)=>sum+collectedCents(order),0);
+          const customerData={...(customer.data as Record<string,unknown>),totalSpent:reconciledCents/100};
+          await tx.customer.update({where:{id:customer.id},data:{data:customerData as any}});
+        }
+      }
+      return {...publicOrderData(result.data),id:result.id,status:result.status,createdAt:result.createdAt};
+    },{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});
   }
-  @Patch(':id') async updateDetails(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const row=await this.db.order.findFirst({where:{id,businessId:b.id}});if(!row)throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...dto.data};const result=await this.db.order.update({where:{id},data:{data:data as any}});return {...publicOrderData(result.data),id:result.id,status:result.status,createdAt:result.createdAt};}
-  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const result=await this.db.order.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Order not found');return {deleted:true};}
+  @Patch(':id') async updateDetails(@Req() req:Request & {user:any},@Body() dto:JsonInput){if(['paymentStatus','paymentHistory','paymentCollectedAt','paymentMethod'].some(key=>Object.prototype.hasOwnProperty.call(dto.data,key)))throw new BadRequestException('Payment fields can only be changed through payment status actions');const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const row=await this.db.order.findFirst({where:{id,businessId:b.id}});if(!row)throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...dto.data};const result=await this.db.order.update({where:{id},data:{data:data as any}});return {...publicOrderData(result.data),id:result.id,status:result.status,createdAt:result.createdAt};}
+  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']),row=await this.db.order.findFirst({where:{id,businessId:b.id}});if(!row)throw new NotFoundException('Order not found');const data=row.data as Record<string,unknown>;if(paymentHistory(data).length||['Paid','Refunded','Reversed'].includes(String(data.paymentStatus)))throw new BadRequestException('Orders with payment history cannot be deleted');await this.db.order.delete({where:{id}});return {deleted:true};}
 }
 
 // Customer checkout is intentionally public. The order is attached to a published
 // business by its public slug; private order reads remain owner-scoped above.
+function paymentHistory(data: Record<string, unknown>): Array<Record<string, unknown>> {
+  return Array.isArray(data.paymentHistory)
+    ? data.paymentHistory.filter((event): event is Record<string, unknown> => !!event && typeof event === 'object' && !Array.isArray(event))
+    : [];
+}
+function orderAmountCents(row: { amountCents: number | null; data: unknown }): number {
+  if (Number.isInteger(row.amountCents) && Number(row.amountCents) >= 0) return Number(row.amountCents);
+  const data = row.data && typeof row.data === 'object' ? row.data as Record<string, unknown> : {};
+  const amount = Number(data.total ?? data.amount);
+  return Number.isFinite(amount) && amount >= 0 ? Math.round(amount * 100) : 0;
+}
+function collectedCents(row: { amountCents: number | null; data: unknown }): number {
+  const data = row.data && typeof row.data === 'object' ? row.data as Record<string, unknown> : {};
+  const history = paymentHistory(data);
+  if (!history.length) {
+    const status = String(data.paymentStatus || '').toLowerCase();
+    return status === 'paid' ? orderAmountCents(row) : 0;
+  }
+  return Math.max(0, history.reduce((sum, event) => {
+    const amount = Math.max(0, Number(event.amountCents) || 0);
+    if (event.type === 'collected') return sum + amount;
+    if (event.type === 'refunded' || event.type === 'reversed') return sum - amount;
+    return sum;
+  }, 0));
+}
 function publicOrderData(value: unknown): Record<string, unknown> {
   const data = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
   const { customerActionTokenHash: _privateTokenHash, ...publicData } = data;
@@ -441,7 +495,7 @@ function authoritativeProductPrice(productData: Record<string, unknown>) {
 @Controller('public/orders')
 export class PublicOrderController {
   constructor(private db:DbService){}
-  @Post() async create(@Body() dto:JsonInput){const data=dto.data as Record<string,any>;const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===String(item.id||item.productId||'')),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||(product.data as any)?.status==='hidden')throw new BadRequestException('A product in this order is unavailable');const price=authoritativeProductPrice(product.data as Record<string,unknown>);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');return {...item,id:product.id,name:product.name,price,quantity};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),shipping=subtotal>=300?0:25,amount=subtotal+shipping,customerActionToken=randomBytes(32).toString('base64url');const normalized={...data,items,subtotal,shipping,total:amount,currency:'USD',status:'New',paymentStatus:'Pending',createdAt:new Date().toISOString(),customerActionTokenHash:tokenHash(customerActionToken)};const order=await this.db.$transaction(async tx=>{const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:'USD',data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0)+amount};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;});return {...publicOrderData(order.data),id:order.id,status:order.status,createdAt:order.createdAt,cashOnDeliveryToken:customerActionToken};}
+  @Post() async create(@Body() dto:JsonInput){const data=dto.data as Record<string,any>;const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===String(item.id||item.productId||'')),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||(product.data as any)?.status==='hidden')throw new BadRequestException('A product in this order is unavailable');const price=authoritativeProductPrice(product.data as Record<string,unknown>);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');return {...item,id:product.id,name:product.name,price,quantity};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),shipping=subtotal>=300?0:25,amount=subtotal+shipping,customerActionToken=randomBytes(32).toString('base64url');const normalized={...data,items,subtotal,shipping,total:amount,currency:'USD',status:'New',paymentStatus:'Pending',createdAt:new Date().toISOString(),customerActionTokenHash:tokenHash(customerActionToken)};const order=await this.db.$transaction(async tx=>{const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:'USD',data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={...((prior?.data as Record<string,unknown>)||{}),name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0)};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;});return {...publicOrderData(order.data),id:order.id,status:order.status,createdAt:order.createdAt,cashOnDeliveryToken:customerActionToken};}
   @Post(':id/cash-on-delivery') async setCashOnDelivery(@Req() req:Request,@Body() dto:TokenInput){const id=String(req.params['id']);const row=await this.db.order.findUnique({where:{id}});const storedHash=(row?.data as any)?.customerActionTokenHash;if(!row||row.status!=='new'||typeof storedHash!=='string'||!/^[a-f0-9]{64}$/i.test(storedHash)||!timingSafeEqual(Buffer.from(tokenHash(dto.token),'hex'),Buffer.from(storedHash,'hex')))throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),paymentMethod:'cash',paymentStatus:'Unpaid',completedAt:new Date().toISOString()};const result=await this.db.order.updateMany({where:{id,status:'new'},data:{data:data as any}});if(!result.count)throw new NotFoundException('Order not found');return {ok:true};}
 }
 
