@@ -39,7 +39,7 @@ const status = (value: string) => ({ status: value } as any);
 describe("storefront payment accounting", () => {
   it("keeps a new COD order unpaid and customer spend at zero", async () => {
     const h = harness();
-    const result = await h.controller.updateStatus(ownerReq(), status("processing"));
+    const result: any = await h.controller.updateStatus(ownerReq(), status("processing"));
     expect(result.paymentStatus).toBe("Unpaid");
     expect(result.paymentHistory).toEqual([]);
     expect(h.customer.data.totalSpent).toBe(0);
@@ -47,8 +47,8 @@ describe("storefront payment accounting", () => {
 
   it("records a collection once when an authorized merchant marks paid", async () => {
     const h = harness();
-    const first = await h.controller.updateStatus(ownerReq(), status("paid"));
-    const second = await h.controller.updateStatus(ownerReq(), status("paid"));
+    const first: any = await h.controller.updateStatus(ownerReq(), status("paid"));
+    const second: any = await h.controller.updateStatus(ownerReq(), status("paid"));
 
     expect(first.paymentStatus).toBe("Paid");
     expect(second.paymentHistory).toHaveLength(1);
@@ -71,8 +71,8 @@ describe("storefront payment accounting", () => {
   it("retains the collection event and reverses spend once on refund", async () => {
     const h = harness();
     await h.controller.updateStatus(ownerReq(), status("paid"));
-    const firstRefund = await h.controller.updateStatus(ownerReq(), status("refunded"));
-    const repeatedRefund = await h.controller.updateStatus(ownerReq(), status("refunded"));
+    const firstRefund: any = await h.controller.updateStatus(ownerReq(), status("refunded"));
+    const repeatedRefund: any = await h.controller.updateStatus(ownerReq(), status("refunded"));
 
     expect(firstRefund.paymentStatus).toBe("Refunded");
     expect(repeatedRefund.paymentHistory.map((event: any) => event.type)).toEqual(["collected", "refunded"]);
@@ -82,7 +82,7 @@ describe("storefront payment accounting", () => {
   it("records reversals without deleting payment history", async () => {
     const h = harness();
     await h.controller.updateStatus(ownerReq(), status("paid"));
-    const reversed = await h.controller.updateStatus(ownerReq(), status("reversed"));
+    const reversed: any = await h.controller.updateStatus(ownerReq(), status("reversed"));
     expect(reversed.paymentStatus).toBe("Reversed");
     expect(reversed.paymentHistory.map((event: any) => event.type)).toEqual(["collected", "reversed"]);
     expect(h.customer.data.totalSpent).toBe(0);
