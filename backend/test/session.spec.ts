@@ -231,10 +231,10 @@ describe('backend critical operations', () => {
   });
 
   it('scopes order updates to the signed-in owner business', async () => {
-    const db:any={business:{findFirst:jest.fn().mockResolvedValue({id:'business-owned'})},order:{updateMany:jest.fn().mockResolvedValue({count:0}),findUnique:jest.fn()}};
+    const db:any={business:{findFirst:jest.fn().mockResolvedValue({id:'business-owned'})},order:{findFirst:jest.fn().mockResolvedValue(null),update:jest.fn()}};
     await expect(new OrderController(db).updateStatus({user:{id:'owner-1'},params:{id:'another-business-order'}} as any,{status:'delivered'} as any)).rejects.toThrow('Order not found');
-    expect(db.order.updateMany).toHaveBeenCalledWith({where:{id:'another-business-order',businessId:'business-owned'},data:{status:'delivered'}});
-    expect(db.order.findUnique).not.toHaveBeenCalled();
+    expect(db.order.findFirst).toHaveBeenCalledWith({where:{id:'another-business-order',businessId:'business-owned'}});
+    expect(db.order.update).not.toHaveBeenCalled();
   });
 
   it('rejects unsafe published links and strips private root fields', () => {
