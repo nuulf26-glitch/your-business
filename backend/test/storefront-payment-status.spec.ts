@@ -35,7 +35,7 @@ describe("storefront order payment status", () => {
       paymentStatus: "Paid",
     });
     expect(saved.data.data.paymentCollectedAt).toEqual(expect.any(String));
-    expect(result.paymentStatus).toBe("Paid");
+    expect((result as any).paymentStatus).toBe("Paid");
     expect(result).not.toHaveProperty("customerActionTokenHash");
   });
 
