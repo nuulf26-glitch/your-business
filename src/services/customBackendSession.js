@@ -1,6 +1,13 @@
-const baseUrl = (import.meta.env.VITE_CUSTOM_BACKEND_URL || '').replace(/\/$/, '');
+const baseUrl = (import.meta.env?.VITE_CUSTOM_BACKEND_URL || '').replace(/\/$/, '');
 const apiBase = `${baseUrl}/api/v1`;
 const cachedUserKey = 'getcyb_session_user';
+const authSyncKey = 'getcyb_auth_sync';
+let authChannel = null;
+try {
+  if (typeof BroadcastChannel !== 'undefined') authChannel = new BroadcastChannel('getcyb-auth');
+} catch {
+  // The storage event below remains the cross-tab fallback.
+}
 
 function readCachedUser() {
   try { return JSON.parse(sessionStorage.getItem(cachedUserKey) || 'null'); }
@@ -15,26 +22,29 @@ function cacheUser(user) {
 export const cacheAppUser = cacheUser;
 
 export async function customBackendRequest(path, options = {}) {
-  const sessionToken = sessionStorage.getItem('getcyb_session_token');
   let response;
   try {
     response = await fetch(`${apiBase}${path}`, {
       ...options,
       credentials: 'include',
-      signal: options.signal || AbortSignal.timeout(path.includes('/ai/') ? 90000 : 45000),
-      headers: { 'Content-Type': 'application/json', ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}), ...(options.headers || {}) },
+      // Keep the browser open long enough for the API's 50s provider deadline,
+      // with a small buffer for server response handling.
+      signal: options.signal || AbortSignal.timeout(path.includes('/ai/') ? 55000 : 45000),
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     });
   } catch (error) {
     if (error.name === 'TimeoutError' || error.name === 'AbortError') throw new Error('The custom backend took too long to respond. Check your connection and try again.', { cause: error });
     throw new Error(error instanceof Error ? error.message : 'The custom backend could not be reached.', { cause: error });
   }
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) { const error = new Error(result.message || 'The request could not be completed.'); error.status = response.status; throw error; }
+  if (!response.ok) { const message = response.status === 401 ? (path.includes('/ai/') ? 'Your session expired. Sign in again, then retry the prompt shown here.' : 'Your session expired. Sign in again to continue editing.') : result.message || (response.status === 403 ? 'You do not have permission to complete this action.' : 'The request could not be completed.'); const error = new Error(message); error.status = response.status; throw error; }
   return result;
 }
 
 export async function clearCustomBackendSession() {
-  if (readCachedUser() || sessionStorage.getItem('getcyb_session_token')) await customBackendRequest('/auth/logout', { method: 'POST' }).catch(() => {});
+  // The cookie is shared across tabs, but the per-tab sessionStorage cache is not.
+  // Always ask the server to revoke the cookie-backed session.
+  await customBackendRequest('/auth/logout', { method: 'POST' }).catch(() => {});
   sessionStorage.removeItem('getcyb_session_token');
   sessionStorage.removeItem(cachedUserKey);
 }
@@ -46,7 +56,18 @@ export async function getAppUser() {
     return account;
   } catch (error) {
     if (error.status === 401 || error.status === 403) {
-      sessionStorage.removeItem('getcyb_session_token');
+      const legacyToken = sessionStorage.getItem('getcyb_session_token');
+      if (legacyToken) {
+        try {
+          const account = await customBackendRequest('/auth/migrate-session', { method: 'POST', body: JSON.stringify({ sessionToken: legacyToken }) });
+          sessionStorage.removeItem('getcyb_session_token');
+          account.uid = account.id;
+          cacheUser(account);
+          return account;
+        } catch {
+          sessionStorage.removeItem('getcyb_session_token');
+        }
+      }
       sessionStorage.removeItem(cachedUserKey);
       return null;
     }
@@ -57,13 +78,34 @@ export async function getAppUser() {
 export function subscribeAppUser(callback) {
   let active = true;
   const refresh = () => getAppUser().then((user) => { if (active) callback(user); });
+  const handleStorage = (event) => {
+    if (event.key === authSyncKey) refresh();
+  };
+  const handleBroadcast = () => refresh();
+
   window.addEventListener('getcyb-auth-changed', refresh);
+  window.addEventListener('storage', handleStorage);
+  authChannel?.addEventListener('message', handleBroadcast);
+
   const cachedUser = readCachedUser();
   if (cachedUser) callback(cachedUser);
   refresh();
-  return () => { active = false; window.removeEventListener('getcyb-auth-changed', refresh); };
+
+  return () => {
+    active = false;
+    window.removeEventListener('getcyb-auth-changed', refresh);
+    window.removeEventListener('storage', handleStorage);
+    authChannel?.removeEventListener('message', handleBroadcast);
+  };
 }
 
 export function notifyAppUserChanged() {
-  if (typeof window !== 'undefined') window.dispatchEvent(new Event('getcyb-auth-changed'));
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event('getcyb-auth-changed'));
+  try {
+    localStorage.setItem(authSyncKey, `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  } catch {
+    // BroadcastChannel still synchronizes tabs when storage is unavailable.
+  }
+  authChannel?.postMessage({ type: 'auth-changed' });
 }

@@ -22,26 +22,22 @@ function PlatformPayment() {
       return;
     }
     if (!sessionId) return;
-
     let active = true;
-    customBackendRequest("/payments/stripe/confirm-checkout", {
-      method: "POST",
-      body: JSON.stringify({ sessionId }),
-    }).then((result) => {
-      if (!active) return;
-      if (!result?.success) throw new Error("The payment could not be confirmed.");
-      setPaymentComplete(true);
-      window.history.replaceState({}, "", window.location.pathname);
-      window.setTimeout(() => navigate("/dashboard", { replace: true }), 1800);
-    }).catch((paymentError) => {
-      if (!active) return;
-      console.error("Confirm Stripe payment error:", paymentError);
-      setError(paymentError.message || "The payment could not be confirmed.");
-      window.history.replaceState({}, "", window.location.pathname);
-    }).finally(() => {
-      if (active) setStripeLoading(false);
-    });
-
+    customBackendRequest("/payments/stripe/confirm-checkout", { method: "POST", body: JSON.stringify({ sessionId }) })
+      .then((result) => {
+        if (!active) return;
+        if (!result?.success) throw new Error("The payment could not be confirmed.");
+        setPaymentComplete(true);
+        window.history.replaceState({}, "", window.location.pathname);
+        window.setTimeout(() => navigate("/dashboard", { replace: true }), 1800);
+      })
+      .catch((paymentError) => {
+        if (!active) return;
+        console.error("Confirm Stripe payment error:", paymentError);
+        setError(paymentError.message || "The payment could not be confirmed.");
+        window.history.replaceState({}, "", window.location.pathname);
+      })
+      .finally(() => { if (active) setStripeLoading(false); });
     return () => { active = false; };
   }, [navigate]);
 
@@ -144,17 +140,12 @@ function PlatformPayment() {
             </div>
           )}
 
-          <button
-            type="button"
-            className="platform-stripe-button"
-            onClick={startStripeCheckout}
-            disabled={stripeLoading}
-          >
+          <button type="button" className="platform-stripe-button" onClick={startStripeCheckout} disabled={stripeLoading}>
             {stripeLoading ? "Checking payment…" : "Pay securely with Stripe"}
           </button>
 
           <small>
-            Your account activates only after Stripe confirms your payment.
+            Your account activates only after the payment provider confirms your payment.
           </small>
         </section>
       </main>

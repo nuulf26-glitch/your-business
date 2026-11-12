@@ -2,10 +2,11 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import "../styles/auth.css";
 import { register } from "../services/authService";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 function Signup() {
   const navigate = useNavigate();
 
-  const [businessName, setBusinessName] = useState(() => new URLSearchParams(window.location.search).get("businessName") || "");
+  const [businessName, setBusinessName] = useState("");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,7 +37,7 @@ async function handleSignup(event) {
     try {
       setLoading(true);
 
-      await register(email.trim(), password, { fullName: fullName.trim(), businessName: businessName.trim() });
+      await register(email.trim(), password, { fullName: fullName.trim(), businessName: businessName.trim(), acceptedTerms });
       navigate(new URLSearchParams(window.location.search).get("activate") === "1" ? "/platform-payment" : "/dashboard", { replace: true });
     } catch (signupError) {
       if (signupError.status === 409 || signupError.code === "auth/email-already-in-use") {
@@ -77,7 +78,7 @@ async function handleSignup(event) {
           <div className="auth-benefits">
             <div>
               <span>01</span>
-              <p>Website draft before publishing</p>
+              <p>Private website preview</p>
             </div>
 
             <div>
@@ -109,9 +110,9 @@ async function handleSignup(event) {
             <h2>Start building your website</h2>
 
               <p>
-              Enter your details to start building your website. Customize its design
-              and products before publishing. CYB Lifetime Access is a one-time
-              $246 payment.
+              Enter your details to keep your saved website preview. CYB Lifetime
+              Access is a one-time $246 payment through Stripe. You can review
+              the payment before confirming secure checkout.
             </p>
           </div>
 
@@ -197,7 +198,7 @@ async function handleSignup(event) {
 
             {error && <p className="auth-error">{error}</p>}
 
-            <p className="auth-provider-unavailable">Google sign-in is not enabled on this version.</p>
+            <GoogleSignInButton acceptedTerms={acceptedTerms} />
 
             <button
               type="submit"

@@ -14,6 +14,7 @@ export async function createApp() {
   app.enableCors({ origin: (origin: string | undefined, callback: (error: Error | null, allowed?: boolean) => void) => callback(null, !origin || isAllowedOrigin(origin, origins)), credentials: true, methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'] });
   const expressApp = app.getHttpAdapter().getInstance();
   expressApp.use('/api/v1/uploads', express.raw({ type: ['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm','video/quicktime'], limit: '5mb' }));
+  expressApp.use('/api/v1/payments/stripe/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
   expressApp.use(express.json({ limit: '6mb' }));
   expressApp.use(express.urlencoded({ extended: true, limit: '6mb' }));
   app.use(helmet());
@@ -43,6 +44,8 @@ function validateRuntimeEnvironment() {
   if (process.env.NODE_ENV !== 'production') return;
   const required = ['DATABASE_URL', 'PUBLIC_APP_URL'];
   const missing = required.filter((key) => !process.env[key]?.trim());
+  const configuredSameSite = process.env.COOKIE_SAME_SITE?.trim().toLowerCase();
+  if (configuredSameSite && !['lax', 'strict', 'none'].includes(configuredSameSite)) missing.push('COOKIE_SAME_SITE (must be lax, strict, or none)');
   const origins = (process.env.FRONTEND_ORIGIN || '').split(',').map((value) => value.trim()).filter(Boolean);
   if (!origins.length || origins.some((origin) => {
     try { return new URL(origin).protocol !== 'https:'; } catch { return true; }

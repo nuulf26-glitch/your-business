@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { login } from "../services/authService";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 
 import "../styles/auth.css";
 
@@ -155,7 +156,7 @@ await login(email.trim(), password);
 
             {error && <p className="auth-error">{error}</p>}
 
-            <p className="auth-provider-unavailable">Google sign-in is not enabled on this version.</p>
+            <GoogleSignInButton />
 
             <button
               type="submit"

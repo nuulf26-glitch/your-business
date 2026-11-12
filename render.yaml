@@ -1,0 +1,118 @@
+services:
+  - type: web
+    name: cyb-production-web
+    runtime: static
+    repo: https://github.com/nuulf26-glitch/your-business
+    branch: codex/cyb-render-integration-20261109
+    buildCommand: npm install --prefix backend --no-audit --no-fund && DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/getcyb npm --prefix backend run prisma:generate && mkdir -p node_modules/.prisma && cp -R backend/node_modules/.prisma/client node_modules/.prisma/ && npm run build
+    staticPublishPath: ./dist
+    autoDeployTrigger: commit
+    domains:
+      - getcyb.fit
+    envVars:
+      - key: VITE_CUSTOM_BACKEND_URL
+        value: /
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://cyb-production-api-uzsq.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  - type: web
+    name: cyb-production-api
+    runtime: docker
+    repo: https://github.com/nuulf26-glitch/your-business
+    branch: codex/cyb-render-integration-20261109
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    plan: 0.5c-512mb
+    region: frankfurt
+    autoDeployTrigger: commit
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cyb-production-db
+          property: connectionString
+      - key: PUBLIC_APP_URL
+        value: https://getcyb.fit
+      - key: FRONTEND_ORIGIN
+        value: https://getcyb.fit,https://www.getcyb.fit,https://cyb-production-web-uzsq.onrender.com
+      - key: COOKIE_SAME_SITE
+        value: lax
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: S3_ENDPOINT
+        fromService:
+          name: cyb-production-media
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: S3_REGION
+        value: us-east-1
+      - key: S3_BUCKET
+        value: getcyb-assets
+      - key: S3_ACCESS_KEY_ID
+        value: cybproduction
+      - key: S3_SECRET_ACCESS_KEY
+        fromService:
+          name: cyb-production-media
+          type: web
+          envVarKey: MINIO_ROOT_PASSWORD
+      - key: S3_FORCE_PATH_STYLE
+        value: "true"
+      - key: S3_AUTO_CREATE_BUCKET
+        value: "true"
+      - key: MAIL_FROM
+        value: GETCYB <no-reply@getcyb.fit>
+      - key: SMTP_PORT
+        value: "587"
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: STRIPE_BASIC_AMOUNT
+        value: "24600"
+      - key: STRIPE_CURRENCY
+        value: usd
+
+  - type: web
+    name: cyb-production-media
+    runtime: image
+    image:
+      url: cgr.dev/chainguard/minio:latest
+    plan: 0.5c-512mb
+    region: frankfurt
+    dockerCommand: minio server --address 0.0.0.0:10000 /data
+    healthCheckPath: /minio/health/live
+    disk:
+      name: cyb-production-media
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: MINIO_ROOT_USER
+        value: cybproduction
+      - key: MINIO_ROOT_PASSWORD
+        generateValue: true
+      - key: MINIO_BROWSER
+        value: "off"
+      - key: MINIO_API_CORS_ALLOW_ORIGIN
+        value: https://cyb-production-web-uzsq.onrender.com,https://getcyb.fit
+      - key: MINIO_API_CORS_ALLOW_CREDENTIALS_WITH_WILDCARD
+        value: "off"
+
+databases:
+  - name: cyb-production-db
+    databaseName: cyb_prod
+    user: cyb_prod_user
+    plan: 0.1c-256mb
+    region: frankfurt
+    postgresMajorVersion: "16"
+    diskSizeGB: 1
+    ipAllowList: []
+    connectionPool: none

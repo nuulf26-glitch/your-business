@@ -1,5 +1,6 @@
 import { OriginGuard, SessionGuard, tokenHash } from '../src/session';
 import { AuthController, BusinessController, HealthController, OrderController } from '../src/routes';
+import { MailService } from '../src/mail';
 import { publicWebsite, validateWebsite } from '../src/website-policy';
 import * as argon2 from 'argon2';
 
@@ -36,12 +37,18 @@ describe('opaque session token storage', () => {
 });
 
 describe('backend critical operations', () => {
-  it('reports an active free trial to the dashboard session', async () => {
+  it('requires explicit terms acceptance before creating an account', async () => {
+    const db:any={user:{findUnique:jest.fn().mockResolvedValue(null),create:jest.fn()}};
+    await expect(new AuthController(db,{} as any).signup({cookies:{}} as any,{email:'owner@example.com',password:'a-secure-password',acceptedTerms:false} as any,{cookie:jest.fn()} as any)).rejects.toThrow('Accept the Terms');
+    expect(db.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('does not report a subscription trial as account activation', async () => {
     const trialEndsAt=new Date(Date.now()+24*60*60_000);
     const db:any={subscription:{findUnique:jest.fn().mockResolvedValue({status:'TRIALING',trialEndsAt})}};
     const result=await new AuthController(db,{} as any).me({user:{id:'owner-1',email:'owner@example.com',emailVerifiedAt:new Date(),role:'OWNER'}} as any);
     expect(db.subscription.findUnique).toHaveBeenCalledWith({where:{userId:'owner-1'}});
-    expect(result).toEqual(expect.objectContaining({paid:false,trialActive:true,trialEndsAt:trialEndsAt.toISOString()}));
+    expect(result).toEqual(expect.objectContaining({paid:false,trialActive:false,trialEndsAt:null}));
   });
 
   it('loads business records only for the signed-in owner and requested type', async () => {
@@ -62,47 +69,220 @@ describe('backend critical operations', () => {
     await expect(health.readiness()).rejects.toThrow('Service Unavailable');
   });
 
-  it('creates a 14-day trial and account without requiring email verification', async () => {
+  it('creates an unactivated lifetime account without a trial', async () => {
     const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:new Date()};
-    const tx:any={user:{create:jest.fn().mockResolvedValue(user)},subscription:{create:jest.fn().mockResolvedValue({})},business:{create:jest.fn().mockResolvedValue({})}};
+    const tx:any={user:{create:jest.fn().mockResolvedValue(user)},termsConsent:{create:jest.fn().mockResolvedValue({})},subscription:{create:jest.fn().mockResolvedValue({})},business:{create:jest.fn().mockResolvedValue({})}};
     const db:any={user:{findUnique:jest.fn().mockResolvedValue(null)},$transaction:jest.fn(async callback=>callback(tx)),verificationToken:{deleteMany:jest.fn().mockResolvedValue({}),create:jest.fn().mockResolvedValue({})},session:{create:jest.fn().mockResolvedValue({})}};
     const mail:any={sendAccountLink:jest.fn().mockResolvedValue(undefined)};
-    const res:any={cookie:jest.fn()};
+    const res:any={cookie:jest.fn(),clearCookie:jest.fn()};
     const previous=process.env.NODE_ENV;process.env.NODE_ENV='test';
-    const result=await new AuthController(db,mail).signup({email:' OWNER@example.com ',password:'a-secure-password'} as any,res);
+    const result=await new AuthController(db,mail).signup({cookies:{}} as any,{email:' OWNER@example.com ',password:'a-secure-password',acceptedTerms:true} as any,res);
     if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
     expect(tx.user.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({email:'owner@example.com'})}));
-    expect(tx.subscription.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({userId:'u-1'})}));
+    expect(tx.subscription.create).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({userId:'u-1',status:'INACTIVE',billingType:'ONE_TIME',trialEndsAt:expect.any(Date)})}));
+    expect(tx.termsConsent.create).toHaveBeenCalledWith(expect.objectContaining({data:{userId:'u-1',termsVersion:'2026-10-31',privacyVersion:'2026-10-31'}}));
     expect(mail.sendAccountLink).not.toHaveBeenCalled();
     expect(tx.user.create.mock.calls[0][0].data.emailVerifiedAt).toBeInstanceOf(Date);
     expect(result.emailVerified).toBe(true);
-    expect(result.trialEndsAt).toBeTruthy();
+    expect(result).not.toHaveProperty('trialEndsAt');
   });
 
   it('allows a valid login when the account email is not verified', async () => {
     const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:null,passwordHash:await argon2.hash('a-secure-password')};
     const db:any={user:{findUnique:jest.fn().mockResolvedValue(user)},session:{create:jest.fn().mockResolvedValue({})}};
     const res:any={cookie:jest.fn()};
-    const previous=process.env.NODE_ENV, previousBearer=process.env.AUTH_BEARER_ENABLED;process.env.NODE_ENV='production';process.env.AUTH_BEARER_ENABLED='true';
-    const result=await new AuthController(db,{} as any).login({email:'owner@example.com',password:'a-secure-password'} as any,res);
-    if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
-    if(previousBearer===undefined)delete process.env.AUTH_BEARER_ENABLED;else process.env.AUTH_BEARER_ENABLED=previousBearer;
+    const previousNodeEnv=process.env.NODE_ENV, previousSameSite=process.env.COOKIE_SAME_SITE;
+    process.env.NODE_ENV='production';
+    delete process.env.COOKIE_SAME_SITE;
+    let result:any;
+    try {
+      result=await new AuthController(db,{} as any).login({email:'owner@example.com',password:'a-secure-password'} as any,res);
+    } finally {
+      if(previousNodeEnv===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previousNodeEnv;
+      if(previousSameSite===undefined)delete process.env.COOKIE_SAME_SITE;else process.env.COOKIE_SAME_SITE=previousSameSite;
+    }
     expect(result.emailVerified).toBe(false);
-    expect(result.accessToken).toEqual(expect.any(String));
+    expect(result).not.toHaveProperty('accessToken');
     expect(db.session.create).toHaveBeenCalled();
     expect(res.cookie).toHaveBeenCalled();
     expect(res.cookie.mock.calls[0][2]).not.toHaveProperty('domain');
+    expect(res.cookie.mock.calls[0][2]).toEqual(expect.objectContaining({httpOnly:true,secure:true,sameSite:'lax'}));
   });
 
-  it('accepts bearer session tokens only when explicitly enabled', async () => {
-    const session={expiresAt:new Date(Date.now()+60_000),user:{id:'u-1'}};
-    const db:any={session:{findUnique:jest.fn().mockResolvedValue(session)}};
+  it('issues a first-party Lax cookie when configured for the same-origin API proxy', async () => {
+    const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:new Date(),passwordHash:await argon2.hash('a-secure-password')};
+    const db:any={user:{findUnique:jest.fn().mockResolvedValue(user)},session:{create:jest.fn().mockResolvedValue({})}};
+    const res:any={cookie:jest.fn()};
+    const previousNodeEnv=process.env.NODE_ENV, previousSameSite=process.env.COOKIE_SAME_SITE;
+    process.env.NODE_ENV='production';process.env.COOKIE_SAME_SITE='lax';
+    try {
+      await new AuthController(db,{} as any).login({email:'owner@example.com',password:'a-secure-password'} as any,res);
+      expect(res.cookie.mock.calls[0][2]).toEqual(expect.objectContaining({httpOnly:true,secure:true,sameSite:'lax'}));
+      expect(res.cookie.mock.calls[0][2]).not.toHaveProperty('domain');
+    } finally {
+      if(previousNodeEnv===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previousNodeEnv;
+      if(previousSameSite===undefined)delete process.env.COOKIE_SAME_SITE;else process.env.COOKIE_SAME_SITE=previousSameSite;
+    }
+  });
+
+  it('preserves a first-party session through /auth/me and clears it on logout', async () => {
+    const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:new Date(),role:'OWNER',passwordHash:await argon2.hash('a-secure-password')};
+    let stored:any=null;
+    const db:any={
+      user:{findUnique:jest.fn().mockResolvedValue(user)},
+      session:{
+        create:jest.fn(async({data}:any)=>{stored={...data,user,expiresAt:new Date(Date.now()+60_000)};return stored;}),
+        findUnique:jest.fn(async({where}:any)=>stored?.tokenHash===where.tokenHash?stored:null),
+        deleteMany:jest.fn(async()=>{stored=null;return {count:1};}),
+      },
+      subscription:{findUnique:jest.fn().mockResolvedValue(null)},
+    };
+    const res:any={cookie:jest.fn(),clearCookie:jest.fn()};
+    const previousNodeEnv=process.env.NODE_ENV, previousSameSite=process.env.COOKIE_SAME_SITE;
+    process.env.NODE_ENV='production';process.env.COOKIE_SAME_SITE='lax';
+    try {
+      const controller=new AuthController(db,{} as any);
+      await controller.login({email:'owner@example.com',password:'a-secure-password'} as any,res);
+      const token=res.cookie.mock.calls[0][1];
+      const req:any={cookies:{getcyb_session:token}};
+      const context:any={switchToHttp:()=>({getRequest:()=>req})};
+      await expect(new SessionGuard(db).canActivate(context)).resolves.toBe(true);
+      await expect(controller.me(req)).resolves.toEqual(expect.objectContaining({email:'owner@example.com'}));
+      await expect(controller.logout(req,res)).resolves.toEqual({ok:true});
+      expect(db.session.deleteMany).toHaveBeenCalledTimes(1);
+      expect(res.clearCookie).toHaveBeenCalledWith('getcyb_session',expect.objectContaining({httpOnly:true,secure:true,sameSite:'lax'}));
+    } finally {
+      if(previousNodeEnv===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previousNodeEnv;
+      if(previousSameSite===undefined)delete process.env.COOKIE_SAME_SITE;else process.env.COOKIE_SAME_SITE=previousSameSite;
+    }
+  });
+
+  it('keeps login validation compatible with older passwords under 12 characters', async () => {
+    const user={id:'u-1',email:'owner@example.com',emailVerifiedAt:new Date(),passwordHash:await argon2.hash('short-pass')};
+    const db:any={user:{findUnique:jest.fn().mockResolvedValue(user)},session:{create:jest.fn().mockResolvedValue({})}};
+    const result=await new AuthController(db,{} as any).login({email:'owner@example.com',password:'short-pass'} as any,{cookie:jest.fn()} as any);
+    expect(result.email).toBe('owner@example.com');
+  });
+
+  it('returns the same password-reset response for an unknown email', async () => {
+    const db:any={user:{findUnique:jest.fn().mockResolvedValue(null)}};
+    const result=await new AuthController(db,{} as any).forgotPassword({email:'unknown@example.com'} as any);
+    expect(result).toEqual({ok:true,message:'If the account exists, a password reset link will be sent.'});
+  });
+
+  it('logs a staging-only unknown-account outcome without logging the email', async () => {
+    const previous=process.env.PUBLIC_APP_URL;process.env.PUBLIC_APP_URL='https://getcyb-staging-web.onrender.com';
+    const controller:any=new AuthController({user:{findUnique:jest.fn().mockResolvedValue(null)}} as any,{} as any);
+    const log=jest.spyOn(controller.logger,'log').mockImplementation(()=>undefined);
+    const result=await controller.forgotPassword({email:'createyourbusiness6@gmail.com'} as any);
+    if(previous===undefined)delete process.env.PUBLIC_APP_URL;else process.env.PUBLIC_APP_URL=previous;
+    expect(result.ok).toBe(true);
+    expect(log.mock.calls.map(call=>String(call[0])).join('\n')).toContain('password_reset_account_not_found');
+    expect(log.mock.calls.map(call=>String(call[0])).join('\n')).not.toContain('createyourbusiness6@gmail.com');
+  });
+
+  it('requires an authenticated staging session for mail diagnostics and hides values', async () => {
+    const previous=process.env.PUBLIC_APP_URL;process.env.PUBLIC_APP_URL='https://getcyb-staging-web.onrender.com';
+    const result={configured:true,missing:[],gmailHost:true,supportedPort:true,smtpUserConfigured:true,passwordConfigured:true,mailFromConfigured:true,authenticated:true,failure:null};
+    const mail:any={verifySmtp:jest.fn().mockResolvedValue(result)};
+    const controller:any=new AuthController({} as any,mail);
+    await expect(controller.stagingMailDiagnostic()).resolves.toEqual(result);
+    expect(mail.verifySmtp).toHaveBeenCalledTimes(1);
+    process.env.PUBLIC_APP_URL='https://getcyb.fit';
+    await expect(controller.stagingMailDiagnostic()).rejects.toThrow('Not Found');
+    if(previous===undefined)delete process.env.PUBLIC_APP_URL;else process.env.PUBLIC_APP_URL=previous;
+  });
+
+  it('logs successful reset submission without logging the recipient or reset token', async () => {
+    const email='createyourbusiness6@gmail.com';
+    const db:any={user:{findUnique:jest.fn().mockResolvedValue({id:'u-1',email})},passwordResetToken:{deleteMany:jest.fn().mockResolvedValue({count:0}),create:jest.fn().mockResolvedValue({})}};
+    const mail:any={sendAccountLink:jest.fn().mockResolvedValue(undefined)};
+    const controller:any=new AuthController(db,mail);
+    const log=jest.spyOn(controller.logger,'log').mockImplementation(()=>undefined);
+    const result=await controller.forgotPassword({email} as any);
+    expect(result).toEqual({ok:true,message:'If the account exists, a password reset link will be sent.'});
+    expect(mail.sendAccountLink).toHaveBeenCalledWith(email,expect.any(String),'reset');
+    const logged=log.mock.calls.map(call=>String(call[0])).join('\n');
+    expect(logged).toContain('password_reset_email_submitted');
+    expect(logged).not.toContain(email);
+    expect(logged).not.toContain(mail.sendAccountLink.mock.calls[0][1]);
+  });
+
+  it('preserves prior reset links and deletes only the undelivered token when SMTP fails', async () => {
+    const email='owner@example.com';
+    const db:any={
+      user:{findUnique:jest.fn().mockResolvedValue({id:'u-1',email})},
+      passwordResetToken:{create:jest.fn().mockResolvedValue({}),deleteMany:jest.fn().mockResolvedValue({count:1})},
+    };
+    const mail:any={sendAccountLink:jest.fn().mockRejectedValue(Object.assign(new Error('SMTP unavailable'),{code:'EAUTH'}))};
+    const controller:any=new AuthController(db,mail);
+    const log=jest.spyOn(controller.logger,'error').mockImplementation(()=>undefined);
+
+    await expect(controller.forgotPassword({email} as any)).resolves.toEqual({ok:true,message:'If the account exists, a password reset link will be sent.'});
+
+    const undeliveredHash=db.passwordResetToken.create.mock.calls[0][0].data.tokenHash;
+    expect(db.passwordResetToken.deleteMany).toHaveBeenCalledTimes(1);
+    expect(db.passwordResetToken.deleteMany).toHaveBeenCalledWith({where:{tokenHash:undeliveredHash}});
+    expect(db.passwordResetToken.deleteMany.mock.calls[0][0].where).not.toHaveProperty('userId');
+    expect(mail.sendAccountLink).toHaveBeenCalledWith(email,expect.any(String),'reset');
+    expect(log.mock.calls.map(call=>String(call[0])).join('\n')).not.toContain(email);
+    expect(log.mock.calls.map(call=>String(call[0])).join('\\n')).not.toContain(mail.sendAccountLink.mock.calls[0][1]);
+  });
+
+  it('does not consume an expired password-reset token', async () => {
+    const db:any={passwordResetToken:{findUnique:jest.fn().mockResolvedValue({userId:'u-1',expiresAt:new Date(Date.now()-1000)})},$transaction:jest.fn()};
+    await expect(new AuthController(db,{} as any).resetPassword({token:'c'.repeat(43),password:'a-new-secure-password'} as any)).rejects.toThrow('invalid or expired');
+    expect(db.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('reports Google sign-in as unconfigured instead of bypassing provider checks', async () => {
+    const previous=process.env.GOOGLE_CLIENT_ID;delete process.env.GOOGLE_CLIENT_ID;
+    await expect(new AuthController({} as any,{} as any).googleSignIn({idToken:'a'.repeat(30),acceptedTerms:true} as any,{cookie:jest.fn()} as any)).rejects.toThrow('Google sign-in is not configured');
+    if(previous!==undefined)process.env.GOOGLE_CLIENT_ID=previous;
+  });
+
+  it('updates the password and invalidates every session when a reset token is consumed', async () => {
+    const token='a'.repeat(43), record={userId:'u-1',expiresAt:new Date(Date.now()+60_000)};
+    const tx:any={passwordResetToken:{deleteMany:jest.fn().mockResolvedValue({count:1})},user:{update:jest.fn().mockResolvedValue({})},session:{deleteMany:jest.fn().mockResolvedValue({count:2})}};
+    const db:any={passwordResetToken:{findUnique:jest.fn().mockResolvedValue(record)},$transaction:jest.fn(callback=>callback(tx))};
+    await expect(new AuthController(db,{} as any).resetPassword({token,password:'a-new-secure-password'} as any)).resolves.toEqual({reset:true});
+    expect(tx.passwordResetToken.deleteMany).toHaveBeenCalledWith(expect.objectContaining({where:expect.objectContaining({tokenHash:tokenHash(token),expiresAt:expect.any(Object)})}));
+    expect(tx.session.deleteMany).toHaveBeenCalledWith({where:{userId:'u-1'}});
+  });
+
+  it('rejects a reset token after another request has already consumed it', async () => {
+    const token='b'.repeat(43), record={userId:'u-1',expiresAt:new Date(Date.now()+60_000)};
+    const tx:any={passwordResetToken:{deleteMany:jest.fn().mockResolvedValue({count:0})},user:{update:jest.fn()},session:{deleteMany:jest.fn()}};
+    const db:any={passwordResetToken:{findUnique:jest.fn().mockResolvedValue(record)},$transaction:jest.fn(callback=>callback(tx))};
+    await expect(new AuthController(db,{} as any).resetPassword({token,password:'a-new-secure-password'} as any)).rejects.toThrow('invalid or expired');
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects bearer tokens so sessions are only accepted from HttpOnly cookies', async () => {
+    const db:any={session:{findUnique:jest.fn()}};
     const req:any={headers:{authorization:'Bearer test-token'}};
     const context:any={switchToHttp:()=>({getRequest:()=>req})};
-    const prev=process.env.AUTH_BEARER_ENABLED;process.env.AUTH_BEARER_ENABLED='true';
-    await expect(new SessionGuard(db).canActivate(context)).resolves.toBe(true);
-    if(prev===undefined)delete process.env.AUTH_BEARER_ENABLED;else process.env.AUTH_BEARER_ENABLED=prev;
-    expect(req.sessionToken).toBe('test-token');
+    await expect(new SessionGuard(db).canActivate(context)).rejects.toThrow('Sign in required');
+    expect(db.session.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('rotates an existing browser bearer session into an HttpOnly cookie session', async () => {
+    const old={id:'session-1',userId:'u-1',expiresAt:new Date(Date.now()+60_000),user:{id:'u-1',email:'owner@example.com',emailVerifiedAt:new Date(),role:'OWNER'}};
+    const tx:any={session:{findUnique:jest.fn().mockResolvedValue(old),deleteMany:jest.fn().mockResolvedValue({count:1}),create:jest.fn().mockResolvedValue({})}};
+    const db:any={$transaction:jest.fn(callback=>callback(tx))},res:any={cookie:jest.fn()},previous=process.env.NODE_ENV;process.env.NODE_ENV='production';
+    const result=await new AuthController(db,{} as any).migrateLegacySession({sessionToken:'legacy-session-token-value-1234567890'} as any,res);
+    if(previous===undefined)delete process.env.NODE_ENV;else process.env.NODE_ENV=previous;
+    expect(result).toEqual({id:'u-1',email:'owner@example.com',emailVerified:true,role:'OWNER'});
+    expect(tx.session.deleteMany).toHaveBeenCalledWith({where:{id:'session-1',expiresAt:expect.objectContaining({gt:expect.any(Date)})}});
+    expect(tx.session.create.mock.calls[0][0].data.tokenHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(res.cookie).toHaveBeenCalledWith('getcyb_session',expect.any(String),expect.objectContaining({httpOnly:true,secure:true}));
+  });
+
+  it('rejects expired session cookies', async () => {
+    const db:any={session:{findUnique:jest.fn().mockResolvedValue({expiresAt:new Date(Date.now()-1000),user:{id:'u-1'}})}};
+    const req:any={cookies:{getcyb_session:'expired-token'}};
+    const context:any={switchToHttp:()=>({getRequest:()=>req})};
+    await expect(new SessionGuard(db).canActivate(context)).rejects.toThrow('Session expired');
   });
 
   it('scopes order updates to the signed-in owner business', async () => {
