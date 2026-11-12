@@ -97,15 +97,12 @@ function Orders() {
 
     async function updateStatus(orderId, newStatus) {
   try {
-    await saveOrderStatus(orderId, newStatus);
+    const updated = await saveOrderStatus(orderId, newStatus);
 
     setOrders((currentOrders) =>
       currentOrders.map((item) =>
         item.id === orderId
-          ? {
-              ...item,
-              status: newStatus,
-            }
+          ? { ...item, ...updated, status: newStatus }
           : item
       )
     );
