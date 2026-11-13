@@ -107,6 +107,15 @@ function Orders() {
       )
     );
 
+    // Payment collection, refunds, and reversals are recorded by the server.
+    // Refresh the authoritative ledger so revenue totals reflect that change
+    // immediately instead of waiting for a full page reload.
+    try {
+      setOrders(await getOrders());
+    } catch (refreshError) {
+      console.error("Could not refresh order totals:", refreshError);
+    }
+
   } catch (error) {
     console.error(
       "Could not update order status:",
