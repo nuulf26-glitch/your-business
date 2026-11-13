@@ -812,3 +812,4 @@ export class StripeWebhookController {
     await activateVerifiedStripeSession(this.db,payment,session);
     return {received:true};
   }
+}
