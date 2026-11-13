@@ -12,7 +12,7 @@ function Payment() {
   const navigate = useNavigate();
 
   const [order] = useState(readPendingOrder);
-  const [paymentMethod, setPaymentMethod] = useState("cash");
+  const paymentMethod = "cash";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -38,7 +38,10 @@ async function completeOrder(paymentStatus, orderStatus) {
       completedAt: new Date().toISOString(),
     };
 if (order.backendId) {
-  if (paymentMethod === 'cash') await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/cash-on-delivery`, { method: 'POST', body: JSON.stringify({ data: { completedAt: new Date().toISOString() } }) });
+  if (paymentMethod === 'cash') {
+    if (!order.cashOnDeliveryToken) throw new Error('This order is missing its secure confirmation token. Return to checkout and retry.');
+    await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/cash-on-delivery`, { method: 'POST', body: JSON.stringify({ token: order.cashOnDeliveryToken }) });
+  }
   else await customBackendRequest(`/orders/${encodeURIComponent(order.backendId)}`, { method: 'PATCH', body: JSON.stringify({ data: { paymentMethod, paymentStatus, completedAt: new Date().toISOString() } }) });
 } else {
   throw new Error('This order is not connected to the custom backend.');
@@ -51,6 +54,7 @@ if (order.backendId) {
 
     localStorage.removeItem("pendingOrder");
     localStorage.removeItem("businessCart");
+    localStorage.removeItem("storefrontCheckoutAttempt");
 
     navigate("/order-success");
   }
@@ -66,11 +70,7 @@ if (order.backendId) {
     try {
       setLoading(true);
 
-      if (paymentMethod === "paypal") { setError("PayPal checkout for store orders is not configured yet."); return; }
-
-     if (paymentMethod === "cash") {
-  await completeOrder("Cash on delivery", "New");
-}
+      await completeOrder("Unpaid", "New");
 
     } catch (paymentError) {
       console.error("Payment failed:", paymentError);
@@ -126,7 +126,7 @@ if (order.backendId) {
           <h1>Complete your payment</h1>
 
           <p>
-            Choose your payment method and review your order.
+              Choose Cash on Delivery. The order remains unpaid until payment is collected.
           </p>
         </div>
 
@@ -135,40 +135,11 @@ if (order.backendId) {
             <div className="payment-card-heading">
               <span>Payment method</span>
 
-              <h2>How would you like to pay?</h2>
+              <h2>Cash on delivery</h2>
             </div>
 
             <div className="payment-options">
-              <button
-                type="button"
-                className="payment-option payment-option-unavailable"
-                disabled
-              >
-                <div className="payment-option-icon">P</div>
-
-                <div>
-                  <strong>PayPal · unavailable</strong>
-
-                  <p>
-                    Online card and PayPal payments are not enabled for this store yet.
-                  </p>
-                </div>
-
-                <span className="payment-radio">
-                  —
-                </span>
-              </button>
-
-              <button
-                type="button"
-                className={`payment-option ${
-                  paymentMethod === "cash" ? "selected" : ""
-                }`}
-                onClick={() => {
-                  setPaymentMethod("cash");
-                  setError("");
-                }}
-              >
+              <div className="payment-option selected">
                 <div className="payment-option-icon">C</div>
 
                 <div>
@@ -180,9 +151,14 @@ if (order.backendId) {
                 </div>
 
                 <span className="payment-radio">
-                  {paymentMethod === "cash" ? "✓" : ""}
+                  ✓
                 </span>
-              </button>
+              </div>
+            </div>
+
+            <div className="payment-notice" role="status">
+              <strong>Online payments aren’t available for this store yet</strong>
+              <p>Card and wallet options will appear when the merchant has a verified payment account connected.</p>
             </div>
 
             {error && (
@@ -197,11 +173,7 @@ if (order.backendId) {
               onClick={handlePayment}
               disabled={loading}
             >
-              {loading
-                ? "Processing..."
-                : paymentMethod === "cash"
-                  ? "Confirm cash on delivery"
-                  : `Pay USD ${Number(order.total || 0).toFixed(2)}`}
+              {loading ? "Processing..." : "Confirm cash on delivery"}
             </button>
           </section>
 

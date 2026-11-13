@@ -8,6 +8,7 @@ import Pricing from "./Pricing";
 import FAQ from "./FAQ";
 import Footer from "./Footer";
 import AiHelpWidget from "../components/AiHelpWidget";
+import DesignSamples from "./DesignSamples";
 import "./landing.css";
 
 function LandingPage() {
@@ -18,6 +19,7 @@ function LandingPage() {
       <main>
         <Hero />
         <HowItWorks />
+        <DesignSamples />
         <WebsiteBuilder />
         <Analytics />
         <AiDesignFeature />

@@ -31,9 +31,9 @@ test('explicit sale price, percentage and zero are supported',()=>{
   assert.equal(productPrice({sellingPrice:100,status:'onSale',salePrice:'',discountPercent:20}),80);
 });
 test('revenue does not become profit when costs are missing',()=>{
-  const metric=orderMetrics([{status:'paid',total:100},{status:'cancelled',total:999}]);
+  const metric=orderMetrics([{paymentStatus:'Paid',total:100},{status:'cancelled',total:999}]);
   assert.equal(metric.revenue,100);assert.equal(metric.profit,null);
-  const complete=orderMetrics([{status:'paid',total:100,costOfGoods:40,expenses:10}]);
+  const complete=orderMetrics([{paymentStatus:'Paid',total:100,costOfGoods:40,expenses:10}]);
   assert.equal(complete.profit,50);assert.equal(complete.margin,50);
 });
 import { DESIGN_COLLECTIONS, collectionWebsite } from '../src/editor/collections.js';

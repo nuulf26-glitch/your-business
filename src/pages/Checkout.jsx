@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/checkout.css";
 import { customBackendRequest } from "../services/customBackendSession";
+import { checkoutAttemptKey } from "../services/storefrontCheckout";
 
 const initialForm = {
   fullName: "",
@@ -100,7 +101,7 @@ const storeUrl = cart[0]?.storeUrl || "";
         address: form.address.trim(),
         city: form.city.trim(),
         notes: form.notes.trim(),
-        items: cart,
+        items: cart.map(item => ({ ...item, id: item.id || item.productId })),
         subtotal,
         shipping,
         total,
@@ -108,7 +109,8 @@ const storeUrl = cart[0]?.storeUrl || "";
         paymentStatus: "Pending",
         date: new Date().toISOString(),
       };
-const saved = await customBackendRequest('/public/orders', { method: 'POST', body: JSON.stringify({ data: newOrder }) });
+const idempotencyKey = await checkoutAttemptKey(form, cart);
+const saved = await customBackendRequest('/public/orders', { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ data: newOrder }) });
 Object.assign(newOrder, saved, { id: saved.id, backendId: saved.id });
 
      
@@ -306,7 +308,7 @@ Object.assign(newOrder, saved, { id: saved.id, backendId: saved.id });
             </button>
 
             <p>
-              Your order will not be completed until payment is confirmed.
+              Cash on Delivery orders remain unpaid until payment is collected.
             </p>
           </aside>
         </form>

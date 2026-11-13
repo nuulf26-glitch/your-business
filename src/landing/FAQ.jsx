@@ -18,10 +18,13 @@ const faqs = [
       "Yes. You can connect your own custom domain whenever you're ready.",
   },
   {
-    question: "Is there a free trial?",
-    answer:
-      "Yes. Every account starts with a 14-day free trial before purchasing.",
+    question: "What can I do before paying?",
+    answer: "Create one private website preview, edit its text, colors, typography and section order, and view it on desktop, tablet or mobile. The preview lasts seven days and cannot be published.",
   },
+  { question: "Does the free preview use AI?", answer: "No. CYB creates a curated design preview without sending your prompt to an AI provider. This keeps the preview available without anonymous AI usage." },
+  { question: "How much is lifetime access?", answer: "CYB Lifetime Access is a one-time payment of $246 USD. Review the current Terms of Service for the applicable 30-day refund terms." },
+  { question: "Can I keep my preview if I join?", answer: "Yes. Create your account from the preview screen and your saved website draft will be carried into your account." },
+  { question: "Can I publish the free preview?", answer: "No. Publishing remains available only after account activation." },
   {
     question: "Can I edit my website later?",
     answer:

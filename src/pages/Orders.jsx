@@ -8,6 +8,8 @@ const statuses = [
   "Shipped",
   "Delivered",
   "Cancelled",
+  "Refunded",
+  "Reversed",
 ];
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -68,7 +70,7 @@ function Orders() {
   const totals = useMemo(() => {
     return orders.reduce(
       (result, order) => {
-        result.revenue += Number(order.total) || 0;
+        if (String(order.paymentStatus || '').toLowerCase() === 'paid') result.revenue += Number(order.total) || 0;
 
         if (order.status === "New") {
           result.newOrders += 1;
@@ -95,18 +97,24 @@ function Orders() {
 
     async function updateStatus(orderId, newStatus) {
   try {
-    await saveOrderStatus(orderId, newStatus);
+    const updated = await saveOrderStatus(orderId, newStatus);
 
     setOrders((currentOrders) =>
       currentOrders.map((item) =>
         item.id === orderId
-          ? {
-              ...item,
-              status: newStatus,
-            }
+          ? { ...item, ...updated, status: newStatus }
           : item
       )
     );
+
+    // Payment collection, refunds, and reversals are recorded by the server.
+    // Refresh the authoritative ledger so revenue totals reflect that change
+    // immediately instead of waiting for a full page reload.
+    try {
+      setOrders(await getOrders());
+    } catch (refreshError) {
+      console.error("Could not refresh order totals:", refreshError);
+    }
 
   } catch (error) {
     console.error(
@@ -185,7 +193,7 @@ function Orders() {
         <article>
           <span>Total revenue</span>
           <strong>{formatCurrency(totals.revenue)}</strong>
-          <p>Revenue from all orders</p>
+          <p>Confirmed collected payments, less recorded refunds</p>
         </article>
 
         <article>
