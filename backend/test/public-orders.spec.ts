@@ -1,6 +1,8 @@
 import { PublicOrderController } from '../src/routes';
 import { tokenHash } from '../src/session';
 
+const checkoutKey = 'a'.repeat(43);
+
 describe('PublicOrderController', () => {
   it('uses database product prices instead of the amount sent by the browser', async () => {
     const business = { id: 'biz_1', slug: 'sample-shop', website: { published: { brandName: 'Sample' } } };
@@ -12,11 +14,12 @@ describe('PublicOrderController', () => {
     const db: any = {
       business: { findUnique: jest.fn().mockResolvedValue(business) },
       product: { findMany: jest.fn().mockResolvedValue([{ id: 'prod_1', name: 'Item', data: { sellingPrice: 10 } }]) },
+      order: { findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(async (callback: any) => callback(tx)),
     };
     const controller = new PublicOrderController(db);
 
-    const result = await controller.create({ data: {
+    const result = await controller.create(checkoutKey, { data: {
       storeUrl: 'sample-shop', customerName: 'A Customer', email: 'a@example.com',
       items: [{ productId: 'prod_1', quantity: 1, price: 0.01 }], total: 0.01,
       paymentStatus: 'Paid', paymentHistory: [{ type: 'collected', amountCents: 1 }],
@@ -30,12 +33,16 @@ describe('PublicOrderController', () => {
     expect(stored.shipping).toBe(25);
     expect(stored.total).toBe(35);
     expect(stored.customerActionTokenHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(tx.order.create.mock.calls[0][0].data.checkoutKey).toBe(tokenHash(checkoutKey));
+    expect(tx.order.create.mock.calls[0][0].data.checkoutKey).not.toBe(checkoutKey);
     expect(stored.paymentStatus).toBe('Pending');
     expect(stored.paymentMethod).toBe('cash');
     expect(stored.paymentHistory).toEqual([]);
     expect(tx.customer.create.mock.calls[0][0].data.data.totalSpent).toBe(0);
     expect(result).toHaveProperty('cashOnDeliveryToken');
+    expect(result.cashOnDeliveryToken).toBe(checkoutKey);
     expect(result).not.toHaveProperty('customerActionTokenHash');
+    expect(result).not.toHaveProperty('checkoutFingerprint');
   });
 
   it('requires the per-order customer token and ignores client-supplied order fields', async () => {
@@ -88,10 +95,11 @@ describe('PublicOrderController', () => {
     const db: any = {
       business: { findUnique: jest.fn().mockResolvedValue({ id: 'biz_1', slug: 'sample-shop', website: { published: {} } }) },
       product: { findMany: jest.fn().mockResolvedValue([{ id: 'prod_1', name: 'Item', data: { sellingPrice: 10, salePrice: 0 } }]) },
+      order: { findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(async (callback: any) => callback(tx)),
     };
 
-    await new PublicOrderController(db).create({ data: {
+    await new PublicOrderController(db).create(checkoutKey, { data: {
       storeUrl: 'sample-shop', customerName: 'A Customer', email: 'a@example.com', items: [{ productId: 'prod_1', quantity: 1 }],
     } });
 
@@ -108,15 +116,52 @@ describe('PublicOrderController', () => {
     const db: any = {
       business: { findUnique: jest.fn().mockResolvedValue({ id: 'biz_1', slug: 'sample-shop', website: { published: {} } }) },
       product: { findMany: jest.fn().mockResolvedValue([{ id: 'prod_1', name: 'Item', data: { sellingPrice: 10, salePrice: '' } }]) },
+      order: { findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(async (callback: any) => callback(tx)),
     };
 
-    await new PublicOrderController(db).create({ data: {
+    await new PublicOrderController(db).create(checkoutKey, { data: {
       storeUrl: 'sample-shop', customerName: 'A Customer', email: 'a@example.com', items: [{ productId: 'prod_1', quantity: 1 }],
     } });
 
     const order = tx.order.create.mock.calls[0][0].data;
     expect(order.data.items[0].price).toBe(10);
     expect(order.amountCents).toBe(3500);
+  });
+
+  it('returns the same order and COD action token for a repeated checkout key', async () => {
+    const business = { id: 'biz_1', slug: 'sample-shop', website: { published: {} } };
+    let savedOrder: any = null;
+    const tx = {
+      order: { create: jest.fn(async ({ data }: any) => { savedOrder = { ...data, id: 'order_1', createdAt: new Date() }; return savedOrder; }) },
+      customer: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}) },
+    };
+    const db: any = {
+      business: { findUnique: jest.fn().mockResolvedValue(business) },
+      product: { findMany: jest.fn().mockResolvedValue([{ id: 'prod_1', name: 'Item', data: { sellingPrice: 10 } }]) },
+      order: { findUnique: jest.fn(async () => savedOrder) },
+      $transaction: jest.fn(async (callback: any) => callback(tx)),
+    };
+    const controller = new PublicOrderController(db);
+    const request = { data: { storeUrl: 'sample-shop', customerName: 'A Customer', email: 'a@example.com', items: [{ productId: 'prod_1', quantity: 1 }] } };
+
+    const first = await controller.create(checkoutKey, request);
+    const retry = await controller.create(checkoutKey, request);
+
+    expect(retry).toEqual(first);
+    expect(first.cashOnDeliveryToken).toBe(checkoutKey);
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.customer.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects checkout key reuse when the submitted order changes', async () => {
+    const business = { id: 'biz_1', slug: 'sample-shop', website: { published: {} } };
+    const db: any = {
+      business: { findUnique: jest.fn().mockResolvedValue(business) },
+      product: { findMany: jest.fn().mockResolvedValue([{ id: 'prod_1', name: 'Item', data: { sellingPrice: 10 } }]) },
+      order: { findUnique: jest.fn().mockResolvedValue({ id: 'order_1', businessId: 'biz_1', status: 'new', createdAt: new Date(), data: { checkoutFingerprint: 'different' } }) },
+    };
+
+    await expect(new PublicOrderController(db).create(checkoutKey, { data: { storeUrl: 'sample-shop', customerName: 'A Customer', email: 'a@example.com', items: [{ productId: 'prod_1', quantity: 1 }] } })).rejects.toThrow('already used for a different order');
   });
 });
