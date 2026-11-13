@@ -38,7 +38,10 @@ async function completeOrder(paymentStatus, orderStatus) {
       completedAt: new Date().toISOString(),
     };
 if (order.backendId) {
-  if (paymentMethod === 'cash') await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/cash-on-delivery`, { method: 'POST', body: JSON.stringify({ data: { completedAt: new Date().toISOString() } }) });
+  if (paymentMethod === 'cash') {
+    if (!order.cashOnDeliveryToken) throw new Error('This order is missing its secure confirmation token. Return to checkout and retry.');
+    await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/cash-on-delivery`, { method: 'POST', body: JSON.stringify({ token: order.cashOnDeliveryToken }) });
+  }
   else await customBackendRequest(`/orders/${encodeURIComponent(order.backendId)}`, { method: 'PATCH', body: JSON.stringify({ data: { paymentMethod, paymentStatus, completedAt: new Date().toISOString() } }) });
 } else {
   throw new Error('This order is not connected to the custom backend.');
@@ -51,6 +54,7 @@ if (order.backendId) {
 
     localStorage.removeItem("pendingOrder");
     localStorage.removeItem("businessCart");
+    localStorage.removeItem("storefrontCheckoutAttempt");
 
     navigate("/order-success");
   }
@@ -150,6 +154,11 @@ if (order.backendId) {
                   ✓
                 </span>
               </div>
+            </div>
+
+            <div className="payment-notice" role="status">
+              <strong>Online payments aren’t available for this store yet</strong>
+              <p>Card and wallet options will appear when the merchant has a verified payment account connected.</p>
             </div>
 
             {error && (
