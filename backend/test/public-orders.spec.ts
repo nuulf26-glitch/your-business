@@ -33,6 +33,8 @@ describe('PublicOrderController', () => {
     expect(stored.shipping).toBe(25);
     expect(stored.total).toBe(35);
     expect(stored.customerActionTokenHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(tx.order.create.mock.calls[0][0].data.checkoutKey).toBe(tokenHash(checkoutKey));
+    expect(tx.order.create.mock.calls[0][0].data.checkoutKey).not.toBe(checkoutKey);
     expect(stored.paymentStatus).toBe('Pending');
     expect(stored.paymentMethod).toBe('cash');
     expect(stored.paymentHistory).toEqual([]);
