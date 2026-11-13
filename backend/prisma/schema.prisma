@@ -151,6 +151,7 @@ model Customer {
 model Order {
   id String @id @default(cuid())
   legacyFirebaseId String? @unique
+  checkoutKey String? @unique
   businessId String
   business Business @relation(fields:[businessId], references:[id], onDelete:Cascade)
   status String @default("pending")

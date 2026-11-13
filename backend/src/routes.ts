@@ -481,7 +481,7 @@ function collectedCents(row: { amountCents: number | null; data: unknown }): num
 }
 function publicOrderData(value: unknown): Record<string, unknown> {
   const data = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  const { customerActionTokenHash: _privateTokenHash, ...publicData } = data;
+  const { customerActionTokenHash: _privateTokenHash, checkoutFingerprint: _privateCheckoutFingerprint, ...publicData } = data;
   return publicData;
 }
 
@@ -496,7 +496,43 @@ function authoritativeProductPrice(productData: Record<string, unknown>) {
 @Controller('public/orders')
 export class PublicOrderController {
   constructor(private db:DbService){}
-  @Post() async create(@Body() dto:JsonInput){const data=dto.data as Record<string,any>;const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===String(item.id||item.productId||'')),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||(product.data as any)?.status==='hidden')throw new BadRequestException('A product in this order is unavailable');const price=authoritativeProductPrice(product.data as Record<string,unknown>);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');return {...item,id:product.id,name:product.name,price,quantity};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),shipping=subtotal>=300?0:25,amount=subtotal+shipping,customerActionToken=randomBytes(32).toString('base64url');const normalized={...data,items,subtotal,shipping,total:amount,currency:'USD',status:'New',paymentStatus:'Pending',paymentMethod:'cash',paymentHistory:[],createdAt:new Date().toISOString(),customerActionTokenHash:tokenHash(customerActionToken)};const order=await this.db.$transaction(async tx=>{const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:'USD',data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={...((prior?.data as Record<string,unknown>)||{}),name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0)};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;});return {...publicOrderData(order.data),id:order.id,status:order.status,createdAt:order.createdAt,cashOnDeliveryToken:customerActionToken};}
+  @Post() async create(@Headers('idempotency-key') checkoutKey:string|undefined,@Body() dto:JsonInput){
+    if(!checkoutKey||!/^[A-Za-z0-9_-]{43}$/.test(checkoutKey))throw new BadRequestException('A valid checkout request key is required');
+    const keyBytes=Buffer.from(checkoutKey.replace(/-/g,'+').replace(/_/g,'/')+'=', 'base64');
+    if(keyBytes.length!==32)throw new BadRequestException('A valid checkout request key is required');
+    const data=dto.data as Record<string,any>,slug=String(data.storeUrl||'');
+    const business=await this.db.business.findUnique({where:{slug},include:{website:true}});
+    if(!business?.website?.published)throw new NotFoundException('Store not found');
+    const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();
+    if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');
+    const cart=Array.isArray(data.items)?data.items:[];
+    if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');
+    const products=await this.db.product.findMany({where:{businessId:business.id}});
+    const items=cart.map(item=>{const product=products.find(p=>p.id===String(item.id||item.productId||'')),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||(product.data as any)?.status==='hidden')throw new BadRequestException('A product in this order is unavailable');const price=authoritativeProductPrice(product.data as Record<string,unknown>);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');return {...item,id:product.id,productId:product.id,name:product.name,price,quantity};});
+    const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),shipping=subtotal>=300?0:25,amount=subtotal+shipping;
+    const checkoutFingerprint=createHash('sha256').update(JSON.stringify({businessId:business.id,name,email,phone:String(data.phone||''),address:String(data.address||''),city:String(data.city||''),notes:String(data.notes||''),items,subtotal,shipping,total:amount,currency:'USD'})).digest('hex');
+    const existing=await this.db.order.findUnique({where:{checkoutKey}});
+    if(existing){if(existing.businessId!==business.id||(existing.data as any)?.checkoutFingerprint!==checkoutFingerprint)throw new ConflictException('This checkout request key was already used for a different order');return {...publicOrderData(existing.data),id:existing.id,status:existing.status,createdAt:existing.createdAt,cashOnDeliveryToken:checkoutKey};}
+    const customerActionToken=checkoutKey;
+    const normalized={customerName:name,email,phone:String(data.phone||''),address:String(data.address||''),city:String(data.city||''),notes:String(data.notes||''),storeUrl:slug,items,subtotal,shipping,total:amount,currency:'USD',status:'New',paymentStatus:'Pending',paymentMethod:'cash',paymentHistory:[],checkoutFingerprint,createdAt:new Date().toISOString(),customerActionTokenHash:tokenHash(customerActionToken)};
+    try {
+      const order=await this.db.$transaction(async tx=>{
+        const created=await tx.order.create({data:{businessId:business.id,checkoutKey,status:'new',amountCents:Math.round(amount*100),currency:'USD',data:normalized as any}});
+        const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});
+        const customerData={...((prior?.data as Record<string,unknown>)||{}),name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0)};
+        if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});
+        return created;
+      });
+      return {...publicOrderData(order.data),id:order.id,status:order.status,createdAt:order.createdAt,cashOnDeliveryToken:customerActionToken};
+    } catch(error) {
+      if(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==='P2002'){
+        const retry=await this.db.order.findUnique({where:{checkoutKey}});
+        if(retry?.businessId===business.id&&(retry.data as any)?.checkoutFingerprint===checkoutFingerprint)return {...publicOrderData(retry.data),id:retry.id,status:retry.status,createdAt:retry.createdAt,cashOnDeliveryToken:checkoutKey};
+        throw new ConflictException('This checkout request key cannot be reused');
+      }
+      throw error;
+    }
+  }
   @Post(':id/cash-on-delivery') async setCashOnDelivery(@Req() req:Request,@Body() dto:TokenInput){const id=String(req.params['id']);const row=await this.db.order.findUnique({where:{id}});const storedHash=(row?.data as any)?.customerActionTokenHash;if(!row||row.status!=='new'||typeof storedHash!=='string'||!/^[a-f0-9]{64}$/i.test(storedHash)||!timingSafeEqual(Buffer.from(tokenHash(dto.token),'hex'),Buffer.from(storedHash,'hex')))throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),paymentMethod:'cash',paymentStatus:'Unpaid',completedAt:new Date().toISOString()};const result=await this.db.order.updateMany({where:{id,status:'new'},data:{data:data as any}});if(!result.count)throw new NotFoundException('Order not found');return {ok:true};}
 }
 
