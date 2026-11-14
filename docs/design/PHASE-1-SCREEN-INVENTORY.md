@@ -125,7 +125,7 @@ Approve the proposed concepts for About, Contact, multi-project management, disc
 
 ### Browser verification status
 
-The new route was not yet available in the remote PR preview at the time this inventory update was written. Build, lint, and `git diff --check` passed after correcting a missing editor preview component reference. No screenshots of the newly added route are claimed here. The available CUA browser does not expose an exact viewport resize operation; unless separately captured after the preview deploy, 1440×900, 768×1024, 390×844, and 375×812 remain **not verified**. The prior 1363×936 screenshots of existing pages are historical route evidence and do not verify this new showcase or those exact viewports.
+After the branch update, the existing isolated Render preview built and published the new `DesignShowcase` bundle. `/design-showcase` loaded successfully at the available browser size of **1363×936**. Actual screenshots were captured for the Homepage, Editor, Orders, AI Operations proposal, and AI Operations empty state. The route exposed all 62 screen selectors; a DOM measurement at 1363×936 returned `scrollWidth=1363` and `clientWidth=1363`, so no horizontal page overflow was present at that observed size. This is a limited representative visual review, not a full per-screen review. Exact requested sizes 1440×900, 768×1024, 390×844, and 375×812 remain **not verified** because the browser surface does not offer viewport resizing. No claim is made that the responsive breakpoints have been screenshot-verified.
 
 ### Security boundary
 
