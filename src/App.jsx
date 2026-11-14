@@ -1,5 +1,6 @@
 const DesignPreview = lazy(() => import("./pages/DesignPreview"));
 const DesignProposals = lazy(() => import("./pages/DesignProposals"));
+const DesignShowcase = lazy(() => import("./pages/DesignShowcase"));
 import AppErrorBoundary from "./components/AppErrorBoundary";
 import { lazy, Suspense } from "react";
 const BusinessWorkspace = lazy(() => import("./business/BusinessWorkspace"));
@@ -41,6 +42,7 @@ function App() {
       <Route path="/" element={<LandingPage />} />
       <Route path="/design-preview" element={<DesignPreview />} />
       <Route path="/design-proposals" element={<DesignProposals />} />
+      <Route path="/design-showcase" element={<DesignShowcase />} />
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/verify-email" element={<VerifyEmail />} />

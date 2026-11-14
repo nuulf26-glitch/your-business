@@ -106,3 +106,31 @@ Approve the proposed concepts for About, Contact, multi-project management, disc
 - `/design-proposals` includes separate CRM, Analytics & Reports, Forms, Bookings, and SEO proposals. Each remains disabled, isolated, and subject to approval for any unapproved workflow.
 - Login, Templates, and Design Proposals were visually opened at 1363×936 (actual browser screenshot evidence). The four requested exact viewport sizes and authenticated workspace screens remain unverified.
 - Final frontend checks for the API-error handling update: `npm run build`, `npm run lint`, and `git diff --check` passed. Render deployment for that code is Live. No login submission or authenticated page QA was performed.
+
+## Isolated design review showcase — 14 November 2026
+
+**Route:** `/design-showcase` (standalone client-side route; does not access API, auth, customer data, payment data, or database). The showcase includes a persistent notice that all illustrative content is synthetic. All preview controls are disabled. The real CYB routes and their existing authentication/data behavior are not replaced.
+
+| Area | Screens in isolated showcase | Design status | Verification |
+|---|---|---|---|
+| Public | Homepage, Features, Pricing, Templates, About, Contact, Login, Signup, Forgot Password, Reset Password | Individual screen selections implemented using the CYB warm-neutral visual language; authentication/contact actions are inert | Build and lint passed; new route screenshots pending deployment/browser review |
+| Dashboard | Overview, Projects, Project creation, Website management, Notifications, Settings | Individual screen selections; project/notification workflow items clearly marked as visual concepts where requirements are not recovered | Build and lint passed; no functional account route replaced |
+| Builder | Editor, Elements, Pages, Layers, Media library, Brand Kit, Responsive preview, Save & publish | Isolated editor composition retains charcoal workspace and warm ivory accents; controls do not save or publish | Build and lint passed; real editor remains unchanged |
+| Commerce | Store overview, Products, Product editor, Inventory, Orders, Order details, Customers, Shipping, Discounts, Store designer, Storefront, Product detail, Cart, Checkout, Order confirmation | Individually selectable fixtures, explicitly synthetic; no actual order/customer/payment data is requested | Build and lint passed; checkout actions are disabled in the showcase |
+| Business | CRM, Customer profile, Analytics, Reports, Forms, Bookings, Marketing, SEO, Domains, CMS, Blog | Individual previews; unrecovered workflows carry proposal labels and approval notes | Build and lint passed; values are illustrative only |
+| Advanced | Memberships, Courses, Student Portal, Community, Unified Inbox, Customer Support, AI Support, AI Operations, AI Credits, Project Wallets, Recovery Center, Reliability Center | Separate proposal screens with feature-specific headings, sections, empty states and approval notes | Build and lint passed; no functionality activated |
+| Shared states | Screen, Empty, Loading, Error | State selector provides an isolated visual for each state; error retry is inert | Build and lint passed; browser visual inspection pending |
+
+**Count:** 62 individually navigable screen selections across the six groups above. The `/design-proposals` route remains available and unchanged as the existing proposal gallery.
+
+### Browser verification status
+
+The new route was not yet available in the remote PR preview at the time this inventory update was written. Build, lint, and `git diff --check` passed after correcting a missing editor preview component reference. No screenshots of the newly added route are claimed here. The available CUA browser does not expose an exact viewport resize operation; unless separately captured after the preview deploy, 1440×900, 768×1024, 390×844, and 375×812 remain **not verified**. The prior 1363×936 screenshots of existing pages are historical route evidence and do not verify this new showcase or those exact viewports.
+
+### Security boundary
+
+No staging API connection, CORS change, authentication change, backend/database access, production configuration, payment/Stripe code, DNS, infrastructure, or MUSE files were changed for this showcase. Synthetic records and amounts appear only in the isolated `/design-showcase` screen previews with explicit fixture labeling; they are not injected into customer-facing functional routes.
+
+### Product approval queue
+
+Feature workflows without recovered requirements remain proposals: project lifecycle, notifications, discounts, CRM, reports, forms, bookings, marketing, expanded SEO/domain management, CMS/blog, memberships, courses/student progress, community moderation, inbox/support routing, AI operating modes and approvals, credit allocation, project wallets, recovery and reliability operations. The showcase intentionally leaves actions inactive pending product decisions.
