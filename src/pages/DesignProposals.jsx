@@ -8,7 +8,7 @@ const sections = [
   { id: "workspace", label: "Workspace", items: ["Project management", "Notifications"] },
   { id: "commerce", label: "Commerce", items: ["Discounts"] },
   { id: "business", label: "Business tools", items: ["CRM", "Analytics", "Reports", "Forms", "Bookings", "Marketing", "SEO", "Domains", "CMS", "Blog"] },
-  { id: "advanced", label: "Advanced features", items: ["Memberships", "Courses", "Community", "Unified Inbox", "Customer Support", "AI Support", "AI Operations", "AI Credits", "Project Wallets", "Recovery Center", "Reliability Center"] },
+  { id: "advanced", label: "Advanced features", items: ["Memberships", "Courses", "Student Portal", "Community", "Unified Inbox", "Customer Support", "AI Support", "AI Operations", "AI Credits", "Project Wallets", "Recovery Center", "Reliability Center"] },
 ];
 
 function PreviewHeading({ kicker, title, copy, action }) {
@@ -99,6 +99,9 @@ function RecoveryPreview() {
 function ReliabilityPreview() {
   return <><PreviewHeading kicker="Platform operations" title="Reliability Center" copy="Proposed service health console. Metrics, thresholds, severity and operator permissions need approval."/><div className="reliability-metrics">{["Service health", "Open incidents", "Recent changes"].map(label=><ConceptMetric key={label} label={label} />)}</div><div className="reliability-concept-grid"><section className="concept-panel"><h3>Service status</h3><PreviewEmpty title="No live status connected" copy="This concept is not reading production or staging telemetry." /></section><section className="concept-panel"><h3>Incident history</h3><PreviewEmpty title="No incident records" copy="No incident data is fabricated for this preview." /></section></div></>;
 }
+function StudentPortalPreview() {
+  return <><PreviewHeading kicker="Learning experience" title="Student Portal" copy="Proposed learner view for accessing purchased or assigned course content. Enrollment, lesson access, progress tracking, certificates, and support rules require product approval." action="Continue learning"/><div className="student-portal-concept"><aside className="concept-panel student-course-nav"><span className="student-nav-label">LEARNING SPACE · CONCEPT</span><strong>Course navigation</strong><div className="student-course-placeholder"><span className="student-course-icon">◫</span><span>Course title<small>Access and enrollment not connected</small></span></div>{["Overview", "Lessons", "Resources", "Help"].map((label,index)=><div className={`student-nav-item ${index===0?"current":""}`} key={label}><span>{label}</span><span aria-hidden="true">{index===0?"•":"›"}</span></div>)}<p className="student-nav-note">Navigation labels are a proposal; available sections depend on approved course requirements.</p></aside><section className="student-course-main"><article className="student-welcome-card"><span className="concept-overline">YOUR LEARNING SPACE</span><h3>Welcome back</h3><p>Pick up where you left off when course access and progress are connected.</p><div className="student-progress-line"><span>Course progress</span><strong>—</strong></div><div className="student-progress-track"><span /></div><small>Progress details are not available in this preview.</small></article><div className="student-learning-grid"><section className="concept-panel"><div className="concept-toolbar"><h3>Course content</h3><StatusBadge tone="warning">Proposal</StatusBadge></div><PreviewEmpty title="No lessons available" copy="Course modules and lessons will appear here after the learning structure and access rules are approved." /></section><section className="concept-panel student-next-panel"><h3>Learning resources</h3><PreviewEmpty title="No resources attached" copy="Downloads, notes, and certificates are not connected in this concept." /></section></div><div className="student-portal-footnote">STUDENT PORTAL · VISUAL PROPOSAL · NO COURSE OR LEARNER DATA SHOWN</div></section></div></>;
+}
 
 const screenComponents = {
   "About CYB": AboutPreview,
@@ -118,6 +121,7 @@ const screenComponents = {
   Blog: BlogPreview,
   Memberships: MembershipsPreview,
   Courses: CoursesPreview,
+  "Student Portal": StudentPortalPreview,
   Community: CommunityPreview,
   "Unified Inbox": UnifiedInboxPreview,
   "Customer Support": CustomerSupportPreview,

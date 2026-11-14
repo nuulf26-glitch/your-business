@@ -55,6 +55,7 @@
 | Business | CMS / blog | `/design-proposals` | Proposed — isolated visual preview | Collection and publishing workflows not recovered. |
 | Advanced | Memberships | `/design-proposals` | Proposed — isolated visual preview | Entitlements and billing dependencies not recovered. |
 | Advanced | Courses | `/design-proposals` | Proposed — isolated visual preview | Course, progress, and access states not recovered. |
+| Advanced | Student Portal | `/design-proposals?screen=Student%20Portal` | Proposed — isolated visual preview | Learner access, enrollment, progress, completion, and support rules need approval. |
 | Advanced | Community | `/design-proposals` | Proposed — isolated visual preview | Moderation and member privacy scope not recovered. |
 | Advanced | Unified Inbox | `/design-proposals` | Proposed — isolated visual preview | Keep distinct from customer support; workflow not specified. |
 | Advanced | Customer Support | `/design-proposals` | Proposed — isolated visual preview | Roles, ticket states, and history not specified. |
@@ -70,12 +71,12 @@
 
 | Viewport | Route/screen | Status | Evidence |
 |---|---|---|---|
-| Desktop 1440×900 | Pending | Not run | Capture after implementation. |
-| Tablet 768×1024 | Pending | Not run | Capture after implementation. |
-| Mobile 390×844 | Pending | Not run | Capture after implementation. |
-| Mobile 375×812 | Pending | Not run | Capture after implementation. |
+| Desktop 1440×900 | Requested implementation routes | Not run | Staging homepage reference was visually opened at the browser's default viewport; it is reference evidence only and does not verify this branch. Exact viewport screenshots remain pending. |
+| Tablet 768×1024 | Requested implementation routes | Not run | No branch preview available at this viewport. |
+| Mobile 390×844 | Requested implementation routes | Not run | No branch preview available at this viewport. |
+| Mobile 375×812 | Requested implementation routes | Not run | No branch preview available at this viewport. |
 
-**Browser-preview blocker:** the local Vite server could not be exposed to the browser surface. Binding Vite to `0.0.0.0` fails in this executor because Node cannot enumerate network interfaces (`uv_interface_addresses`, system error 1). The separate Chromium surface refuses the executor's `127.0.0.1` address. An in-executor headless Chromium attempt also aborts because process-singleton socket creation is denied (`socket() failed: Operation not permitted`). The Draft PR has no CI status checks or preview deployment, and no authorized development preview service is configured. No deployment or infrastructure was created to bypass this boundary. Therefore no design screenshots were captured and the requested screens remain visually unverified.
+**Browser-preview blocker:** the staging reference homepage is reachable in the cloud browser and was inspected visually. It is not the current design branch, so it cannot verify these edits. An existing Render static site `cyb-migration-preview-20261109` was found, but it tracks `main`, has auto-deploy off, and has pull-request previews disabled. The Render dashboard redirects to sign-in and offers multiple methods; no authorized signed-in session is available in this browser. The local Vite server is not reachable from the separate browser surface (`uv_interface_addresses` fails for `0.0.0.0`, and the browser cannot connect to executor `127.0.0.1`); local Chromium also aborts because socket creation is denied. No infrastructure or deployment configuration was changed. Exact desktop/tablet/mobile screenshots of this branch remain unverified.
 
 ## Approval queue
 
@@ -87,7 +88,8 @@ Approve the proposed concepts for About, Contact, multi-project management, disc
 - Existing authentication and dashboard screens received warm-neutral refinements while retaining their API and navigation behavior.
 - Existing commerce/account forms and tables use shared focus, border, radius, and responsive table treatments.
 - `/design-proposals` is a separate preview route for concepts whose feature requirements are not recovered. Concept actions are disabled, no records or financial values are invented, and the interface is clearly marked as requiring approval.
-- `/design-proposals` now offers individual layouts for About, Contact, project management, notifications, discounts, marketing, domains, CMS, blog, memberships, courses, community, Unified Inbox, Customer Support, AI Support, AI Operations, AI Credits, Project Wallets, Recovery Center, and Reliability Center. Each remains a proposal pending approval/specification; the route is not evidence that these product features operate.
+- `/design-proposals` now offers individual layouts for About, Contact, project management, notifications, discounts, marketing, domains, CMS, blog, memberships, courses, Student Portal, community, Unified Inbox, Customer Support, AI Support, AI Operations, AI Credits, Project Wallets, Recovery Center, and Reliability Center. Each remains a proposal pending approval/specification; the route is not evidence that these product features operate.
+- Added an individual Student Portal concept with course navigation, an unavailable-progress state, course-content empty state, and resource panel. It contains no learner records or fabricated progress and has no active actions.
 - The Templates gallery now has a responsive, warm-neutral gallery treatment and uses the existing routes for template preview and editor selection. It displays only the two template families present in the frontend.
 - Products, Orders, and Customers now share the existing workspace navigation layout without replacing their data-backed operations. The shared workspace styling also applies to Settings and other pages already using that layout.
 - The existing Business workspace now uses the shared CYB warm-neutral style across real business records, calendars, analytics summaries, CRM client notes, and booking controls. Additional concepts for CRM, analytics/reports, forms, bookings, and SEO remain isolated and disabled pending approval.
