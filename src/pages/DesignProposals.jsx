@@ -7,7 +7,7 @@ const sections = [
   { id: "public", label: "Public pages", items: ["About CYB", "Contact"] },
   { id: "workspace", label: "Workspace", items: ["Project management", "Notifications"] },
   { id: "commerce", label: "Commerce", items: ["Discounts"] },
-  { id: "business", label: "Business tools", items: ["Marketing", "Domains", "CMS", "Blog"] },
+  { id: "business", label: "Business tools", items: ["CRM", "Analytics & Reports", "Forms", "Bookings", "Marketing", "SEO", "Domains", "CMS", "Blog"] },
   { id: "advanced", label: "Advanced features", items: ["Memberships", "Courses", "Community", "Unified Inbox", "Customer Support", "AI Support", "AI Operations", "AI Credits", "Project Wallets", "Recovery Center", "Reliability Center"] },
 ];
 
@@ -38,6 +38,21 @@ function DiscountsPreview() {
 }
 function MarketingPreview() {
   return <><PreviewHeading kicker="Business tools" title="Marketing" copy="Proposed campaign workspace. Consent, audience sources, unsubscribe handling and automation need product approval." action="New campaign"/><div className="marketing-concept-grid"><section className="concept-panel"><h3>Campaign workspace</h3><PreviewEmpty title="No campaigns shown" copy="Campaign records will appear after the marketing scope is approved." /></section><section className="concept-panel"><h3>Audience and consent</h3><div className="concept-checklist"><span>Audience source <b>Needs approval</b></span><span>Consent policy <b>Needs approval</b></span><span>Unsubscribe flow <b>Needs approval</b></span></div></section></div></>;
+}
+function CRMPreview() {
+  return <><PreviewHeading kicker="Customer relationships" title="CRM" copy="Proposed relationship workspace. Contact source, consent, tags, ownership and retention rules require approval." action="Add contact"/><div className="concept-stat-grid">{["Contacts", "Follow-ups", "Segments"].map(label=><ConceptMetric key={label} label={label}/>)}</div><div className="crm-concept-grid"><section className="concept-panel"><div className="concept-toolbar"><span>Contact directory</span><StatusBadge tone="warning">Workflow proposal</StatusBadge></div><div className="concept-table-head"><span>Contact</span><span>Source</span><span>Last activity</span><span>Owner</span></div><PreviewEmpty title="No CRM contacts" copy="No customer data or sample profiles are included in this concept." /></section><aside className="concept-panel"><h3>Relationship stages</h3>{["New", "In progress", "Follow-up"].map(label=><div className="crm-stage" key={label}><span>{label}</span><strong>—</strong></div>)}<p>Stage definitions and movement rules need approval.</p></aside></div></>;
+}
+function AnalyticsReportsPreview() {
+  return <><PreviewHeading kicker="Business intelligence" title="Analytics & Reports" copy="Proposed reporting surface. Metric definitions, date ranges, attribution and export permissions need approval." action="Build a report"/><div className="concept-stat-grid">{["Visitors", "Conversions", "Collected revenue", "Bookings"].map(label=><ConceptMetric key={label} label={label}/>)}</div><section className="concept-panel analytics-concept-chart"><div className="concept-toolbar"><strong>Performance over time</strong><span>Reporting period · Needs approval</span></div><div className="analytics-chart-empty"><span aria-hidden="true">⌁</span><strong>No chart data in this proposal</strong><p>Only metrics already collected by CYB can appear. No example figures are shown.</p></div></section><div className="concept-table analytics-report-list"><div className="concept-table-head"><span>Report</span><span>Updated</span><span>Owner</span><span>Status</span></div><PreviewEmpty title="No saved reports" copy="Report definitions and sharing controls have not been approved." /></div></>;
+}
+function FormsPreview() {
+  return <><PreviewHeading kicker="Lead capture" title="Forms" copy="Proposed form and submissions manager. Data retention, notifications, spam protection and consent require approval." action="Create a form"/><div className="forms-concept-grid"><section className="concept-panel"><div className="concept-toolbar"><strong>Form preview</strong><StatusBadge tone="warning">Not connected</StatusBadge></div><div className="forms-builder-preview"><span>FORM PREVIEW</span><label>Your name<input disabled placeholder="Field preview"/></label><label>Email address<input disabled placeholder="Field preview"/></label><label>Message<textarea disabled rows="3" placeholder="Field preview"/></label><button disabled type="button">Submit preview</button></div></section><section className="concept-panel"><h3>Form submissions</h3><div className="concept-table-head"><span>Submission</span><span>Received</span><span>Consent</span><span>Status</span></div><PreviewEmpty title="No submissions" copy="No submitted contact data is shown. Submission handling needs approval." /></section></div></>;
+}
+function BookingsPreview() {
+  return <><PreviewHeading kicker="Scheduling" title="Bookings" copy="Proposed booking journey and calendar layout. Availability, cancellation, deposits, reminders and time-zone rules require approval." action="Configure availability"/><div className="booking-concept-grid"><section className="concept-panel"><div className="concept-toolbar"><strong>Availability calendar</strong><span>Calendar concept</span></div><div className="booking-week-head">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(day=><span key={day}>{day}</span>)}</div><div className="booking-calendar-empty"><span>Choose an approved schedule to show available times.</span></div></section><aside className="concept-panel"><h3>Booking details</h3><div className="booking-summary-row"><span>Service selection</span><StatusBadge>Needs approval</StatusBadge></div><div className="booking-summary-row"><span>Guest information</span><StatusBadge>Needs approval</StatusBadge></div><div className="booking-summary-row"><span>Confirmation</span><StatusBadge>Needs approval</StatusBadge></div><button type="button" disabled>Continue preview</button></aside></div><PreviewEmpty title="No appointment records" copy="This concept is not connected to live bookings or customer data." /></>;
+}
+function SEOPreview() {
+  return <><PreviewHeading kicker="Website visibility" title="SEO" copy="Proposed SEO workspace. Search indexing, generated metadata, canonical URLs and structured data require product and technical approval." action="Review site SEO"/><div className="seo-concept-layout"><section className="concept-panel"><h3>Page metadata</h3><div className="seo-page-preview"><span>PAGE TITLE</span><strong>Your page title preview</strong><p>Proposed description preview. This is placeholder copy for layout only.</p><small>Page URL · not connected</small></div><div className="seo-fields"><label>Title field<input disabled placeholder="Title editing proposal"/></label><label>Description<textarea disabled rows="3" placeholder="Description editing proposal"/></label><label>Indexing preference<select disabled defaultValue=""><option value="">Needs approval</option></select></label></div></section><aside className="concept-panel"><h3>Readiness review</h3>{["Metadata coverage", "Indexing controls", "Structured data", "Sitemap behavior"].map(label=><div className="seo-check-row" key={label}><span>{label}</span><StatusBadge tone="warning">Needs approval</StatusBadge></div>)}</aside></div></>;
 }
 function DomainsPreview() {
   return <><PreviewHeading kicker="Website settings" title="Domains" copy="Proposed domain workspace. Provider, ownership checks, DNS instructions and release behavior need approval." action="Connect a domain"/><div className="domain-concept"><div className="domain-status"><span className="domain-orb">↗</span><div><strong>Connect your website address</strong><p>Domain setup is not enabled in this preview.</p></div><StatusBadge tone="warning">Setup concept</StatusBadge></div><div className="domain-steps">{["Choose a domain", "Verify ownership", "Connect and review"].map((x,i)=><div key={x}><small>STEP 0{i+1}</small><strong>{x}</strong><span>Design placeholder</span></div>)}</div><button type="button" disabled>Start setup</button></div></>;
@@ -88,7 +103,12 @@ const screenComponents = {
   "Project management": ProjectManagementPreview,
   Notifications: NotificationsPreview,
   Discounts: DiscountsPreview,
+  CRM: CRMPreview,
+  "Analytics & Reports": AnalyticsReportsPreview,
+  Forms: FormsPreview,
+  Bookings: BookingsPreview,
   Marketing: MarketingPreview,
+  SEO: SEOPreview,
   Domains: DomainsPreview,
   CMS: CMSPreview,
   Blog: BlogPreview,
@@ -106,7 +126,10 @@ const screenComponents = {
 };
 
 export default function DesignProposals() {
-  const [selected, setSelected] = useState("About CYB");
+  const [selected, setSelected] = useState(() => {
+    const requested = new URLSearchParams(window.location.search).get("screen");
+    return screenComponents[requested] ? requested : "About CYB";
+  });
   const ActiveScreen = screenComponents[selected] || AboutPreview;
   const group = sections.find(section => section.items.includes(selected)) || sections[0];
   return <main className="proposal-workspace">

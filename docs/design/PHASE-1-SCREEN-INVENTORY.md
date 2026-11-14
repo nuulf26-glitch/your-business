@@ -45,12 +45,12 @@
 | Store | Discounts | `/design-proposals` | Proposed — isolated visual preview | Rules, stacking, and eligibility not recovered. |
 | Store | Store design | `/store-designer` | Existing — partial | Compare with approved staging styling. |
 | Store | Cart / checkout | `/cart`, `/checkout`, `/payment` | Existing — partial | UI only in this phase; no payment integration changes. |
-| Business | CRM | `/business`, `/customers` | Existing — partial | Customer workflow and segmentation need confirmation. |
-| Business | Analytics / reports | `/dashboard`, `/business` | Existing — partial | Financial metrics must continue to use collected-payment definitions. |
-| Business | Forms | `/editor` | Existing — partial | Submission management not verified. |
-| Business | Bookings | `/business` | Existing — partial | End-to-end booking states not verified. |
+| Business | CRM | `/business`, `/customers`, `/design-proposals` | Existing — partial / proposal preview | Existing client data remains live; supplemental CRM workflow proposal awaits approval. |
+| Business | Analytics / reports | `/dashboard`, `/business`, `/design-proposals` | Existing — partial / proposal preview | Existing collected metrics remain live; report-builder concept has no fabricated figures. |
+| Business | Forms | `/editor`, `/design-proposals` | Existing — partial / proposal preview | Existing editor forms retained; submission workflow concept requires approval. |
+| Business | Bookings | `/business`, `/design-proposals` | Existing — partial / proposal preview | Existing booking actions retained; supplemental customer booking journey requires approval. |
 | Business | Marketing | `/design-proposals` | Proposed — isolated visual preview | Consent, campaigns, and automation scope not recovered. |
-| Business | SEO | `/editor` | Existing — partial | Approved SEO controls and public metadata need confirmation. |
+| Business | SEO | `/editor`, `/design-proposals` | Existing — partial / proposal preview | Existing editor controls retained; expanded SEO workspace requires approval. |
 | Business | Domains | `/design-proposals` | Proposed — isolated visual preview | Domain setup and release behavior require separate technical design. |
 | Business | CMS / blog | `/design-proposals` | Proposed — isolated visual preview | Collection and publishing workflows not recovered. |
 | Advanced | Memberships | `/design-proposals` | Proposed — isolated visual preview | Entitlements and billing dependencies not recovered. |
@@ -75,7 +75,7 @@
 | Mobile 390×844 | Pending | Not run | Capture after implementation. |
 | Mobile 375×812 | Pending | Not run | Capture after implementation. |
 
-**Browser-preview blocker:** the local Vite server could not be exposed to the browser surface. Binding Vite to `0.0.0.0` fails in this executor because Node cannot enumerate network interfaces (`uv_interface_addresses`, system error 1). A `127.0.0.1` run did start in the executor, but both executor `curl` and the separate Chromium desktop/browser surface could not connect. The Draft PR has no CI status checks or preview deployment, and no authorized development preview service is configured. No deployment or infrastructure was created to bypass this boundary. Therefore there are no screenshots of the current changes and these screens remain visually unverified.
+**Browser-preview blocker:** the local Vite server could not be exposed to the browser surface. Binding Vite to `0.0.0.0` fails in this executor because Node cannot enumerate network interfaces (`uv_interface_addresses`, system error 1). The separate Chromium surface refuses the executor's `127.0.0.1` address. An in-executor headless Chromium attempt also aborts because process-singleton socket creation is denied (`socket() failed: Operation not permitted`). The Draft PR has no CI status checks or preview deployment, and no authorized development preview service is configured. No deployment or infrastructure was created to bypass this boundary. Therefore no design screenshots were captured and the requested screens remain visually unverified.
 
 ## Approval queue
 
@@ -90,5 +90,8 @@ Approve the proposed concepts for About, Contact, multi-project management, disc
 - `/design-proposals` now offers individual layouts for About, Contact, project management, notifications, discounts, marketing, domains, CMS, blog, memberships, courses, community, Unified Inbox, Customer Support, AI Support, AI Operations, AI Credits, Project Wallets, Recovery Center, and Reliability Center. Each remains a proposal pending approval/specification; the route is not evidence that these product features operate.
 - The Templates gallery now has a responsive, warm-neutral gallery treatment and uses the existing routes for template preview and editor selection. It displays only the two template families present in the frontend.
 - Products, Orders, and Customers now share the existing workspace navigation layout without replacing their data-backed operations. The shared workspace styling also applies to Settings and other pages already using that layout.
+- The existing Business workspace now uses the shared CYB warm-neutral style across real business records, calendars, analytics summaries, CRM client notes, and booking controls. Additional concepts for CRM, analytics/reports, forms, bookings, and SEO remain isolated and disabled pending approval.
+- The editor control chrome now follows the approved charcoal direction with warm ivory accents; the customer website preview and editor operations remain unchanged.
+- `/design-proposals` includes separate CRM, Analytics & Reports, Forms, Bookings, and SEO proposals. Each remains disabled, isolated, and subject to approval for any unapproved workflow.
 - Desktop/tablet/mobile screenshot checks remain **Not Run** because the local app server is not reachable from the available browser surface. A build is not counted as visual verification.
-- Final checks for this update: `npm run build` passed. ESLint initially found two implementation issues (an unused import and a callback name interpreted as a React hook); both were corrected. Rerun lint before publishing the update.
+- Final checks for this update: `npm run build`, `npm run lint`, and `git diff --check` passed.
