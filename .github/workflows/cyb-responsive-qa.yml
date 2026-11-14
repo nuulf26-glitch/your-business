@@ -1,6 +1,16 @@
 name: CYB design showcase responsive QA
 
 on:
+  push:
+    branches: [codex/cyb-phase1-uiux-design-20261114]
+    paths:
+      - "src/pages/DesignShowcase.jsx"
+      - "src/pages/design-showcase.css"
+      - "tests/responsive/**"
+      - "playwright.config.js"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/cyb-responsive-qa.yml"
   pull_request:
     branches: [main]
     paths:
@@ -63,4 +73,5 @@ jobs:
 
       - name: Publish artifact link in run summary
         if: always()
-        run: echo "Responsive QA evidence: ${{ steps.responsive-artifacts.outputs.artifact-url || 'No artifact was created.' }}" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo "Responsive QA evidence: ${{ steps.responsive-artifacts.outputs.artifact-url || 'No artifact was created.' }}" >> "$GITHUB_STEP_SUMMARY"
