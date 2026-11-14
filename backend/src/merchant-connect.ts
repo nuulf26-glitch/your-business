@@ -4,6 +4,15 @@ import { DbService } from './database';
 import { SessionGuard } from './session';
 
 const STAGING = 'https://getcyb-staging-web.onrender.com';
+// CYB's merchant commission policy. Processing-cost allocation is a separate,
+// as-yet-unconfirmed settlement decision; this is not an all-in processing rate.
+export const MERCHANT_COMMISSION = Object.freeze({ basisPoints: 0, fixedAmount: 0 });
+
+class TransfersOnlyApprovalRequired extends ServiceUnavailableException {
+  constructor() {
+    super('Stripe must approve transfers without card_payments for the CYB platform before merchant onboarding can continue.');
+  }
+}
 
 // Onboarding only. This controller never creates payments, transfers or accounts.
 // A UAE settlement configuration must be confirmed by Stripe before provisioning.
@@ -80,6 +89,21 @@ export class MerchantConnectController {
         account.type !== 'custom' || account.metadata?.cybBusinessId !== businessId) {
       throw new ServiceUnavailableException('Merchant account ownership or UAE configuration does not match.');
     }
+    // Read explicit request state. An inactive capability status alone does not
+    // establish whether it was requested. Never POST capabilities to bypass a rejection.
+    const capabilities = await this.stripe(`/accounts/${encodeURIComponent(accountId)}/capabilities`);
+    if (capabilities.object !== 'list' || capabilities.has_more !== false || !Array.isArray(capabilities.data) ||
+        capabilities.data.some((item: any) => !item || typeof item !== 'object' || typeof item.id !== 'string' || typeof item.requested !== 'boolean')) {
+      throw new ServiceUnavailableException('Merchant capability verification is incomplete.');
+    }
+    const transfers = capabilities.data.filter((item: any) => item.id === 'transfers');
+    const cards = capabilities.data.filter((item: any) => item.id === 'card_payments');
+    if (transfers.length !== 1 || cards.length > 1 || transfers[0].requested !== true) {
+      throw new ServiceUnavailableException('Merchant transfers capability has not been requested in the approved configuration.');
+    }
+    if (cards[0]?.requested !== true && process.env.STRIPE_CONNECT_TRANSFERS_ONLY_APPROVED !== 'true') {
+      throw new TransfersOnlyApprovalRequired();
+    }
     return account;
   }
 
@@ -87,13 +111,21 @@ export class MerchantConnectController {
   async status(@Req() req: Request & { user: { id: string } }, @Res({ passthrough: true }) res: Response) {
     res.setHeader('Cache-Control', 'no-store');
     const business = await this.merchant(req.user.id);
-    const closed = { provider: 'stripe-connect', mode: 'test', checkoutEnabled: false, cardEnabled: false, walletsEnabled: false };
+    const closed = { provider: 'stripe-connect', mode: 'test', checkoutEnabled: false, cardEnabled: false, walletsEnabled: false,
+      platformCommission: MERCHANT_COMMISSION, processingFeeBearer: 'unconfirmed' };
     try { this.configuration(); }
     catch { return { ...closed, connectionStatus: 'disabled' }; }
     const id = this.accountId(business.id);
     if (!id) return { ...closed, connectionStatus: 'not_connected' };
-    const account = await this.verifiedAccount(business.id, id);
-    const ready = account.charges_enabled === true && account.payouts_enabled === true &&
+    let account: any;
+    try { account = await this.verifiedAccount(business.id, id); }
+    catch (error) {
+      if (error instanceof TransfersOnlyApprovalRequired) return { ...closed, connectionStatus: 'stripe_approval_required', approvalRequirement: 'transfers_without_card_payments' };
+      throw error;
+    }
+    // A destination-charge recipient can have active transfers without its own
+    // card_payments capability. This verifies onboarding only, not checkout readiness.
+    const ready = account.payouts_enabled === true &&
       account.capabilities?.transfers === 'active' && !account.requirements?.disabled_reason &&
       Array.isArray(account.requirements?.currently_due) && account.requirements.currently_due.length === 0 &&
       Array.isArray(account.requirements?.past_due) && account.requirements.past_due.length === 0;

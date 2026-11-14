@@ -1,4 +1,4 @@
-import { MerchantConnectController } from '../src/merchant-connect';
+import { MerchantConnectController, MERCHANT_COMMISSION } from '../src/merchant-connect';
 
 describe('merchant Connect test onboarding boundaries', () => {
   const originalEnv = { ...process.env };
@@ -12,9 +12,11 @@ describe('merchant Connect test onboarding boundaries', () => {
       STRIPE_CONNECT_TEST_ONBOARDING_ENABLED: 'true', STRIPE_CONNECT_UAE_CONFIGURATION_CONFIRMED: 'true',
       STRIPE_CONNECT_TEST_SECRET_KEY: 'sk_test_fixture', STRIPE_CONNECT_TEST_PLATFORM_ACCOUNT: 'acct_PLATFORM',
       STRIPE_CONNECT_TEST_ACCOUNT_BINDINGS: JSON.stringify({ 'biz-a': 'acct_A', 'biz-b': 'acct_B' }) };
+    delete process.env.STRIPE_CONNECT_TRANSFERS_ONLY_APPROVED;
     db = { business: { findFirst: jest.fn(async () => ({ id: 'biz-a' })) } };
     controller = new MerchantConnectController(db);
-    responses = [{ object: 'balance', livemode: false }, { id: 'acct_PLATFORM' }, account()];
+    responses = [{ object: 'balance', livemode: false }, { id: 'acct_PLATFORM' }, account(),
+      { object: 'list', has_more: false, data: [{ id: 'transfers', requested: true }, { id: 'card_payments', requested: true }] }];
     request = jest.fn(async () => ({ ok: true, json: async () => responses.shift() }));
     global.fetch = request;
   });
@@ -70,7 +72,7 @@ describe('merchant Connect test onboarding boundaries', () => {
   it('uses only the session merchant and fixed staging callback URLs for onboarding', async () => {
     responses.push({ url: 'https://connect.stripe.com/setup/test_link' });
     expect(await controller.onboarding(req, response())).toEqual({ url: 'https://connect.stripe.com/setup/test_link' });
-    const [url, init] = request.mock.calls[3];
+    const [url, init] = request.mock.calls[4];
     expect(url).toBe('https://api.stripe.com/v1/account_links');
     const body = new URLSearchParams(init.body);
     expect(body.get('account')).toBe('acct_A');
@@ -85,5 +87,36 @@ describe('merchant Connect test onboarding boundaries', () => {
   it('does not expose provider errors or credentials', async () => {
     request.mockResolvedValue({ ok: false, json: async () => ({ error: { message: 'private details sk_test_fixture' } }) });
     await expect(controller.onboarding(req, response())).rejects.toThrow('Merchant payment provider is unavailable.');
+  });
+  it('advertises zero platform commission without promising Stripe-managed merchant fees', async () => {
+    expect(MERCHANT_COMMISSION).toEqual({ basisPoints: 0, fixedAmount: 0 });
+    expect(Object.isFrozen(MERCHANT_COMMISSION)).toBe(true);
+    expect(await controller.status(req, response())).toMatchObject({ platformCommission: { basisPoints: 0, fixedAmount: 0 }, processingFeeBearer: 'unconfirmed', cardEnabled: false });
+  });
+  it('surfaces the transfers-only approval blocker without generating a link or changing capabilities', async () => {
+    responses[3].data = [{ id: 'transfers', requested: true }];
+    expect(await controller.status(req, response())).toMatchObject({ connectionStatus: 'stripe_approval_required', approvalRequirement: 'transfers_without_card_payments' });
+    expect(request.mock.calls.every(([, init]) => init.method === 'GET')).toBe(true);
+  });
+  it('blocks transfers-only hosted onboarding when CYB has no Stripe approval', async () => {
+    responses[3].data = [{ id: 'transfers', requested: true }, { id: 'card_payments', requested: false }];
+    await expect(controller.onboarding(req, response())).rejects.toThrow('Stripe must approve transfers without card_payments');
+    expect(request.mock.calls.every(([, init]) => init.method === 'GET')).toBe(true);
+  });
+  it('can verify a mocked Stripe-approved transfer recipient without requiring direct card processing', async () => {
+    process.env.STRIPE_CONNECT_TRANSFERS_ONLY_APPROVED = 'true';
+    responses[2].charges_enabled = false;
+    responses[3].data = [{ id: 'transfers', requested: true }];
+    expect(await controller.status(req, response())).toMatchObject({ connectionStatus: 'verified_test_connection', checkoutEnabled: false });
+    expect(request.mock.calls.every(([, init]) => init.method === 'GET')).toBe(true);
+  });
+  it.each(['missing', 'unrequested', 'paginated', 'duplicate', 'malformed'])('fails closed for %s transfer capability evidence', async fault => {
+    if (fault === 'missing') responses[3].data = [];
+    if (fault === 'unrequested') responses[3].data[0].requested = false;
+    if (fault === 'paginated') responses[3].has_more = true;
+    if (fault === 'duplicate') responses[3].data.push({ id: 'transfers', requested: true });
+    if (fault === 'malformed') responses[3].data = [null];
+    await expect(controller.onboarding(req, response())).rejects.toThrow();
+    expect(request.mock.calls.every(([, init]) => init.method === 'GET')).toBe(true);
   });
 });
