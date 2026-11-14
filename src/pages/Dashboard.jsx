@@ -27,6 +27,7 @@ const [products, setProducts] = useState([]);
 const [userProfile, setUserProfile] = useState(null);
 const [refundLoading, setRefundLoading] = useState(false);
 const [refundMessage, setRefundMessage] = useState("");
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   useEffect(() => {
     async function loadDashboardData() {
       try {
@@ -130,13 +131,12 @@ const [refundMessage, setRefundMessage] = useState("");
           className="dashboard-logo"
           onClick={() => navigate("/")}
         >
-          Your Business
+          CYB
         </button>
 
         <nav className="dashboard-navigation">
-          <button type="button" className="active">
-            Overview
-          </button>
+          <span className="dashboard-nav-label">Workspace</span>
+          <button type="button" className="active" aria-current="page">Overview</button>
 
           <button
             type="button"
@@ -167,6 +167,8 @@ const [refundMessage, setRefundMessage] = useState("");
           >
             Customers
           </button>
+          <button type="button" onClick={() => navigate("/business")}>Business tools</button>
+          <button type="button" onClick={() => navigate("/create-website")}>Create website</button>
         </nav>
 
         <div className="dashboard-sidebar-bottom">
@@ -198,6 +200,23 @@ const [refundMessage, setRefundMessage] = useState("");
           </div>
 
           <div className="dashboard-header-actions">
+            <div className="dashboard-notification-wrap">
+              <button
+                type="button"
+                className="dashboard-notification-button"
+                aria-label="Notifications"
+                aria-expanded={notificationsOpen}
+                onClick={() => setNotificationsOpen((open) => !open)}
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </button>
+              {notificationsOpen && (
+                <div className="dashboard-notification-popover" role="status">
+                  <strong>You’re all caught up</strong>
+                  <p>New account and store updates will appear here.</p>
+                </div>
+              )}
+            </div>
             <button
               type="button"
               className="dashboard-secondary-button"

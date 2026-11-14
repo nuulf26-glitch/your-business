@@ -28,6 +28,13 @@ export async function customBackendRequest(path, options = {}) {
     if (error.name === 'TimeoutError' || error.name === 'AbortError') throw new Error('The custom backend took too long to respond. Check your connection and try again.', { cause: error });
     throw new Error(error instanceof Error ? error.message : 'The custom backend could not be reached.', { cause: error });
   }
+  const contentType = response.headers.get('content-type') || '';
+  if (!/\bjson\b/i.test(contentType)) {
+    const error = new Error('The configured CYB API did not return a JSON response.');
+    error.code = 'api_unavailable';
+    error.status = response.status;
+    throw error;
+  }
   const result = await response.json().catch(() => ({}));
   if (!response.ok) { const error = new Error(result.message || 'The request could not be completed.'); error.status = response.status; throw error; }
   return result;

@@ -1,0 +1,67 @@
+name: CYB design showcase responsive QA
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/pages/DesignShowcase.jsx"
+      - "src/pages/design-showcase.css"
+      - "tests/responsive/**"
+      - "playwright.config.js"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/cyb-responsive-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cyb-responsive-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  responsive-showcase:
+    name: Responsive showcase screenshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Test all showcase screens at four viewports
+        run: npm run test:responsive
+
+      - name: Upload responsive screenshots and results
+        id: responsive-artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyb-responsive-qa-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/responsive/
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Publish artifact link in run summary
+        if: always()
+        run: |
+          echo "Responsive QA evidence: ${{ steps.responsive-artifacts.outputs.artifact-url || 'No artifact was created.' }}" >> "$GITHUB_STEP_SUMMARY"

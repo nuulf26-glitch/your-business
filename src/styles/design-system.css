@@ -1,0 +1,112 @@
+/* CYB visual foundation — preserves the existing warm public site and dark editor. */
+:root {
+  color-scheme: light;
+  --cyb-ink: #171714;
+  --cyb-ink-soft: #403f39;
+  --cyb-muted: #77766f;
+  --cyb-line: #e7e3db;
+  --cyb-paper: #fffefa;
+  --cyb-ivory: #f7f5ef;
+  --cyb-sand: #eee9df;
+  --cyb-taupe: #aa9275;
+  --cyb-accent: #806749;
+  --cyb-success: #55785e;
+  --cyb-danger: #a94c44;
+  --cyb-radius-sm: 8px;
+  --cyb-radius-md: 14px;
+  --cyb-radius-lg: 22px;
+  --cyb-shadow-card: 0 12px 36px rgb(35 31 25 / 6%);
+  --cyb-focus: 0 0 0 3px rgb(128 103 73 / 22%);
+  --cyb-font-ui: Inter, "Helvetica Neue", Arial, sans-serif;
+  --cyb-font-display: "Iowan Old Style", "Bodoni MT", Georgia, serif;
+  font-family: var(--cyb-font-ui);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html { background: var(--cyb-paper); }
+body { color: var(--cyb-ink); }
+button, input, select, textarea { font: inherit; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 2px solid var(--cyb-accent); outline-offset: 3px; }
+::selection { background: #e6dac8; color: var(--cyb-ink); }
+
+/* Shared visual language for existing public account and setup screens. */
+.login-page, .signup-page, .forgot-password-page, .reset-password-page,
+.create-website-page, .templates-page, .settings-page, .products-page,
+.orders-page, .customers-page, .shipping-page, .store-setup-page,
+.store-designer-page {
+  color: var(--cyb-ink);
+  font-family: var(--cyb-font-ui);
+}
+
+.login-page input, .signup-page input, .forgot-password-page input,
+.reset-password-page input, .create-website-page input,
+.create-website-page textarea, .create-website-page select,
+.settings-page input, .settings-page textarea, .settings-page select {
+  border-color: var(--cyb-line);
+  border-radius: var(--cyb-radius-sm);
+  background-color: var(--cyb-paper);
+  color: var(--cyb-ink);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.login-page input:focus, .signup-page input:focus,
+.forgot-password-page input:focus, .reset-password-page input:focus,
+.create-website-page input:focus, .create-website-page textarea:focus,
+.settings-page input:focus, .settings-page textarea:focus {
+  border-color: var(--cyb-taupe);
+  box-shadow: var(--cyb-focus);
+  outline: 0;
+}
+
+.dashboard-page {
+  grid-template-columns: 248px minmax(0, 1fr);
+  background: var(--cyb-ivory);
+}
+.dashboard-sidebar {
+  border-right: 1px solid #282824;
+  background: var(--cyb-ink);
+}
+.dashboard-logo { letter-spacing: -.055em; }
+.dashboard-navigation button, .dashboard-sidebar-bottom button {
+  border-radius: var(--cyb-radius-sm);
+  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+.dashboard-navigation button:hover, .dashboard-sidebar-bottom button:hover { transform: translateX(2px); }
+.dashboard-main { max-width: 1680px; width: 100%; margin-inline: auto; }
+.dashboard-stat-card, .dashboard-card, .dashboard-payment-card {
+  border-color: var(--cyb-line);
+  border-radius: var(--cyb-radius-md);
+  box-shadow: var(--cyb-shadow-card);
+}
+.dashboard-primary-button, .dashboard-secondary-button, .dashboard-full-button {
+  border-radius: var(--cyb-radius-sm);
+  transition: transform 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+.dashboard-primary-button:hover, .dashboard-secondary-button:hover { transform: translateY(-1px); }
+
+/* The editor intentionally retains its approved charcoal workspace. Warm ivory
+   accents tie it to the public brand without changing editor behavior. */
+.getcyb-editor { --ed-cream: #e6d4b8; --ed-panel: #171716; }
+.getcyb-editor .topbar-action.primary { box-shadow: 0 5px 18px rgb(230 212 184 / 14%); }
+
+@media (max-width: 900px) {
+  .dashboard-page { grid-template-columns: 1fr; }
+  .dashboard-sidebar { position: relative; width: 100%; height: auto; padding: 15px 18px; }
+  .dashboard-navigation { flex-direction: row; gap: 5px; margin-top: 14px; overflow-x: auto; }
+  .dashboard-navigation button, .dashboard-sidebar-bottom button { flex: 0 0 auto; width: auto; white-space: nowrap; padding: 10px 12px; }
+  .dashboard-sidebar-bottom { flex-direction: row; margin-top: 10px; }
+  .dashboard-main { padding: 26px 22px; }
+}
+@media (max-width: 620px) {
+  .dashboard-main { padding: 22px 16px; }
+  .dashboard-header { flex-direction: column; gap: 18px; }
+  .dashboard-header-actions { flex-wrap: wrap; }
+  .dashboard-stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

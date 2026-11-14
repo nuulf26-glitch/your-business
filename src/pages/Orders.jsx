@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import "../styles/orders.css";
+import DashboardLayout from "../layouts/DashboardLayout";
 import { getOrders, updateOrderStatus as saveOrderStatus, deleteOrder as removeOrder } from "../services/orderService";
+import { InlineState } from "../components/ui/DesignPrimitives";
 const statuses = [
   "New",
   "Paid",
@@ -23,19 +25,30 @@ function Orders() {
   const [orders, setOrders] = useState([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [listState, setListState] = useState("loading");
+  const [loadVersion, setLoadVersion] = useState(0);
 
   useEffect(() => {
-  async function loadOrders() {
-    try {
-      setOrders(await getOrders());
-    } catch (error) {
-      console.error("Could not load orders:", error);
-      setOrders([]);
+    let active = true;
+    async function loadOrders() {
+      setListState("loading");
+      try {
+        const data = await getOrders();
+        if (active) {
+          setOrders(data);
+          setListState("ready");
+        }
+      } catch (error) {
+        console.error("Could not load orders:", error);
+        if (active) {
+          setOrders([]);
+          setListState("error");
+        }
+      }
     }
-  }
-
-  loadOrders();
-}, []);
+    loadOrders();
+    return () => { active = false; };
+  }, [loadVersion]);
  
 
   const filteredOrders = useMemo(() => {
@@ -168,6 +181,7 @@ function Orders() {
   }
 
   return (
+    <DashboardLayout>
     <div className="orders-page">
       <header className="orders-header">
         <div>
@@ -243,7 +257,11 @@ function Orders() {
           </select>
         </div>
 
-        {filteredOrders.length === 0 ? (
+        {listState === "loading" ? (
+          <InlineState kind="loading" title="Loading orders" description="Your latest order list is being prepared." />
+        ) : listState === "error" ? (
+          <InlineState kind="error" title="Orders could not load" description="Check your connection and try again. No order changes were made." onRetry={() => setLoadVersion(version => version + 1)} />
+        ) : filteredOrders.length === 0 ? (
           <div className="orders-empty-state">
             <h3>No orders yet</h3>
 
@@ -314,6 +332,7 @@ function Orders() {
         )}
       </section>
     </div>
+    </DashboardLayout>
   );
 }
 
