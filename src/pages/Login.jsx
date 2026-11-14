@@ -43,6 +43,8 @@ await login(email.trim(), password);
         setError("Too many attempts. Please wait and try again.");
       } else if (loginError.status === 429) {
         setError("Too many attempts. Please wait a minute and try again.");
+      } else if (loginError.code === "api_unavailable") {
+        setError("Sign-in is unavailable because this preview is not connected to a CYB API.");
       } else {
         setError("We could not log you in. Please try again.");
       }
