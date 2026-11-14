@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import "../styles/customers.css";
+import DashboardLayout from "../layouts/DashboardLayout";
 import { getCustomers, deleteCustomer as removeCustomer, updateCustomerStatus } from "../services/customerService";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -169,6 +170,7 @@ function Customers() {
   }
 
   return (
+    <DashboardLayout>
     <div className="customers-page">
       <header className="customers-header">
         <div>
@@ -322,6 +324,7 @@ function Customers() {
         )}
       </section>
     </div>
+    </DashboardLayout>
   );
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import "../styles/orders.css";
+import DashboardLayout from "../layouts/DashboardLayout";
 import { getOrders, updateOrderStatus as saveOrderStatus, deleteOrder as removeOrder } from "../services/orderService";
 const statuses = [
   "New",
@@ -168,6 +169,7 @@ function Orders() {
   }
 
   return (
+    <DashboardLayout>
     <div className="orders-page">
       <header className="orders-header">
         <div>
@@ -314,6 +316,7 @@ function Orders() {
         )}
       </section>
     </div>
+    </DashboardLayout>
   );
 }
 

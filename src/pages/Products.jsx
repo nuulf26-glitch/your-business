@@ -13,6 +13,7 @@ import {
 } from "../services/productService";
 
 import "../styles/products.css";
+import DashboardLayout from "../layouts/DashboardLayout";
 import MediaFields from '../media/MediaFields';
 import { mediaItems, primaryImage } from '../media/media';
 
@@ -460,6 +461,7 @@ setProducts(updatedProducts);
   }
 
   return (
+    <DashboardLayout>
     <div className="products-page">
       <header className="products-header">
         <div>
@@ -1108,6 +1110,7 @@ setProducts(updatedProducts);
         </article>
       </section>
     </div>
+    </DashboardLayout>
   );
 }
 
