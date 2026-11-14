@@ -263,7 +263,110 @@ const [refundMessage, setRefundMessage] = useState("");
   {refundMessage && <p role="status">{refundMessage}</p>}
 </section>
         <button type="button" className="dashboard-secondary-button" onClick={() => navigate('/business')}>Business workspace ↗</button>
-        <section className="dashboard-stats-grid"><article className="dashboard-stat-card"><span>Net profit</span><strong>{metrics.profit == null ? 'Not available' : formatCurrency(metrics.profit)}</strong><p>{metrics.profit == null ? 'Add order cost of goods and expenses to calculate profit.' : 'Based on recorded order costs and expenses.'}</p></article><article className="dashboard-stat-card"><span>Profit margin</span><strong>{metrics.margin == null ? '—' : `…874 tokens truncated…v>
+        <section className="dashboard-stats-grid"><article className="dashboard-stat-card"><span>Net profit</span><strong>{metrics.profit == null ? 'Not available' : formatCurrency(metrics.profit)}</strong><p>{metrics.profit == null ? 'Add order cost of goods and expenses to calculate profit.' : 'Based on recorded order costs and expenses.'}</p></article><article className="dashboard-stat-card"><span>Profit margin</span><strong>{metrics.margin == null ? '—' : `${metrics.margin.toFixed(1)}%`}</strong></article></section>
+        {/* Top Stat Summary Grid */}
+        <section className="dashboard-stats-grid">
+          <article className="dashboard-stat-card">
+            <div>
+              <span>Total revenue</span>
+              <strong>{formatCurrency(totalRevenue)}</strong>
+            </div>
+            <p>Paid, completed or delivered orders</p>
+          </article>
+
+          <article className="dashboard-stat-card">
+            <div>
+              <span>Orders</span>
+              <strong>{orders.length}</strong>
+            </div>
+            <p>Total customer orders</p>
+          </article>
+
+          <article className="dashboard-stat-card">
+            <div>
+              <span>Customers</span>
+              <strong>{customers.length}</strong>
+            </div>
+            <p>Customers saved in your store</p>
+          </article>
+
+          <article className="dashboard-stat-card">
+            <div>
+              <span>Products</span>
+              <strong>{products.length}</strong>
+            </div>
+            <p>
+              {lowStockProducts > 0
+                ? `${lowStockProducts} low in stock`
+                : "No low-stock products"}
+            </p>
+          </article>
+        </section>
+
+        {/* Main Section Columns */}
+        <section className="dashboard-main-grid">
+          <article className="dashboard-card dashboard-sales-card">
+            <div className="dashboard-card-heading">
+              <div>
+                <span>Sales overview</span>
+                <h2>Revenue performance</h2>
+              </div>
+            </div>
+
+            <div className="dashboard-sales-summary">
+              <div>
+                <span>Total sales</span>
+                <strong>{formatCurrency(totalRevenue)}</strong>
+              </div>
+
+              <div>
+                <span>Average order</span>
+                <strong>{formatCurrency(averageOrder)}</strong>
+              </div>
+
+              <div>
+                <span>Total orders</span>
+                <strong>{orders.length}</strong>
+              </div>
+            </div>
+
+            {orders.length === 0 ? (
+              <div className="dashboard-empty-state">
+                <h3>No sales data yet</h3>
+                <p>
+                  Sales information will appear after
+                  customers place orders.
+                </p>
+              </div>
+            ) : (
+              <div className="dashboard-chart">
+                {orders.slice(0, 12).map((order, index) => {
+                  const total = Number(order.total) || 0;
+                  const height = Math.max(
+                    24,
+                    Math.min(118, total / 4)
+                  );
+
+                  return (
+                    <div key={order.id || index}>
+                      <span
+                        style={{
+                          height: `${height}px`,
+                        }}
+                      ></span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </article>
+
+          <article className="dashboard-card dashboard-website-card">
+            <div className="dashboard-card-heading">
+              <div>
+                <span>Your website</span>
+                <h2>Website status</h2>
+              </div>
             </div>
 
             <div className="dashboard-website-preview">

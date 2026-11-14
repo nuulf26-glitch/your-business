@@ -143,10 +143,72 @@ function WebsiteBuilder() {
               {/* Canvas */}
               <div style={{ background: "#fff", padding: "20px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", justifyContent: "center", gap: "15px", fontSize: "0.75rem", color: "#888", marginBottom: "15px", borderBottom: "1px solid #e5e5e0", paddingBottom: "10px", fontFamily: "'Mograp', sans-serif" }}>
-               …6627 tokens truncated…;
-  const group = useMemo(() => proposalGroups.find(item => item.id === groupId) || proposalGroups[0], [groupId]);
-  return <main className="proposal-workspace">
-    <aside className="proposal-sidebar"><Link className="proposal-brand" to="/">CYB<span>STUDIO</span></Link><p className="proposal-sidebar-note">Visual concepts for features with unrecovered requirements.</p>{proposalGroups.map(section => <section key={section.id}><span className="proposal-nav-label">{section.label}</span>{section.items.map(item => <button key={item} type="button" className={item === screenTitle ? "active" : ""} onClick={() => { setGroupId(section.id); setScreenTitle(item); }}>{item}</button>)}</section>)}<Link className="proposal-back" to="/">← Back to CYB</Link></aside>
-    <section className="proposal-main"><header className="proposal-topbar"><div><span>DESIGN REVIEW · ISOLATED PREVIEW</span><h1>{screenTitle}</h1></div><StatusBadge tone="warning">PROPOSED · APPROVAL REQUIRED</StatusBadge></header><div className="proposal-canvas"><div className="proposal-canvas-meta"><span>{group.label}</span><span>Preview only · no operational data</span></div><ScreenContent title={screenTitle} group={groupId} /></div></section>
-  </main>;
+                  <span style={{ color: "#111", fontWeight: "500" }}>Desktop</span>
+                  <span>Tablet</span>
+                  <span>Mobile</span>
+                </div>
+
+                <div style={{ background: "#f9f8f6", border: "1px solid #e5e5e0", padding: "20px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", fontSize: "0.8rem" }}>
+                    <strong style={{ fontFamily: "'Mograp', sans-serif" }}>Your Brand</strong>
+                    <div style={{ display: "flex", gap: "10px", color: "#666", fontSize: "0.75rem" }}>
+                      <span>Home</span>
+                      <span>Shop</span>
+                      <span>About</span>
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: "center", padding: "20px 10px", marginBottom: "15px" }}>
+                    <span style={{ fontSize: "0.65rem", textTransform: "uppercase", letterSpacing: "1.5px", color: "#888", display: "block", marginBottom: "6px", fontFamily: "'Mograp', sans-serif" }}>
+                      New collection
+                    </span>
+                    <h3 style={{ fontSize: "1.1rem", fontWeight: "400", margin: "0 0 8px 0", fontFamily: "'Mograp', sans-serif" }}>Build a brand people remember.</h3>
+                    <p style={{ fontSize: "0.75rem", color: "#666", margin: "0 0 12px 0", fontFamily: "'Mograp', sans-serif" }}>
+                      Create a beautiful website and start selling your products online.
+                    </p>
+                    <button type="button" style={{ background: "#111", color: "#fff", border: "none", padding: "6px 14px", fontSize: "0.75rem", cursor: "pointer", fontFamily: "'Mograp', sans-serif" }}>Shop now</button>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
+                    <div style={{ height: "40px", background: "#e5e5e0" }}></div>
+                    <div style={{ height: "40px", background: "#e5e5e0" }}></div>
+                    <div style={{ height: "40px", background: "#e5e5e0" }}></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Settings Panel */}
+              <aside style={{ background: "#f9f8f6", borderLeft: "1px solid #e5e5e0", padding: "20px 15px", display: "flex", flexDirection: "column", gap: "15px" }}>
+                <p style={{ fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "1.5px", color: "#888", margin: 0, fontFamily: "'Mograp', sans-serif" }}>Design</p>
+
+                <label style={{ fontSize: "0.75rem", color: "#555", fontFamily: "'Mograp', sans-serif" }}>
+                  Font
+                  <div style={{ background: "#fff", border: "1px solid #ddd", padding: "8px", marginTop: "4px", fontSize: "0.8rem", color: "#111" }}>Inter</div>
+                </label>
+
+                <label style={{ fontSize: "0.75rem", color: "#555", fontFamily: "'Mograp', sans-serif" }}>
+                  Button style
+                  <div style={{ background: "#fff", border: "1px solid #ddd", padding: "8px", marginTop: "4px", fontSize: "0.8rem", color: "#111" }}>Rounded</div>
+                </label>
+
+                <label style={{ fontSize: "0.75rem", color: "#555", fontFamily: "'Mograp', sans-serif" }}>
+                  Website color
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "#fff", border: "1px solid #ddd", padding: "6px 8px", marginTop: "4px" }}>
+                    <span style={{ width: "14px", height: "14px", background: "#111111", borderRadius: "50%", display: "inline-block" }}></span>
+                    <p style={{ fontSize: "0.75rem", margin: 0, color: "#111", fontFamily: "'Mograp', sans-serif" }}>#111111</p>
+                  </div>
+                </label>
+              </aside>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+  );
 }
+
+export default WebsiteBuilder;
