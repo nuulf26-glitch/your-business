@@ -27,6 +27,7 @@ const [products, setProducts] = useState([]);
 const [userProfile, setUserProfile] = useState(null);
 const [refundLoading, setRefundLoading] = useState(false);
 const [refundMessage, setRefundMessage] = useState("");
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   useEffect(() => {
     async function loadDashboardData() {
       try {
@@ -130,13 +131,12 @@ const [refundMessage, setRefundMessage] = useState("");
           className="dashboard-logo"
           onClick={() => navigate("/")}
         >
-          Your Business
+          CYB
         </button>
 
         <nav className="dashboard-navigation">
-          <button type="button" className="active">
-            Overview
-          </button>
+          <span className="dashboard-nav-label">Workspace</span>
+          <button type="button" className="active" aria-current="page">Overview</button>
 
           <button
             type="button"
@@ -167,6 +167,8 @@ const [refundMessage, setRefundMessage] = useState("");
           >
             Customers
           </button>
+          <button type="button" onClick={() => navigate("/business")}>Business tools</button>
+          <button type="button" onClick={() => navigate("/create-website")}>Create website</button>
         </nav>
 
         <div className="dashboard-sidebar-bottom">
@@ -198,6 +200,23 @@ const [refundMessage, setRefundMessage] = useState("");
           </div>
 
           <div className="dashboard-header-actions">
+            <div className="dashboard-notification-wrap">
+              <button
+                type="button"
+                className="dashboard-notification-button"
+                aria-label="Notifications"
+                aria-expanded={notificationsOpen}
+                onClick={() => setNotificationsOpen((open) => !open)}
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </button>
+              {notificationsOpen && (
+                <div className="dashboard-notification-popover" role="status">
+                  <strong>You’re all caught up</strong>
+                  <p>New account and store updates will appear here.</p>
+                </div>
+              )}
+            </div>
             <button
               type="button"
               className="dashboard-secondary-button"
@@ -244,110 +263,7 @@ const [refundMessage, setRefundMessage] = useState("");
   {refundMessage && <p role="status">{refundMessage}</p>}
 </section>
         <button type="button" className="dashboard-secondary-button" onClick={() => navigate('/business')}>Business workspace ↗</button>
-        <section className="dashboard-stats-grid"><article className="dashboard-stat-card"><span>Net profit</span><strong>{metrics.profit == null ? 'Not available' : formatCurrency(metrics.profit)}</strong><p>{metrics.profit == null ? 'Add order cost of goods and expenses to calculate profit.' : 'Based on recorded order costs and expenses.'}</p></article><article className="dashboard-stat-card"><span>Profit margin</span><strong>{metrics.margin == null ? '—' : `${metrics.margin.toFixed(1)}%`}</strong></article></section>
-        {/* Top Stat Summary Grid */}
-        <section className="dashboard-stats-grid">
-          <article className="dashboard-stat-card">
-            <div>
-              <span>Total revenue</span>
-              <strong>{formatCurrency(totalRevenue)}</strong>
-            </div>
-            <p>Paid, completed or delivered orders</p>
-          </article>
-
-          <article className="dashboard-stat-card">
-            <div>
-              <span>Orders</span>
-              <strong>{orders.length}</strong>
-            </div>
-            <p>Total customer orders</p>
-          </article>
-
-          <article className="dashboard-stat-card">
-            <div>
-              <span>Customers</span>
-              <strong>{customers.length}</strong>
-            </div>
-            <p>Customers saved in your store</p>
-          </article>
-
-          <article className="dashboard-stat-card">
-            <div>
-              <span>Products</span>
-              <strong>{products.length}</strong>
-            </div>
-            <p>
-              {lowStockProducts > 0
-                ? `${lowStockProducts} low in stock`
-                : "No low-stock products"}
-            </p>
-          </article>
-        </section>
-
-        {/* Main Section Columns */}
-        <section className="dashboard-main-grid">
-          <article className="dashboard-card dashboard-sales-card">
-            <div className="dashboard-card-heading">
-              <div>
-                <span>Sales overview</span>
-                <h2>Revenue performance</h2>
-              </div>
-            </div>
-
-            <div className="dashboard-sales-summary">
-              <div>
-                <span>Total sales</span>
-                <strong>{formatCurrency(totalRevenue)}</strong>
-              </div>
-
-              <div>
-                <span>Average order</span>
-                <strong>{formatCurrency(averageOrder)}</strong>
-              </div>
-
-              <div>
-                <span>Total orders</span>
-                <strong>{orders.length}</strong>
-              </div>
-            </div>
-
-            {orders.length === 0 ? (
-              <div className="dashboard-empty-state">
-                <h3>No sales data yet</h3>
-                <p>
-                  Sales information will appear after
-                  customers place orders.
-                </p>
-              </div>
-            ) : (
-              <div className="dashboard-chart">
-                {orders.slice(0, 12).map((order, index) => {
-                  const total = Number(order.total) || 0;
-                  const height = Math.max(
-                    24,
-                    Math.min(118, total / 4)
-                  );
-
-                  return (
-                    <div key={order.id || index}>
-                      <span
-                        style={{
-                          height: `${height}px`,
-                        }}
-                      ></span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </article>
-
-          <article className="dashboard-card dashboard-website-card">
-            <div className="dashboard-card-heading">
-              <div>
-                <span>Your website</span>
-                <h2>Website status</h2>
-              </div>
+        <section className="dashboard-stats-grid"><article className="dashboard-stat-card"><span>Net profit</span><strong>{metrics.profit == null ? 'Not available' : formatCurrency(metrics.profit)}</strong><p>{metrics.profit == null ? 'Add order cost of goods and expenses to calculate profit.' : 'Based on recorded order costs and expenses.'}</p></article><article className="dashboard-stat-card"><span>Profit margin</span><strong>{metrics.margin == null ? '—' : `…874 tokens truncated…v>
             </div>
 
             <div className="dashboard-website-preview">
