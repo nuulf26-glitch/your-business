@@ -146,3 +146,19 @@ Feature workflows without recovered requirements remain proposals: project lifec
 - Build, lint, and whitespace checks pass after these frontend-only changes. The PR preview stays API/auth/database/payment isolated; no backend, CORS, Stripe, production, DNS, or MUSE changes.
 
 **Visual QA scope limitation:** All 62 screens were individually navigated and checked for correct rendered title/content and horizontal overflow at one available desktop viewport. Detailed visual screenshot review was performed on representative screen families and all four shared states, not one screenshot per screen. The feature proposal concepts remain subject to product approval; functional authenticated pages are unchanged and are not certified by this isolated showcase.
+
+
+## Latest Responsive QA — GitHub Actions — 14 November 2026
+
+This section supersedes the earlier “Visual QA” status above for the isolated `/design-showcase` only. It does not certify the functional, authenticated CYB routes or any backend behavior.
+
+- **Tested source:** PR branch `codex/cyb-phase1-uiux-design-20261114`, commit `9d676ab8fd41432aa8a9ff2e845c457d85808793`.
+- **Browser:** GitHub-hosted `ubuntu-latest` runner, Playwright Chromium, isolated Vite frontend at `/design-showcase`; no login, API, customer records, or production/staging data.
+- **All 62 screen selections were rendered and checked at each exact viewport:** 1440×900 desktop, 768×1024 tablet, 390×844 mobile, 375×812 mobile.
+- **Results:** 4 viewport tests passed; all four per-viewport `layout-summary.json` files report 62 screens and 0 failures. Assertions cover document horizontal overflow, selected navigation visibility, clipped text candidates, controls outside the viewport, major block overlaps, responsive table containment, post-render layout stability, screen identity, and visibility of default/empty/loading/error state panels.
+- **Evidence:** 248 per-screen baseline screenshots (62 × 4), 12 additional Dashboard state screenshots, four layout summaries, Playwright JSON results, and failure traces if any. GitHub Actions artifact (20.3 MB; one-day retention): [download screenshots and results](https://github.com/nuulf26-glitch/your-business/actions/runs/43644511266/artifacts/14133785561). Run: [43644511266](https://github.com/nuulf26-glitch/your-business/actions/runs/43644511266).
+- **Confirmed fix:** first mobile run detected the selected screen tab was not fully within the horizontal selector on several entries. Added centered selected-item scrolling and inline scroll margins. The subsequent PR run passed at both mobile sizes and all other viewports.
+- **Build and lint:** `npm run build` passed; `npm run lint` passed in the same PR run.
+- **Visual review limit:** screenshots were visually spot-checked across public, editor, commerce, dashboard, business, proposal, and state examples. Automated rendering and layout assertions cover all 62 selections; a human did not individually inspect all 248 images.
+- **Not verified:** actual authenticated CYB routes and their live data; these tests certify the isolated synthetic showcase only. This does not certify business behavior or the design approval of proposal workflows.
+

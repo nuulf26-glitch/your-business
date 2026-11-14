@@ -1,16 +1,6 @@
 name: CYB design showcase responsive QA
 
 on:
-  push:
-    branches: [codex/cyb-phase1-uiux-design-20261114]
-    paths:
-      - "src/pages/DesignShowcase.jsx"
-      - "src/pages/design-showcase.css"
-      - "tests/responsive/**"
-      - "playwright.config.js"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/cyb-responsive-qa.yml"
   pull_request:
     branches: [main]
     paths:
