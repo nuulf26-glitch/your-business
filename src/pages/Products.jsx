@@ -16,6 +16,7 @@ import "../styles/products.css";
 import DashboardLayout from "../layouts/DashboardLayout";
 import MediaFields from '../media/MediaFields';
 import { mediaItems, primaryImage } from '../media/media';
+import { InlineState } from "../components/ui/DesignPrimitives";
 
 const emptyForm = {
   name: "",
@@ -53,21 +54,29 @@ function Products() {
   const [mediaBusy,setMediaBusy]=useState(false);
   const [saving,setSaving]=useState(false);
   const [statusSavingId, setStatusSavingId] = useState(null);
+  const [listState, setListState] = useState("loading");
+  const [loadVersion, setLoadVersion] = useState(0);
 
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-  async function loadProducts() {
-    try {
-      const data = await getProducts();
-      setProducts(data);
-    } catch (error) {
-      console.error("Could not load products:", error);
+    let active = true;
+    async function loadProducts() {
+      setListState("loading");
+      try {
+        const data = await getProducts();
+        if (active) {
+          setProducts(data);
+          setListState("ready");
+        }
+      } catch (error) {
+        console.error("Could not load products:", error);
+        if (active) setListState("error");
+      }
     }
-  }
-
-  loadProducts();
-}, []);
+    loadProducts();
+    return () => { active = false; };
+  }, [loadVersion]);
 
 
 
@@ -898,7 +907,11 @@ setProducts(updatedProducts);
             </select>
           </div>
 
-          {filteredProducts.length === 0 ? (
+          {listState === "loading" ? (
+            <InlineState kind="loading" title="Loading products" description="Your inventory will appear here in a moment." />
+          ) : listState === "error" ? (
+            <InlineState kind="error" title="Products could not load" description="Check your connection and try again. Your product data has not been changed." onRetry={() => setLoadVersion(version => version + 1)} />
+          ) : filteredProducts.length === 0 ? (
             <div className="products-empty-state">
               <h3>No products found</h3>
 

@@ -65,7 +65,7 @@
 | Advanced | Project Wallets | `/design-proposals` | Proposed — isolated visual preview | Ownership and transfer rules not recovered. |
 | Advanced | Recovery Center | `/design-proposals` | Proposed — isolated visual preview | Restore scope and financial invariants need product approval. |
 | Advanced | Reliability Center | `/design-proposals` | Proposed — isolated visual preview | Metrics, severity, and operator roles need approval. |
-| States | Empty / loading / error / mobile | Cross-cutting | Existing — partial | Inventory and visual QA required per implemented screen; no behavior fabricated. |
+| States | Empty / loading / error / mobile | Cross-cutting | UI implemented — visual verification blocked | Shared loading/error state primitive added to Products, Orders, and Customers with retry; existing empty states remain distinct from fetch failures. Responsive design is in CSS, but real viewport screenshots remain pending. |
 
 ## Visual QA record
 
@@ -94,6 +94,7 @@ Approve the proposed concepts for About, Contact, multi-project management, disc
 - `/design-proposals` is a separate preview route for concepts whose feature requirements are not recovered. Concept actions are disabled, no records or financial values are invented, and the interface is clearly marked as requiring approval.
 - `/design-proposals` now offers individual layouts for About, Contact, project management, notifications, discounts, marketing, domains, CMS, blog, memberships, courses, Student Portal, community, Unified Inbox, Customer Support, AI Support, AI Operations, AI Credits, Project Wallets, Recovery Center, and Reliability Center. Each remains a proposal pending approval/specification; the route is not evidence that these product features operate.
 - Added an individual Student Portal concept with course navigation, an unavailable-progress state, course-content empty state, and resource panel. It contains no learner records or fabricated progress and has no active actions.
+- Products, Orders, and Customers now distinguish loading, data-fetch errors, and true empty results. Error states offer a retry without changing service contracts or records.
 - The Templates gallery now has a responsive, warm-neutral gallery treatment and uses the existing routes for template preview and editor selection. It displays only the two template families present in the frontend.
 - Products, Orders, and Customers now share the existing workspace navigation layout without replacing their data-backed operations. The shared workspace styling also applies to Settings and other pages already using that layout.
 - The existing Business workspace now uses the shared CYB warm-neutral style across real business records, calendars, analytics summaries, CRM client notes, and booking controls. Additional concepts for CRM, analytics/reports, forms, bookings, and SEO remain isolated and disabled pending approval.
