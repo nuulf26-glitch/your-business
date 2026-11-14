@@ -15,7 +15,7 @@
 | Public | Homepage | `/` — `LandingPage` | Existing — visual review needed | Keep as the approved staging reference. |
 | Public | Features | `/` — landing sections | Existing — visual review needed | Section within home, not a separate route today. |
 | Public | Pricing | `/` — `Pricing` | Existing — visual review needed | Preserve current pricing behavior and copy. |
-| Public | Templates gallery | `/templates` | UI implemented — verification blocked | Warm-neutral responsive gallery; actual two available template families; current favorite/search/filter and existing preview/editor routes preserved. |
+| Public | Templates gallery | `/templates` | UI implemented — partial visual review | Warm-neutral gallery; actual two template families; direct route verified in browser at 1363×936 only. Requested responsive sizes not tested. |
 | Public | About | `/design-proposals` | Proposed — isolated visual preview | Content and structure not recovered. |
 | Public | Contact | `/design-proposals` | Proposed — isolated visual preview | Contact workflow and data handling not specified. |
 | Public | Login | `/login` | Existing — visual review needed | Do not change authentication behavior. |
@@ -24,7 +24,7 @@
 | Dashboard | Overview | `/dashboard` | Existing — visual review needed | Reads live account data; prior visual refinements retained; no fixture data added. |
 | Dashboard | Project creation | `/create-website` | Existing — partial | Current setup flow exists; multi-project requirements need confirmation. |
 | Dashboard | Project management / switching | `/design-proposals` | Proposed — isolated visual preview | Lifecycle and multi-project behavior not fully recovered. |
-| Dashboard | Navigation sidebar | `/dashboard`, `/business`, `/products`, `/orders`, `/customers`, `/settings` | UI implemented — verification blocked | Shared workspace navigation extended to Products, Orders and Customers; links use existing routes. |
+| Dashboard | Navigation sidebar | `/dashboard`, `/business`, `/products`, `/orders`, `/customers`, `/settings` | UI implemented — partial visual review | Shared workspace navigation extended to Products, Orders and Customers; authenticated layout requires a test session. |
 | Dashboard | Website management | `/dashboard`, `/editor` | Existing — partial | Draft/published mismatch is a known audit follow-up. |
 | Dashboard | Notifications | `/dashboard` | Existing — visual empty state implemented | Shows “all caught up”; no fake notification records/counts. |
 | Dashboard | Account settings | `/settings` | Existing — visual review needed | Shared workspace styling applied; preserve account operations. |
@@ -37,10 +37,10 @@
 | Builder | Responsive preview | `/editor` | Existing — partial | Desktop/tablet/mobile screenshots remain required. |
 | Builder | Draft/publish controls | `/editor` | Existing — partial | Preserve explicit publish snapshot; audit gate remains open. |
 | Store | Store dashboard | `/dashboard` | Existing — partial | Current overview mixes store and account data. |
-| Store | Products / product editor | `/products` | UI implemented — verification blocked | Existing product operations retained and placed inside shared workspace navigation. |
+| Store | Products / product editor | `/products` | UI implemented — visual QA blocked | Existing product operations retained; route requires authenticated session. |
 | Store | Inventory | `/products` | Existing — partial | Multi-location behavior not recovered. |
-| Store | Orders | `/orders`, `/orders/:orderId` | UI implemented — verification blocked | Existing order/payment status distinctions retained and placed inside shared workspace navigation. |
-| Store | Customers | `/customers` | UI implemented — verification blocked | Existing customer data and actions retained; no fabricated records; placed inside shared workspace navigation. |
+| Store | Orders | `/orders`, `/orders/:orderId` | UI implemented — visual QA blocked | Existing order/payment status distinctions retained; route requires authenticated session. |
+| Store | Customers | `/customers` | UI implemented — visual QA blocked | Existing customer data and actions retained; no fabricated records; route requires authenticated session. |
 | Store | Shipping | `/shipping` | Existing — visual review needed | Preserve existing settings behavior. |
 | Store | Discounts | `/design-proposals` | Proposed — isolated visual preview | Rules, stacking, and eligibility not recovered. |
 | Store | Store design | `/store-designer` | Existing — partial | Compare with approved staging styling. |
@@ -76,9 +76,9 @@
 | Mobile 390×844 | Requested implementation routes | Not run | No branch preview available at this viewport. |
 | Mobile 375×812 | Requested implementation routes | Not run | No branch preview available at this viewport. |
 
-**Browser-preview status (14 November 2026):** Render reports the isolated static-site preview `https://cyb-migration-preview-20261109-pr-79.onrender.com/` as **Live** on the exact PR head `bf564296a2cb6fd47060962e78da24e7740b73ad` (deploy `dep-dbsbbs6q1p3s73el1ngg`). The service is attached to the expected branch, publishes `dist`, has an open `0.0.0.0/0` IP allowlist, and has no configured environment variables or backend/database service. Render build logs show Vite completed and the static upload was marked live. The local production build also generated `dist/index.html`.
+**Browser-preview status (14 November 2026):** Render PR preview `https://cyb-migration-preview-20261109-pr-79.onrender.com/` is **Live** on commit `baf0701c414548b97426139bfd5138ae82528829` (deploy `dep-dbsbqnk9v7es73bp08h0`). The isolated static service publishes `dist`, had no environment variables, and had no API service attached. A rewrite `/*` → `/index.html` was added to this preview service only; direct `/templates` and `/login` now load.
 
-**HTTP diagnosis:** Render's available request-log query returned no request records, and its host-filtered HTTP metrics returned no data. The connector does not expose the failing response's HTTP status or headers, so the original `net::ERR_HTTP_RESPONSE_CODE_FAILURE` cannot be attributed conclusively to Render, the browser surface, or the app. This is not evidence that the page is accessible. The repository's `public/_redirects` includes a Netlify SPA fallback; it does not configure Render routing. A missing Render SPA rewrite could affect deep links, but does not explain the root `/` failure by itself. Do not use alternate browser/network paths to bypass the browser restriction.
+**Authentication diagnosis:** `VITE_CUSTOM_BACKEND_URL` is unset in the PR static service, so the frontend defaults to same-origin `/api/v1/auth/login`. The preview has no API proxy, causing API routes to return the static SPA document rather than a backend JSON response. The login UI previously hid this failure behind a generic message. The frontend now rejects non-JSON API responses as `api_unavailable` and shows a preview-specific explanation. No credentials were submitted; no login POST was captured because DevTools are disabled by organization policy and no authorized test credentials were available. A separate staging API health endpoint returned `{"status":"ok","database":"ok"}`, but its exact DB isolation could not be confirmed because the connection string is secret. The staging API CORS allowlist does not demonstrate this Render preview origin is permitted. No backend or staging API changes were made. Do not connect to the staging API until the owner confirms its database is isolated from production and authorizes adding this exact preview origin.
 
 **Visual QA:** the branch preview still cannot be rendered in the available browser. No screenshots were captured at 1440×900, 768×1024, 390×844, or 375×812. These viewport checks remain **Not Run**; local build/lint success is not visual verification. The staging homepage is reference-only.
 
@@ -86,7 +86,7 @@
 
 Approve the proposed concepts for About, Contact, multi-project management, discounts, marketing, domains, CMS/blog, memberships, courses, Student Portal, community, unified inbox, support, AI support/operations/credits, project wallets, Recovery Center, and Reliability Center. These remain visual proposals until source specifications are recovered or the product owner approves the direction.
 
-**Preview setup completed:** Render's existing static site is configured for **Manual Pull Request Previews** and PR #79 has the `render-preview` label. This creates a separate preview for this PR only; other PRs do not automatically create previews. The current preview is live in Render, though browser visual QA is still blocked as described above.
+**Preview setup:** the PR preview is available and its deep-link fallback is fixed on the preview service only. Authentication remains blocked pending explicit isolated-staging API/CORS authorization.
 
 ## Phase 1 implementation update — 14 November 2026
 
@@ -102,5 +102,5 @@ Approve the proposed concepts for About, Contact, multi-project management, disc
 - The existing Business workspace now uses the shared CYB warm-neutral style across real business records, calendars, analytics summaries, CRM client notes, and booking controls. Additional concepts for CRM, analytics/reports, forms, bookings, and SEO remain isolated and disabled pending approval.
 - The editor control chrome now follows the approved charcoal direction with warm ivory accents; the customer website preview and editor operations remain unchanged.
 - `/design-proposals` includes separate CRM, Analytics & Reports, Forms, Bookings, and SEO proposals. Each remains disabled, isolated, and subject to approval for any unapproved workflow.
-- Desktop/tablet/mobile screenshot checks remain **Not Run** because the local app server is not reachable from the available browser surface. A build is not counted as visual verification.
-- Final checks for this update: `npm run build`, `npm run lint`, and `git diff --check` passed.
+- Login, Templates, and Design Proposals were visually opened at 1363×936 (actual browser screenshot evidence). The four requested exact viewport sizes and authenticated workspace screens remain unverified.
+- Final frontend checks for the API-error handling update: `npm run build`, `npm run lint`, and `git diff --check` passed. Render deployment for that code is Live. No login submission or authenticated page QA was performed.
