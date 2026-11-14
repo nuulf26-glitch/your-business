@@ -134,3 +134,14 @@ No staging API connection, CORS change, authentication change, backend/database 
 ### Product approval queue
 
 Feature workflows without recovered requirements remain proposals: project lifecycle, notifications, discounts, CRM, reports, forms, bookings, marketing, expanded SEO/domain management, CMS/blog, memberships, courses/student progress, community moderation, inbox/support routing, AI operating modes and approvals, credit allocation, project wallets, recovery and reliability operations. The showcase intentionally leaves actions inactive pending product decisions.
+
+## Screen-by-screen design QA and polish — 15 November 2026
+
+- Reviewed all **62** selectors individually on the deployed isolated preview at **1363×936**. Each selection rendered its matching page title and expected screen-specific content. DOM measurements recorded no positive document-level or screen-body horizontal overflow at this viewport.
+- Refined the builder subviews so Elements, Pages, Layers, Media library, Brand Kit, Responsive preview, and Save & publish each show distinct, labeled panel content instead of reusing the Editor canvas.
+- Added separate visual structures for the Templates gallery, About concept, Contact form concept, storefront collection, product detail, checkout form, and order confirmation. Contact and checkout fields are disabled and do not transmit data; the confirmation explicitly says no transaction occurred.
+- Visually checked the shared Screen, Empty, Loading, and Error states on Dashboard overview at 1363×936. The error retry is disabled and sends no request.
+- Responsive CSS is present for tablet and mobile breakpoints, but the available browser interface exposes no viewport resize/emulation control. **1440×900, 768×1024, 390×844, and 375×812 remain not screenshot-verified.** No mobile/tablet pass is claimed.
+- Build, lint, and whitespace checks pass after these frontend-only changes. The PR preview stays API/auth/database/payment isolated; no backend, CORS, Stripe, production, DNS, or MUSE changes.
+
+**Visual QA scope limitation:** All 62 screens were individually navigated and checked for correct rendered title/content and horizontal overflow at one available desktop viewport. Detailed visual screenshot review was performed on representative screen families and all four shared states, not one screenshot per screen. The feature proposal concepts remain subject to product approval; functional authenticated pages are unchanged and are not certified by this isolated showcase.
