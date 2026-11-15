@@ -119,13 +119,26 @@ async function inspectPage(page, viewportWidth) {
       .filter(visible)
       .filter((item) => {
         const rect = item.getBoundingClientRect();
-        return rect.left < -1 || rect.right > width + 1;
+        if (rect.left >= -1 && rect.right <= width + 1) return false;
+        for (let parent = item.parentElement; parent && parent !== body; parent = parent.parentElement) {
+          const overflowX = getComputedStyle(parent).overflowX;
+          if ((overflowX === "auto" || overflowX === "scroll") && parent.scrollWidth > parent.clientWidth + 1) return false;
+        }
+        return true;
       })
       .map((item) => (item.textContent || item.getAttribute("aria-label") || item.getAttribute("placeholder") || item.tagName).trim().slice(0, 60));
+    const overflowNodes = [...document.querySelectorAll("body *")]
+      .filter((item) => visible(item))
+      .map((item) => ({ item, rect: item.getBoundingClientRect() }))
+      .filter(({ item, rect }) => rect.right > width + 1 && getComputedStyle(item).overflowX !== "auto" && getComputedStyle(item).overflowX !== "scroll")
+      .filter(({ item }) => ![...item.children].some((child) => child.scrollWidth > child.clientWidth + 1))
+      .slice(0, 8)
+      .map(({ item, rect }) => `${item.tagName.toLowerCase()}.${String(item.className?.baseVal || item.className || "").trim().replace(/\s+/g, ".")} ${Math.round(rect.width)}px@${Math.round(rect.left)}`);
     return {
       viewportWidth: width,
       documentWidth: Math.max(root.scrollWidth, body.scrollWidth),
       horizontalOverflow: Math.max(root.scrollWidth, body.scrollWidth) > width + 1,
+      overflowNodes,
       headings,
       primaryContentVisible: rootText.length > 20 && !rootText.includes("Loading CYB…") && !rootText.includes("Loading..."),
       navigationVisible: visible(document.querySelector(".workspace-navigation, .landing-nav, .editor-toolbar, .auth-brand-panel")),
@@ -162,12 +175,11 @@ for (const viewport of viewports) {
         await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
         const layout = await inspectPage(page, viewport.width);
+        await page.screenshot({ path: path.join(outputRoot, viewport.label, `${name}.png`) });
         expect(layout.primaryContentVisible, `${name}: expected settled page content; headings: ${layout.headings.join(" | ")}`).toBeTruthy();
-        expect(layout.horizontalOverflow, `${name}: horizontal overflow ${layout.documentWidth}/${viewport.width}`).toBeFalsy();
+        expect(layout.horizontalOverflow, `${name}: horizontal overflow ${layout.documentWidth}/${viewport.width}; ${layout.overflowNodes.join("; ")}`).toBeFalsy();
         expect(layout.offscreenControls, `${name}: controls outside viewport`).toEqual([]);
         expect(intercepted.every((item) => !item.includes("https://")), `${name}: unexpected external API request`).toBeTruthy();
-
-        await page.screenshot({ path: path.join(outputRoot, viewport.label, `${name}.png`) });
       });
     }
   });
