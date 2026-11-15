@@ -76,6 +76,7 @@ jobs:
           npm run build
           npm run lint
           npm --prefix backend run prisma:validate
+          npm --prefix backend run prisma:generate
           npm --prefix backend run prisma:migrate
           npm --prefix backend test
           npm --prefix backend run build
@@ -95,7 +96,8 @@ jobs:
           OPENAI_API_KEY: ""
           GOOGLE_CLIENT_ID: ""
         run: |
-          nohup npm --prefix backend start > /tmp/cyb-isolated-api.log 2>&1 &
+          mkdir -p artifacts/isolated-backend
+          nohup npm --prefix backend start > artifacts/isolated-backend/api.log 2>&1 &
           for attempt in {1..40}; do
             if curl --fail --silent http://127.0.0.1:3001/api/v1/health >/dev/null; then
               echo "Isolated API is ready."
@@ -104,7 +106,7 @@ jobs:
             sleep 2
           done
           if ! curl --fail --silent http://127.0.0.1:3001/api/v1/health >/dev/null; then
-            cat /tmp/cyb-isolated-api.log
+            cat artifacts/isolated-backend/api.log
             exit 1
           fi
           npx playwright test --config=playwright.isolated-backend.config.js
@@ -114,8 +116,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cyb-isolated-real-api-e2e-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            artifacts/isolated-backend/
-            /tmp/cyb-isolated-api.log
+          path: artifacts/isolated-backend/
           if-no-files-found: warn
           retention-days: 7
