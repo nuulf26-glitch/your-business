@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
+import process from 'node:process';
 
 const artifactsDir = 'artifacts/isolated-backend/screenshots';
 fs.mkdirSync(artifactsDir, { recursive: true });
@@ -143,10 +144,10 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const orders = await requestFromPage(page, '/orders');
   const checkoutOrder = orders.find((item) => item.data?.email?.startsWith('checkout-'));
   expect(checkoutOrder).toBeTruthy();
-  expect(checkoutOrder.status).toBe('New');
+  expect(checkoutOrder.status).toBe('new');
   expect(checkoutOrder.data.paymentStatus).toBe('Cash on delivery');
   const customers = await requestFromPage(page, '/customers');
-  expect(customers.some((item) => item.email?.startsWith('checkout-'))).toBe(true);
+  expect(customers.some((item) => item.data?.email?.startsWith('checkout-'))).toBe(true);
 
   await secondTab.close();
 });
