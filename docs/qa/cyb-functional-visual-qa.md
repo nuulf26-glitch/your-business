@@ -1,43 +1,33 @@
-# CYB functional UI visual QA and interaction evidence
+# CYB monochrome functional UI and responsive QA
 
 ## Scope
 
-This PR keeps CYB's real React routes and production business logic. The isolated PR #81 design showcase is used as a visual reference only; its synthetic records and proposal workflows are not copied into customer routes.
+This PR keeps the real CYB React routes and their existing API contracts. The isolated PR #81 showcase and Playwright fixtures are used only for visual/test references; synthetic records are intercepted inside the test process and are not added to customer routes or production data.
 
-Playwright renders the real frontend route components while intercepting every `/api/v1/**` request inside the test process. No backend, staging or production account, customer record, payment service, or database is used.
+The CYB platform UI uses black, white, and neutral gray. Editor chrome, shared status/empty/loading/error components, public homepage/auth, dashboard, business workspace, commerce screens, and navigation controls use grayscale styling. The editor canvas, public storefront, template previews, merchant-selected colors, uploaded images, and user customizations remain unchanged.
 
-## Responsive rendering evidence
+## Responsive screenshot evidence
 
-GitHub Actions [run 43747045013](https://github.com/nuulf26-glitch/your-business/actions/runs/43747045013) passed build, ESLint, and **92/92 render checks** across 23 functional routes and all four requested viewports: 1440×900, 768×1024, 390×844, and 375×812.
+GitHub Actions [run 43750709090](https://github.com/nuulf26-glitch/your-business/actions/runs/43750709090) tested commit `d983f759f466e1f3f0b303eb693a571cd483cc24`. It passed the frontend build, ESLint, and **96/96 Playwright cases** (92 route/viewports plus four synthetic interaction flows). There were no skipped, failed, or flaky tests.
 
-The run produced 92 screenshots and `results.json` in artifact `cyb-functional-visual-qa-e333f310e1e113b5b6fc8ce58805bdeb7ff262af` (artifact ID `14174652269`; available for a limited retention period from the Actions run page).
+The run captured **92 screenshots**: all 23 functional routes at 1440×900, 768×1024, 390×844, and 375×812. Artifact: `cyb-functional-visual-qa-d983f759f466e1f3f0b303eb693a571cd483cc24` (ID `14175792985`, available until 2026-11-18). Download from the Actions run page.
 
-Route coverage: homepage, login, signup, password recovery/reset, dashboard, editor, templates, website creation, products/inventory, orders/order details, customers, business workspace, settings, store setup/designer, shipping, storefront, product page, cart, checkout UI, and order confirmation.
+Routes: homepage, login, signup, forgot password, reset password, dashboard, editor, templates, create website, products, orders, order details, customers, business workspace, settings, store setup, store designer, shipping, storefront, product page, cart, checkout, and order confirmation.
 
-## Visual fixes and comparison
+All 92 screenshots were reviewed in viewport contact sheets. The update neutralizes the editor toolbar/device controls, library placeholders, shared badges and states, and the Dashboard active-account marker. The neutral focus rings apply to CYB controls. The user website canvas still shows its selected merchant theme, including its chosen colors, so the platform UI recoloring does not overwrite website customization. No new overflow or clipping defect was observed; automated checks also found zero horizontal overflow and zero controls outside the viewport.
 
-- Side-by-side screenshot contact sheets compared all 23 route counterparts with PR #81 references at desktop 1440×900 and mobile 390×844. Automated rendering checks covered every route at all four viewports.
-- The comparison found mobile Order Details retained a fixed minimum summary-column width, compressing the customer-information card. It now switches to a single column below 900px, with a full-width summary card. The fix was visually inspected at all four viewports in run 43747045013.
-- The homepage hero was then changed to a centered editorial layout with serif display typography, warm ivory/beige colors, responsive form controls, and keyboard focus states. The existing prompt field, free-preview action, sample-design route, and $246 copy remain intact. Local build and lint pass after this change; **the new hero has not yet been rendered in a fresh browser screenshot**.
-- Earlier refinements remain: responsive Dashboard metrics/help control, tablet workspace navigation, complete Store Designer styling, and semantic Shipping layout.
-- Proposal-only content and synthetic records remain isolated. Any proposal that would change product workflows or use unrecovered product requirements remains subject to approval.
+## Accessibility checks
 
-## Synthetic interaction test status
+Keyboard focus indicators are now explicit for shared CYB components, navigation, forms, and editor controls, with white focus outlines on dark navigation and neutral focus outlines on the dark editor. Status remains conveyed with text (the account indicator is a plain check mark, not a colored emoji).
 
-Commit `ad311d0e82127fc5d357b54612edfe500e195af3` adds synthetic Playwright flows for cookie-shaped login/session UI, editor draft save/publish requests, product/order/customer UI updates, and storefront/cart/COD checkout. They use in-process API fixtures only; they do not prove backend session security, API persistence, real payment processing, or refunds.
+Sampled grayscale text/button contrast ratios meet WCAG AA for normal text: #171717 on #fefefe = 17.78:1; #767676 on #fefefe = 4.50:1; #555555 on #f0f0f0 = 6.54:1; #d6d6d6 on #141416 = 12.66:1; white on #171717 = 17.93:1. This is a targeted visual/token check, not a complete independent WCAG audit.
 
-The local environment lacks the Playwright Chromium executable, so the local browser-flow command stopped before running. The Actions run predates these new tests; the available GitHub connector did not trigger a new run for the contents-API commit. **The flow tests are not yet verified.**
+## Synthetic interaction test boundary
 
-## Build and regression checks
+The four Playwright flows exercise cookie-shaped synthetic login/session UI, editor draft save/publish requests, product/order/customer UI updates, and storefront cart/COD request flow. The browser intercepts API requests in-process; these tests **do not** verify a real backend, database persistence, authentication security, real checkout/payment, or refund processing.
 
-- `npm run build` — passed locally after the homepage change.
-- `npm run lint` — passed locally after the homepage change.
-- 33 isolated Node tests — passed before the latest homepage-only styling change.
-- `git diff --check` — passed.
-- Responsive route screenshots — 92/92 passed on source commit `e333f310e1e113b5b6fc8ce58805bdeb7ff262af`. Current PR head `304821af612bd8bdbe0412b914347ffd45d8c969` includes the homepage styling and synthetic flow-test changes made after that run; those changes are not covered by the screenshots.
+## Release status
 
-## Release gate and remaining blockers
+**Not cleared for production deployment.** The required isolated authenticated backend/test account is unavailable. The prior preview-to-staging API connection was rejected during the isolation review, and production credentials/data/payment flows must not be used as a substitute. Real session persistence, editor persistence/publishing, product/order/customer mutations, and checkout/refund compatibility therefore remain unverified.
 
-**Do not deploy this PR to production yet.** No isolated backend/test-account environment is available, and preview-to-staging API access was rejected during the isolation review. Real login/session persistence, backend-backed editor save/publish, product/order/customer mutations, store checkout, refunds, and authenticated route compatibility remain unverified. Synthetic UI tests are not substitutes for those checks.
-
-The required next step is an authorized isolated CYB test API/database with synthetic accounts and payment-provider test mode. Refund tests require a safe payment test environment; none was used. The PR remains Draft. No backend, database, authentication logic, Stripe, DNS, production deployment, or MUSE changes were made.
+No production deployment, rollback change, backend/database/authentication change, Stripe/payment change, DNS change, or MUSE change was made. PR #82 remains Draft. A rollback point should be recorded only if deployment is later authorized after the isolated critical tests pass.
