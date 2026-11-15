@@ -30,8 +30,8 @@
 }
 :is(.products-page,.orders-page,.customers-page) table { border-collapse: separate; border-spacing: 0; }
 :is(.products-page,.orders-page,.customers-page) th { color: var(--cyb-muted); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
-:is(.products-page,.orders-page,.customers-page) tbody tr:hover { background: #faf8f3; }
-.create-website-page .wizard-sidebar { background: #1b1b18; }
+:is(.products-page,.orders-page,.customers-page) tbody tr:hover { background: #f8f8f8; }
+.create-website-page .wizard-sidebar { background: #1b1b1b; }
 .create-website-page .wizard-logo { letter-spacing: -.08em; }
 .create-website-page .wizard-sidebar-content h1 { font-family: var(--cyb-font-display); font-weight: 500; }
 .create-website-page .wizard-card { background: var(--cyb-paper); }
