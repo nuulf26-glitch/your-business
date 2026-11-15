@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import "../styles/customers.css";
+import DashboardLayout from "../layouts/DashboardLayout";
 import { getCustomers, deleteCustomer as removeCustomer, updateCustomerStatus } from "../services/customerService";
+import { InlineState } from "../components/ui/DesignPrimitives";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -29,24 +31,30 @@ function Customers() {
   const [customers, setCustomers] = useState([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [listState, setListState] = useState("loading");
+  const [loadVersion, setLoadVersion] = useState(0);
 
   useEffect(() => {
-  async function loadCustomers() {
-    try {
-      setCustomers(await getCustomers());
-
-    } catch (error) {
-      console.error(
-        "Could not load customers:",
-        error
-      );
-
-      setCustomers([]);
+    let active = true;
+    async function loadCustomers() {
+      setListState("loading");
+      try {
+        const data = await getCustomers();
+        if (active) {
+          setCustomers(data);
+          setListState("ready");
+        }
+      } catch (error) {
+        console.error("Could not load customers:", error);
+        if (active) {
+          setCustomers([]);
+          setListState("error");
+        }
+      }
     }
-  }
-
-  loadCustomers();
-}, []);
+    loadCustomers();
+    return () => { active = false; };
+  }, [loadVersion]);
 
   
 
@@ -169,6 +177,7 @@ function Customers() {
   }
 
   return (
+    <DashboardLayout>
     <div className="customers-page">
       <header className="customers-header">
         <div>
@@ -242,7 +251,11 @@ function Customers() {
           </select>
         </div>
 
-        {filteredCustomers.length === 0 ? (
+        {listState === "loading" ? (
+          <InlineState kind="loading" title="Loading customers" description="Your customer list is being prepared." />
+        ) : listState === "error" ? (
+          <InlineState kind="error" title="Customers could not load" description="Check your connection and try again. Your customer data has not been changed." onRetry={() => setLoadVersion(version => version + 1)} />
+        ) : filteredCustomers.length === 0 ? (
           <div className="customers-empty-state">
             <h3>No customers yet</h3>
 
@@ -322,6 +335,7 @@ function Customers() {
         )}
       </section>
     </div>
+    </DashboardLayout>
   );
 }
 

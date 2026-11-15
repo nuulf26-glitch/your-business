@@ -34,7 +34,7 @@ function ForgotPassword() {
   }
 
   return (
-    <div className="auth-page">
+    <div className="auth-page auth-page--single">
       <section className="auth-form-panel">
         <div className="auth-form-wrapper">
 
@@ -54,10 +54,13 @@ function ForgotPassword() {
 
           <form className="auth-form" onSubmit={handleReset}>
             <div className="auth-field">
-              <label>Email address</label>
+              <label htmlFor="forgotPasswordEmail">Email address</label>
 
               <input
+                id="forgotPasswordEmail"
                 type="email"
+                autoComplete="email"
+                required
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="name@example.com"
