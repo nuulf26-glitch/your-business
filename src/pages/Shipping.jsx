@@ -59,13 +59,13 @@ export default function Shipping() {
 
   return (
     <DashboardLayout>
-      <main className="shipping-page">
+      <section className="shipping-page" aria-labelledby="shipping-page-title">
         
         {/* Header */}
         <header className="shipping-header">
           <div>
             <span className="shipping-eyebrow">Delivery management</span>
-            <h1>Shipping &amp; deliveries</h1>
+            <h1 id="shipping-page-title">Shipping &amp; deliveries</h1>
             <p>Manage active deliveries and update each order’s shipping status.</p>
           </div>
           <button className="shipping-refresh-button"
@@ -145,7 +145,7 @@ export default function Shipping() {
           </div>
         )}
 
-      </main>
+      </section>
     </DashboardLayout>
   );
 }

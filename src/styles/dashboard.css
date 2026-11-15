@@ -273,13 +273,16 @@
 }
 
 .dashboard-stat-card span {
+  display: block;
   font-size: 12px;
   color: #777772;
 }
 
 .dashboard-stat-card strong {
+  display: block;
   font-size: 28px;
   letter-spacing: -1.2px;
+  line-height: 1.2;
 }
 
 .dashboard-stat-card p {
