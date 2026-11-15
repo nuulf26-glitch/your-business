@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "../layouts/DashboardLayout";
 import { customBackendRequest } from "../services/customBackendSession";
+import "../styles/orderDetails.css";
 
 function OrderDetails() {
   const { orderId } = useParams();
@@ -189,7 +190,7 @@ function OrderDetails() {
 
   return (
     <DashboardLayout>
-      <div style={styles.page}>
+      <div className="order-details-page" style={styles.page}>
         <div style={styles.header}>
           <div>
             <button
@@ -238,9 +239,9 @@ function OrderDetails() {
           </div>
         )}
 
-        <div style={styles.layout}>
+        <div className="order-details-layout" style={styles.layout}>
           <div style={styles.leftColumn}>
-            <section style={styles.mainCard}>
+            <section className="order-details-card" style={styles.mainCard}>
               <h2 style={styles.sectionTitle}>
                 Customer Information
               </h2>
@@ -480,7 +481,7 @@ function OrderDetails() {
             </section>
           </div>
 
-          <aside style={styles.summaryCard}>
+          <aside className="order-details-summary" style={styles.summaryCard}>
             <h2 style={styles.sectionTitle}>Order Summary</h2>
 
             <div style={styles.summaryRow}>
