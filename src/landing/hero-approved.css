@@ -1,9 +1,9 @@
 .approved-home-hero {
   box-sizing: border-box;
   padding: clamp(76px, 10vh, 118px) 5% 34px;
-  border-bottom: 1px solid #e7e0d5;
-  background: #f7f3ec;
-  color: #201d19;
+  border-bottom: 1px solid #e1e1e1;
+  background: #f3f3f3;
+  color: #1d1d1d;
   text-align: center;
 }
 
@@ -20,10 +20,10 @@
   gap: 9px;
   margin: 0 auto 22px;
   padding: 7px 13px;
-  border: 1px solid #e4dbce;
+  border: 1px solid #dcdcdc;
   border-radius: 999px;
-  background: #eee7dc;
-  color: #554b3d;
+  background: #e8e8e8;
+  color: #4c4c4c;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -33,13 +33,13 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #8d7754;
+  background: #7a7a7a;
 }
 
 .approved-home-hero__title {
   max-width: 840px;
   margin: 0 auto;
-  color: #211e1a;
+  color: #1e1e1e;
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(48px, 6vw, 78px);
   font-weight: 400;
@@ -51,14 +51,14 @@
 .approved-home-hero__title span {
   display: block;
   margin-top: 4px;
-  color: #927b58;
+  color: #7e7e7e;
   font-style: italic;
 }
 
 .approved-home-hero__description {
   max-width: 650px;
   margin: 22px auto 28px;
-  color: #655e54;
+  color: #5f5f5f;
   font-size: 16px;
   line-height: 1.75;
 }
@@ -77,18 +77,18 @@
   min-width: 0;
   min-height: 54px;
   padding: 0 16px;
-  border: 1px solid #d9d0c3;
+  border: 1px solid #d1d1d1;
   border-radius: 4px;
   outline: none;
-  background: #fffdfa;
-  color: #211e1a;
+  background: #fdfdfd;
+  color: #1e1e1e;
   font: inherit;
   font-size: 14px;
 }
 
 .approved-home-hero__form input:focus-visible {
-  border-color: #927b58;
-  box-shadow: 0 0 0 3px rgb(146 123 88 / 18%);
+  border-color: #7e7e7e;
+  box-shadow: 0 0 0 3px rgb(126 126 126 / 18%);
 }
 
 .approved-home-hero__form button {
@@ -98,10 +98,10 @@
   justify-content: center;
   gap: 18px;
   padding: 0 22px;
-  border: 1px solid #201d19;
+  border: 1px solid #1d1d1d;
   border-radius: 4px;
-  background: #201d19;
-  color: #fffdfa;
+  background: #1d1d1d;
+  color: #fdfdfd;
   cursor: pointer;
   font: inherit;
   font-size: 13px;
@@ -111,12 +111,12 @@
 
 .approved-home-hero__form button:hover {
   transform: translateY(-1px);
-  background: #39342c;
+  background: #353535;
 }
 
 .approved-home-hero__form button:focus-visible,
 .approved-home-hero__note button:focus-visible {
-  outline: 3px solid #bba77f;
+  outline: 3px solid #a8a8a8;
   outline-offset: 3px;
 }
 
@@ -126,7 +126,7 @@
 
 .approved-home-hero__note {
   margin: 11px 0 50px;
-  color: #71695e;
+  color: #6a6a6a;
   font-size: 12px;
   line-height: 1.6;
 }
@@ -149,8 +149,8 @@
   justify-content: space-between;
   gap: 18px;
   padding-top: 22px;
-  border-top: 1px solid #e3dbcf;
-  color: #655e54;
+  border-top: 1px solid #dcdcdc;
+  color: #5f5f5f;
   font-size: 12px;
 }
 
@@ -159,7 +159,7 @@
   height: 3px;
   flex: 0 0 3px;
   border-radius: 50%;
-  background: #a18b68;
+  background: #8e8e8e;
 }
 
 @media (max-width: 680px) {
