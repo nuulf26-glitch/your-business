@@ -16,3 +16,8 @@
   outline: 2px solid #d6d6d6;
   outline-offset: 2px;
 }
+
+:is(.cyb-page-heading,.cyb-empty-state,.cyb-inline-state) :is(button,a,[tabindex]):focus-visible {
+  outline: 2px solid #333333;
+  outline-offset: 3px;
+}
