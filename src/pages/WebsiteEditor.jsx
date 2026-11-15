@@ -135,7 +135,7 @@ function createSection(type, product = null) {
     },
     footer: {
       ...common, label: "Footer", title: "Made with care.", body: "Add your contact details, opening hours, or social links here.",
-      style: { ...common.style, fontSize: 28, color: "#ffffff" },
+      style: { ...common.style, fontSize: 28, color: "#171513" },
     },
     heading: {
       ...common, label: "Heading", title: "A new heading", body: "", style: { ...common.style, fontSize: 42, color: "#171513" },
