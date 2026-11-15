@@ -1,0 +1,67 @@
+name: CYB functional frontend visual QA
+
+on:
+  pull_request:
+    branches: [codex/cyb-render-integration-20261109]
+    paths:
+      - "src/**"
+      - "tests/functional-visual/**"
+      - "playwright.config.js"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/cyb-functional-visual-qa.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cyb-functional-visual-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  functional-pages:
+    name: Functional pages · responsive screenshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Lint frontend
+        run: npm run lint
+
+      - name: Render functional routes at four viewport sizes
+        run: npm run test:functional-visual
+        env:
+          CI: "true"
+
+      - name: Upload functional screenshots and test results
+        id: visual-artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyb-functional-visual-qa-${{ github.event.pull_request.head.sha || github.sha }}
+          path: artifacts/functional-visual/
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Add evidence link to run summary
+        if: always()
+        run: echo "Synthetic functional-route visual QA evidence is available in the workflow artifact." >> "$GITHUB_STEP_SUMMARY"

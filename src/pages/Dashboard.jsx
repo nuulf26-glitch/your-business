@@ -1,10 +1,10 @@
 import { getStore } from "../services/storeService";
 import { getProducts } from "../services/productService";
 import { orderMetrics } from "../business/metrics";
-import { logout } from "../services/authService";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
+import DashboardLayout from "../layouts/DashboardLayout";
 import { getOrders } from "../services/orderService";
 import { getCustomers } from "../services/customerService";
 import { customBackendRequest, getAppUser } from "../services/customBackendSession";
@@ -149,72 +149,8 @@ const [userProfile, setUserProfile] = useState(null);
   }
 
   return (
+    <DashboardLayout>
     <div className="dashboard-page">
-      <aside className="dashboard-sidebar">
-        <button
-          type="button"
-          className="dashboard-logo"
-          onClick={() => navigate("/")}
-        >
-          CYB
-        </button>
-
-        <nav className="dashboard-navigation">
-          <span className="dashboard-nav-label">Workspace</span>
-          <button type="button" className="active" aria-current="page">
-            Overview
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/editor")}
-          >
-            Website Editor
-          </button>
-
-          
-
-          <button
-            type="button"
-            onClick={() => navigate("/products")}
-          >
-            Products
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/orders")}
-          >
-            Orders
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/customers")}
-          >
-            Customers
-          </button>
-          <button type="button" onClick={() => navigate("/business")}>Business tools</button>
-          <button type="button" onClick={() => navigate("/create-website")}>Create website</button>
-        </nav>
-
-        <div className="dashboard-sidebar-bottom">
-          <button
-            type="button"
-            onClick={() => navigate("/settings")}
-          >
-            Settings
-          </button>
-
-          <button
-            type="button"
-            onClick={async () => { await logout(); navigate("/login"); }}
-          >
-            Log out
-          </button>
-        </div>
-      </aside>
-
       <main className="dashboard-main" aria-busy={dashboardLoadState === "loading"}>
         {dashboardLoadState === "loading" ? (
           <div className="dashboard-load-state" role="status" aria-live="polite">
@@ -277,7 +213,7 @@ const [userProfile, setUserProfile] = useState(null);
   {userProfile?.paid ? (
     <>
       <span>Account status</span>
-      <h2>Active account ✅</h2>
+      <h2>Active account ✓</h2>
       <p>
         Your Business platform is unlocked.
       </p>
@@ -619,6 +555,7 @@ const [userProfile, setUserProfile] = useState(null);
         )}
       </main>
     </div>
+    </DashboardLayout>
   );
 }
 
