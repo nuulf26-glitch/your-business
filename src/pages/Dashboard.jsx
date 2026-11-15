@@ -213,7 +213,7 @@ const [userProfile, setUserProfile] = useState(null);
   {userProfile?.paid ? (
     <>
       <span>Account status</span>
-      <h2>Active account ✅</h2>
+      <h2>Active account ✓</h2>
       <p>
         Your Business platform is unlocked.
       </p>
