@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 
-const TYPES=new Set(['hero','about','services','menu','booking','gallery','faq','reviews','footer','heading','text','button','photo','product','chat','contact','divider','spacer','collection','group']);
+const TYPES=new Set(['hero','about','services','menu','booking','gallery','faq','reviews','footer','heading','text','button','photo','video','cta','container','columns','product','chat','contact','divider','spacer','collection','group']);
 export function validateWebsite(input:unknown,publishing=true):Record<string,any>{
   if(!input||typeof input!=='object'||Array.isArray(input))throw new BadRequestException('Invalid website.');
   const model=JSON.parse(JSON.stringify(input));
@@ -23,7 +23,7 @@ export function validateWebsite(input:unknown,publishing=true):Record<string,any
         for(const url of [section.image,...(section.images||[])])if(url&&!/^(https:\/\/|\/api\/v1\/uploads\/)/i.test(url))throw new BadRequestException('Website images must use HTTPS.');
         const media=[...(Array.isArray(section.media)?section.media:[]),...(Array.isArray(section.items)?section.items.flatMap((item:any)=>Array.isArray(item?.media)?item.media:[]):[])];
         for(const item of media){if(!['image','video'].includes(item.type)||typeof item.url!=='string'||! /^(https:\/\/|\/api\/v1\/uploads\/[a-zA-Z0-9_/-]+$)/i.test(item.url))throw new BadRequestException('Use a safe HTTPS media URL.');}
-        if(section.type==='group'){if(!Array.isArray(section.children))throw new BadRequestException('Invalid group.');checkSections(section.children,depth+1);}
+        if(['group','container','columns'].includes(section.type)){if(!Array.isArray(section.children))throw new BadRequestException('Invalid nested layout.');checkSections(section.children,depth+1);}
         if(sectionIds.size>200)throw new BadRequestException('Too many sections on one page.');
       }
     };

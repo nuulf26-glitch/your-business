@@ -1,5 +1,5 @@
 import { OriginGuard, SessionGuard, tokenHash } from '../src/session';
-import { AuthController, BusinessController, HealthController, OrderController } from '../src/routes';
+import { AuthController, BusinessController, HealthController, OrderController, WebsiteController } from '../src/routes';
 import { MailService } from '../src/mail';
 import { publicWebsite, validateWebsite } from '../src/website-policy';
 import * as argon2 from 'argon2';
@@ -297,5 +297,28 @@ describe('backend critical operations', () => {
     expect(()=>validateWebsite(model,true)).toThrow('safe link');
     const safe={...model,pages:[{id:'home',slug:'',sections:[{id:'cta',type:'button',href:'https://example.com'}]}]};
     expect(publicWebsite(validateWebsite(safe,true))).not.toHaveProperty('privateOwnerEmail');
+  });
+
+  it('accepts nested containers, responsive columns, video, and CTA sections', () => {
+    const model={brandName:'GETCYB Store',pages:[{id:'home',slug:'',title:'Home',sections:[
+      {id:'columns',type:'columns',columnCount:2,children:[{id:'cta',type:'cta',title:'Start',href:'https://example.com'},{id:'video',type:'video',media:[]}]},
+      {id:'container',type:'container',children:[{id:'text',type:'text',body:'Hello'}]},
+    ]}]};
+    expect(validateWebsite(model,true).pages[0].sections).toHaveLength(2);
+    expect(()=>validateWebsite({...model,pages:[{...model.pages[0],sections:[{id:'bad',type:'columns',children:[{id:'bad-child',type:'unknown'}]}]}]},true)).toThrow('Invalid or duplicate section');
+  });
+
+  it('rejects a stale draft revision before writing', async () => {
+    const db:any={business:{findFirst:jest.fn().mockResolvedValue({id:'owned-business'})},website:{findUnique:jest.fn().mockResolvedValue({revision:5}),updateMany:jest.fn()}};
+    const controller=new WebsiteController(db);
+    await expect(controller.saveDraft({user:{id:'owner'}} as any,{model:{brandName:'Draft',sections:[]},expectedRevision:4} as any)).rejects.toThrow('changed in another session');
+    expect(db.website.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('uses a revision compare-and-swap for draft writes', async () => {
+    const db:any={business:{findFirst:jest.fn().mockResolvedValue({id:'owned-business'})},website:{findUnique:jest.fn().mockResolvedValueOnce({revision:5}).mockResolvedValueOnce({revision:6}),updateMany:jest.fn().mockResolvedValue({count:1})}};
+    const controller=new WebsiteController(db);
+    await controller.saveDraft({user:{id:'owner'}} as any,{model:{brandName:'Draft',sections:[]},expectedRevision:5} as any);
+    expect(db.website.updateMany).toHaveBeenCalledWith({where:{businessId:'owned-business',revision:5},data:{draft:{brandName:'Draft',sections:[]},revision:{increment:1}}});
   });
 });

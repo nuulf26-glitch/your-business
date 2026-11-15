@@ -107,6 +107,32 @@ test("editor draft save and publish use the existing API contracts", async ({ pa
   expect(calls.some((call) => call.pathname === "/websites/publish" && call.method === "POST")).toBeTruthy();
 });
 
+test("editor page management, nested-safe actions, and responsive toolbar work with synthetic data", async ({ page }) => {
+  await seedProtectedUser(page);
+  const calls = await mockAppApi(page);
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1024 }, { width: 390, height: 844 }, { width: 375, height: 812 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/editor");
+    await expect(page.getByRole("button", { name: "Save draft" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Current page" })).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    expect(overflow, `horizontal overflow at ${viewport.width}px`).toBeFalsy();
+  }
+  await page.getByRole("navigation", { name: "Editor navigation" }).getByRole("button", { name: /Pages/ }).click();
+  await page.getByLabel("New page name").fill("About");
+  await page.getByRole("button", { name: "Add page" }).click();
+  await expect(page.getByRole("combobox", { name: "Current page" })).toHaveValue(/page-/);
+  await page.getByRole("navigation", { name: "Editor navigation" }).getByRole("button", { name: /Add section/ }).click();
+  await page.getByRole("button", { name: /FAQ/ }).first().click();
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect.poll(() => calls.some(call => call.pathname === "/websites/draft" && call.method === "PUT" && call.body?.model?.pages?.some(item => item.title === "About" && item.sections.some(section => section.type === "faq")))).toBeTruthy();
+  await page.getByRole("navigation", { name: "Editor navigation" }).getByRole("button", { name: /Pages/ }).click();
+  await page.getByRole("combobox", { name: "Current page" }).selectOption({ label: "About" });
+  await page.locator(".page-actions").last().locator("summary").click();
+  await page.getByRole("button", { name: "Set as homepage" }).click();
+  await expect.poll(() => calls.some(call => call.pathname === "/websites/draft" && call.method === "PUT" && call.body?.model?.pages?.[0]?.title === "About")).toBeTruthy();
+});
+
 test("products, orders, and customers render fixture records and preserve update requests", async ({ page }) => {
   await seedProtectedUser(page);
   const calls = await mockAppApi(page);

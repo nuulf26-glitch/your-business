@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, ForbiddenException, Logger, ServiceUnavailableException, Headers, UnauthorizedException } from '@nestjs/common';
-import { IsEmail, IsNumber, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn, IsBoolean } from 'class-validator';
+import { IsEmail, IsNumber, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn, IsBoolean, IsInt, Min } from 'class-validator';
 import { Request, Response } from 'express';
 import * as argon2 from 'argon2';
 import { randomBytes, createHash, createHmac, timingSafeEqual } from 'node:crypto';
@@ -55,7 +55,7 @@ class LegacySessionInput {
 }
 class StoreInput { @IsString() @MaxLength(120) name!: string; @IsString() @MaxLength(100) slug!: string; @IsString() category!: string; @IsObject() settings!: object; }
 class JsonInput { @IsObject() data!: Record<string, unknown>; }
-class WebsiteInput { @IsObject() model!: Record<string, unknown>; }
+class WebsiteInput { @IsObject() model!: Record<string, unknown>; @IsOptional() @IsInt() @Min(0) expectedRevision?: number; }
 class AiPromptInput { @IsString() @MinLength(8) @MaxLength(1200) prompt!: string; @IsOptional() @IsIn(['create','modify']) mode?:'create'|'modify'; @IsOptional() @IsObject() model?:Record<string,unknown>; }
 class AiHelpInput { @IsString() @MinLength(1) @MaxLength(2000) message!: string; @IsOptional() @IsObject() context?: Record<string, unknown>; }
 class TokenInput { @IsString() @MinLength(32) @MaxLength(200) token!: string; }
@@ -549,8 +549,28 @@ export class WebsiteController {
     const status=!hasPublished||!hasPublishedAt?'Draft':paths.length?'Unpublished changes':'Published';
     return {status,hasDraft:!!website?.draft,hasPublished,hasPublishedAt,changedPathCount:paths.length,changedPaths:paths.slice(0,80),truncated:paths.length>80};
   }
-  @UseGuards(SessionGuard) @Put('draft') async saveDraft(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');const model=validateWebsite(dto.model,false);await assertOwnedMedia(this.db,req.user.id,model);return this.db.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any},update:{draft:model as any,revision:{increment:1}}});}
-  @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business before publishing');await this.requirePaidPublishing(req.user.id);const model=validateWebsite(dto.model,true);await assertOwnedMedia(this.db,req.user.id,model);return this.db.$transaction(async tx=>{const publishedAt=new Date();const site=await tx.website.upsert({where:{businessId:b.id},create:{businessId:b.id,draft:model as any,published:publicWebsite(model) as any,publishedAt},update:{draft:model as any,published:publicWebsite(model) as any,publishedAt,revision:{increment:1}}});const version=await tx.websiteVersion.create({data:{websiteId:site.id,snapshot:site.draft as any}});return {published:true,revision:site.revision,slug:b.slug,versionId:version.id};});}
+  @UseGuards(SessionGuard) @Put('draft') async saveDraft(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){
+    const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');
+    const model=validateWebsite(dto.model,false);await assertOwnedMedia(this.db,req.user.id,model);
+    const current=await this.db.website.findUnique({where:{businessId:b.id}});
+    if(dto.expectedRevision!==undefined&&(current?.revision??0)!==dto.expectedRevision)throw new ConflictException('This website changed in another session. Reload the latest draft before saving your edits.');
+    if(!current){try{return await this.db.website.create({data:{businessId:b.id,draft:model as any,revision:1}});}catch(error){if(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==='P2002')throw new ConflictException('This website changed in another session. Reload the latest draft before saving your edits.');throw error;}}
+    const updated=await this.db.website.updateMany({where:{businessId:b.id,revision:current.revision},data:{draft:model as any,revision:{increment:1}}});
+    if(updated.count!==1)throw new ConflictException('This website changed in another session. Reload the latest draft before saving your edits.');
+    return this.db.website.findUnique({where:{businessId:b.id}});
+  }
+  @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){
+    const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business before publishing');await this.requirePaidPublishing(req.user.id);
+    const model=validateWebsite(dto.model,true);await assertOwnedMedia(this.db,req.user.id,model);
+    return this.db.$transaction(async tx=>{
+      const current=await tx.website.findUnique({where:{businessId:b.id}});
+      if(dto.expectedRevision!==undefined&&(current?.revision??0)!==dto.expectedRevision)throw new ConflictException('This website changed in another session. Reload the latest draft before publishing.');
+      const publishedAt=new Date();let site:any;
+      if(current){const updated=await tx.website.updateMany({where:{businessId:b.id,revision:current.revision},data:{draft:model as any,published:publicWebsite(model) as any,publishedAt,revision:{increment:1}}});if(updated.count!==1)throw new ConflictException('This website changed in another session. Reload the latest draft before publishing.');site=await tx.website.findUnique({where:{businessId:b.id}});}
+      else site=await tx.website.create({data:{businessId:b.id,draft:model as any,published:publicWebsite(model) as any,publishedAt,revision:1}});
+      const version=await tx.websiteVersion.create({data:{websiteId:site.id,snapshot:site.draft as any}});return {published:true,revision:site.revision,slug:b.slug,versionId:version.id};
+    });
+  }
   @UseGuards(SessionGuard) @Post('unpublish') async unpublish(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');return this.db.website.updateMany({where:{businessId:b.id},data:{published:Prisma.DbNull,publishedAt:null}});}
   @UseGuards(SessionGuard) @Get('versions') async versions(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)return [];return (await this.db.websiteVersion.findMany({where:{websiteId:b.website.id},orderBy:{createdAt:'desc'},take:10})).map(({snapshot,createdAt,...version})=>({...version,model:snapshot,publishedAt:createdAt}));}
   @UseGuards(SessionGuard) @Post('restore/:id') async restore(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)throw new NotFoundException('Website not found');const version=await this.db.websiteVersion.findFirst({where:{id:String(req.params['id']),websiteId:b.website.id}});if(!version)throw new NotFoundException('Version not found');const model=validateWebsite(version.snapshot,false);return this.db.website.update({where:{businessId:b.id},data:{draft:model as any,revision:{increment:1}}});}
