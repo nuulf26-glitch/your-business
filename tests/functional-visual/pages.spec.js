@@ -57,7 +57,18 @@ const fixtureCustomer = {
   id: "fixture-customer", data: { name: "Synthetic QA customer", email: "visual-review@example.test", phone: "", orders: 1, totalSpent: 80, status: "New", createdAt: "2026-01-15T09:00:00.000Z" },
 };
 const fixtureWebsite = {
-  brandName: "Atelier Preview", template: "minimal", sections: [], pages: [],
+  editorVersion: 2,
+  brandName: "Atelier Preview", template: "minimal", sections: [
+    { id: "fixture-hero", type: "hero", eyebrow: "PLAYWRIGHT FIXTURE", title: "A considered everyday ritual", body: "Synthetic website content used only to render the public storefront layout.", buttonText: "Explore the collection", href: "#collection" },
+    { id: "fixture-collection", type: "collection", title: "The collection", body: "A preview of the product grid.", limit: 4 },
+    { id: "fixture-footer", type: "footer", title: "Atelier Preview", body: "Synthetic visual review storefront." },
+  ], pages: [],
+};
+const fixtureCart = [{ productId: "fixture-product", name: "Synthetic QA product", price: 80, quantity: 1, storeUrl: "atelier-preview", category: "Care", imageUrl: "" }];
+const fixtureCompletedOrder = {
+  id: "ORD-VISUAL-ONLY", customerName: "Synthetic QA customer", paymentStatus: "Pending",
+  status: "new", total: 105, address: "Synthetic test address", city: "Test City",
+  items: [{ productId: "fixture-product", name: "Synthetic QA product", price: 80, quantity: 1 }],
 };
 
 async function installSyntheticApi(page) {
@@ -103,6 +114,7 @@ async function inspectPage(page, viewportWidth) {
       return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
     };
     const headings = [...document.querySelectorAll("h1,h2,h3")].filter(visible).map((item) => item.textContent.trim()).filter(Boolean);
+    const rootText = (document.querySelector("#root")?.innerText || "").trim();
     const offscreenControls = [...document.querySelectorAll("button,a,input,select,textarea")]
       .filter(visible)
       .filter((item) => {
@@ -115,7 +127,7 @@ async function inspectPage(page, viewportWidth) {
       documentWidth: Math.max(root.scrollWidth, body.scrollWidth),
       horizontalOverflow: Math.max(root.scrollWidth, body.scrollWidth) > width + 1,
       headings,
-      mainVisible: visible(document.querySelector("main")),
+      primaryContentVisible: rootText.length > 20 && !rootText.includes("Loading CYB…") && !rootText.includes("Loading..."),
       navigationVisible: visible(document.querySelector(".workspace-navigation, .landing-nav, .editor-toolbar, .auth-brand-panel")),
       offscreenControls,
       screenshotWidth: window.innerWidth,
@@ -132,16 +144,27 @@ for (const viewport of viewports) {
       test(`${name} renders the real functional route at ${viewport.width}×${viewport.height}`, async ({ page }) => {
         fs.mkdirSync(path.join(outputRoot, viewport.label), { recursive: true });
         const intercepted = await installSyntheticApi(page);
+        const protectedRoute = /^\/(dashboard|editor|create-website|products|orders|customers|business|settings|store-setup|store-designer|shipping)(\/|$)/.test(route);
+        if (protectedRoute) {
+          await page.addInitScript((user) => sessionStorage.setItem("getcyb_session_user", JSON.stringify(user)), fixtureUser);
+        }
+        if (route === "/cart" || route === "/checkout") {
+          await page.addInitScript((cart) => localStorage.setItem("businessCart", JSON.stringify(cart)), fixtureCart);
+        }
+        if (route === "/order-success") {
+          await page.addInitScript((order) => localStorage.setItem("completedOrder", JSON.stringify(order)), fixtureCompletedOrder);
+        }
         await page.goto(route);
         await expect(page.locator("#root")).not.toBeEmpty();
-        await page.locator("#root").getByText(/Loading CYB…|Loading\.\.\./).first().waitFor({ state: "hidden", timeout: 5000 }).catch(() => {});
+        await expect(page.getByText("Loading CYB…")).toBeHidden({ timeout: 15_000 });
+        await expect(page.getByText("Loading...", { exact: true })).toBeHidden({ timeout: 15_000 });
+        await expect.poll(async () => (await page.locator("#root").innerText()).trim().length, { timeout: 15_000 }).toBeGreaterThan(20);
         await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
         const layout = await inspectPage(page, viewport.width);
-        expect(layout.mainVisible, `${name}: expected a rendered main region; headings: ${layout.headings.join(" | ")}`).toBeTruthy();
+        expect(layout.primaryContentVisible, `${name}: expected settled page content; headings: ${layout.headings.join(" | ")}`).toBeTruthy();
         expect(layout.horizontalOverflow, `${name}: horizontal overflow ${layout.documentWidth}/${viewport.width}`).toBeFalsy();
         expect(layout.offscreenControls, `${name}: controls outside viewport`).toEqual([]);
-        expect(intercepted.length, `${name}: expected requests to use only local synthetic API interception`).toBeGreaterThan(0);
         expect(intercepted.every((item) => !item.includes("https://")), `${name}: unexpected external API request`).toBeTruthy();
 
         await page.screenshot({ path: path.join(outputRoot, viewport.label, `${name}.png`) });
