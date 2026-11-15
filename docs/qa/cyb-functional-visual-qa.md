@@ -4,7 +4,7 @@
 
 The Playwright run renders the actual React route components from the production-based PR branch. It runs Vite locally in GitHub Actions and intercepts `/api/v1/**` requests inside the test process with clearly synthetic fixtures. It does not connect to a CYB backend, log into a real account, or verify authenticated production behavior.
 
-Screenshots and `results.json` are attached to [GitHub Actions run 43743639038](https://github.com/nuulf26-glitch/your-business/actions/runs/43743043104) as artifact `cyb-functional-visual-qa-7f748b0b254be5e6fbd1546f50924265987f68b0` (92 route/viewport images). The run passed 92/92 layout cases. The passing run used commit `7f748b0b254be5e6fbd1546f50924265987f68b0`, which contains the final responsive UI fixes. A later documentation-only commit does not alter the tested frontend tree.
+Screenshots and `results.json` are attached to [GitHub Actions run 43744963477](https://github.com/nuulf26-glitch/your-business/actions/runs/43743043104) as artifact `cyb-functional-visual-qa-5301f9cb7e5b8706495df1c90a3b63e09a186c6f` (92 route/viewport images). The run passed 92/92 layout cases. The passing run used commit `5301f9cb7e5b8706495df1c90a3b63e09a186c6f`, including the latest Store Designer styling and responsive layout changes.
 
 Automated checks cover settled content, horizontal document overflow, visible navigation, controls outside the viewport, and accidental API requests escaping the local fixture. This is a responsive rendering check, not an assertion that the visual structure is identical to the showcase's synthetic proposal screens.
 
@@ -44,11 +44,13 @@ Each row is captured and checked at desktop 1440×900, tablet 768×1024, mobile 
 - A mobile Dashboard screenshot exposed the direct “Net profit” label and “Not available” value sitting on the same line. The stat label/value now stack, with a readable value line height.
 - On small screens, the floating help action covered too much underlying content. It now collapses to a compact, accessible icon button; its accessible name remains available to assistive technology.
 - Shipping now uses a labeled section instead of nesting a second `<main>` inside the shared dashboard layout.
+- Store Designer had a nearly empty stylesheet that was not imported. Added a full responsive editor/preview design for its existing name, description, image, color, card-style, save, and preview controls; the save and data flows are unchanged.
+- Workspace navigation now wraps into visible rows on tablet widths while keeping its compact horizontal scroll treatment on small phones.
 - A visually reviewed mobile Editor screenshot retained its charcoal workspace and controls without horizontal page overflow. The Shipping mobile screen stacks its summary cards and controls without horizontal page overflow.
 
 ## Checks and limits
 
-- Latest CI run: see PR #82 checks for build, ESLint, and Playwright result on commit `7f748b0b254be5e6fbd1546f50924265987f68b0`.
+- Latest CI run [43744963477](https://github.com/nuulf26-glitch/your-business/actions/runs/43744963477): build, ESLint, and Playwright passed on commit `5301f9cb7e5b8706495df1c90a3b63e09a186c6f`.
 - `npm run build` — passed locally after the final polish.
 - `npm run lint` — passed locally after the final polish.
 - Existing isolated Node tests — 27 passed (integration tests excluded because the integration runner does not exit cleanly in this environment).
