@@ -29,11 +29,26 @@ export function validateWebsite(input:unknown,publishing=true):Record<string,any
     };
     checkSections(page.sections);
   }
+  if(model.navigation!==undefined){
+    if(!Array.isArray(model.navigation)||model.navigation.length>100)throw new BadRequestException('Website navigation is invalid.');
+    const navigationIds=new Set<string>();
+    for(const item of model.navigation){
+      if(!item||typeof item!=='object'||!['page','external'].includes(item.type)||!item.id||navigationIds.has(item.id))throw new BadRequestException('Website navigation contains an invalid link.');
+      navigationIds.add(item.id);
+      if(item.label!==undefined&&(typeof item.label!=='string'||item.label.length>60))throw new BadRequestException('Menu labels must be 60 characters or fewer.');
+      if(item.type==='page'&&!ids.has(item.pageId))throw new BadRequestException('A navigation link points to a page that no longer exists.');
+      if(item.type==='external'){
+        let valid=false;
+        try{const url=new URL(item.href);valid=typeof item.href==='string'&&item.href.length<=2048&&['http:','https:'].includes(url.protocol)&&!!url.hostname;}catch{/* invalid URL */}
+        if(!valid)throw new BadRequestException('External navigation links must use a valid HTTP or HTTPS URL.');
+      }
+    }
+  }
   return model;
 }
 export function publicWebsite(model:Record<string,any>){
   const result:Record<string,unknown>={};
-  for(const key of ['editorVersion','brandName','primaryColor','backgroundColor','textColor','bodyFont','headingFont','buttonRadius','logo','tagline','description','pages','sections','elements','template','headline','buttonText','heroTitle','heroText','heroImageUrl'])if(model[key]!==undefined)result[key]=model[key];
+  for(const key of ['editorVersion','brandName','primaryColor','backgroundColor','textColor','bodyFont','headingFont','buttonRadius','logo','tagline','description','pages','navigation','sections','elements','template','headline','buttonText','heroTitle','heroText','heroImageUrl'])if(model[key]!==undefined)result[key]=model[key];
   if(!result.brandName)result.brandName=model.businessName||model.storeName||'Your Business';
   return result;
 }

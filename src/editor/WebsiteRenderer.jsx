@@ -1,6 +1,6 @@
 import { productPrice } from "../services/productPolicy";
 import { useEffect, useRef, useState } from 'react';
-import { safeHref, websitePages } from './pages';
+import { safeHref, websitePages, websiteNavigation } from './pages';
 import './website.css';
 import MediaDisplay from '../media/MediaDisplay';
 import { mediaItems } from '../media/media';
@@ -80,6 +80,7 @@ export default function WebsiteRenderer({ model, products = [], addToCart, baseU
     return () => observer.disconnect();
   },[device]);
   const pages = websitePages(model);
+  const navigation = websiteNavigation(model);
   const page = pages.find(item => item.slug === slug);
   useEffect(() => {
     const previousTitle = document.title;
@@ -95,7 +96,7 @@ export default function WebsiteRenderer({ model, products = [], addToCart, baseU
     return () => { document.title = previousTitle; previous.forEach(({node,created,old}) => { if(created) node.remove(); else node.content=old; }); };
   }, [page?.seoTitle, page?.title, page?.description, page?.socialImage, model.brandName, model.description]);
   return <div ref={rootRef} className={`cyb-site cyb-device-${actualDevice} ${className}`.trim()} style={{ background: model.backgroundColor || '#f5f2ea', color: model.textColor || '#25231f', '--cyb-primary': model.primaryColor || '#18243a', '--cyb-button-radius': model.buttonRadius || '0', fontFamily: model.bodyFont || 'Arial, sans-serif', ...style }}>
-    <header className="cyb-nav"><a href={baseUrl || '#'} className="cyb-logo" onClick={onPageChange ? event => { event.preventDefault(); onPageChange(pages[0]); } : undefined}>{model.logo ? <Image src={model.logo} alt={model.brandName} /> : model.brandName}</a><button className="cyb-menu-toggle" aria-label="Toggle navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>Menu {menuOpen ? '−' : '+'}</button><nav className={menuOpen ? 'open' : ''} aria-label="Website pages">{pages.map(item => <a key={item.id} href={`${baseUrl}${item.slug ? `/${item.slug}` : ''}` || '#'} aria-current={page?.id === item.id ? 'page' : undefined} onClick={onPageChange ? event => { event.preventDefault(); onPageChange(item); setMenuOpen(false); } : undefined}>{item.title}</a>)}</nav>{addToCart && <a href="/cart" className="cyb-cart">Cart ↗</a>}</header>
+    <header className="cyb-nav"><a href={baseUrl || '#'} className="cyb-logo" onClick={onPageChange ? event => { event.preventDefault(); onPageChange(pages[0]); } : undefined}>{model.logo ? <Image src={model.logo} alt={model.brandName} /> : model.brandName}</a><button className="cyb-menu-toggle" aria-label="Toggle navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>Menu {menuOpen ? '−' : '+'}</button><nav className={menuOpen ? 'open' : ''} aria-label="Website pages">{navigation.map(item => { const target = item.type === 'page' ? pages.find(candidate => candidate.id === item.pageId) : null; if (item.type === 'page' && !target) return null; const href = target ? `${baseUrl}${target.slug ? `/${target.slug}` : ''}` || '#' : safeHref(item.href); return <a key={item.id || `${item.type}:${item.pageId || item.href}`} href={href || '#'} target={item.type === 'external' ? '_blank' : undefined} rel={item.type === 'external' ? 'noopener noreferrer' : undefined} aria-current={target && page?.id === target.id ? 'page' : undefined} onClick={target && onPageChange ? event => { event.preventDefault(); onPageChange(target); setMenuOpen(false); } : undefined}>{item.label || target?.title}</a>; })}</nav>{addToCart && <a href="/cart" className="cyb-cart">Cart ↗</a>}</header>
     <main>{page ? page.sections.map(section => {
       const content = <WebsiteSection section={section} model={{...model,renderDevice:actualDevice}} products={products} addToCart={addToCart} editText={editText} booking={booking} submitForm={submitForm} catalog={catalog} pickup={pickup} selectedId={selectedId} onSelectSection={onSelectSection} onDragSection={onDragSection} onDropSection={onDropSection} dropTarget={dropTarget} />;
       const props = { section, content, device: actualDevice, style: sectionStyle(section, actualDevice) };

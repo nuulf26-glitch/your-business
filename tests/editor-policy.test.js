@@ -1,6 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import { addWebsitePage,changePageSections,websitePages,safeHref,duplicateWebsitePage,setHomepage,deleteWebsitePage } from '../src/editor/pages.js';
+import { addWebsitePage,changePageSections,websitePages,safeHref,duplicateWebsitePage,setHomepage,deleteWebsitePage,websiteNavigation,setNavigationItem,addExternalNavigation,addPageNavigation,reorderNavigation,removeNavigation } from '../src/editor/pages.js';
+import { mediaStyle } from '../src/media/media.js';
+import { sectionStyle } from '../src/editor/sectionStyle.js';
 import { validateWebsite } from '../src/editor/publishing.js';
 import { publicProduct, productPrice } from '../src/services/productPolicy.js';
 import { orderMetrics } from '../src/business/metrics.js';
@@ -48,6 +50,40 @@ test('publishing catches empty and duplicate page slugs',()=>{
 test('script and protocol-relative destinations are rejected',()=>{
   assert.equal(safeHref('javascript:alert(1)'),'');assert.equal(safeHref('//attacker.test'),'');
   assert.equal(safeHref('#services'),'#services');assert.equal(safeHref('https://example.com'),'https://example.com');
+});
+test('custom menu labels follow page IDs through rename and deleted links are removed',()=>{
+  const base={...model,pages:[{id:'home',slug:'',title:'Home',sections:model.sections},{id:'about',slug:'about',title:'About',sections:model.sections}],navigation:[{id:'n1',type:'page',pageId:'about',label:''}]};
+  const renamed={...base,pages:base.pages.map(page=>page.id==='about'?{...page,title:'Our Story',slug:'our-story'}:page)};
+  assert.equal(websiteNavigation(renamed)[0].pageId,'about');
+  assert.equal(websiteNavigation(renamed)[0].label,'');
+  const deleted=deleteWebsitePage(renamed,'about');
+  assert.equal(websiteNavigation(deleted).length,0);
+});
+test('external navigation validates URLs, supports custom labels and reorder/removal',()=>{
+  const base={...model,pages:[{id:'home',slug:'',title:'Home',sections:model.sections}]};
+  const withLink=addExternalNavigation(base,'Instagram','https://instagram.com/cyb','social');
+  assert.equal(websiteNavigation(withLink).find(item=>item.type==='external').label,'Instagram');
+  assert.throws(()=>addExternalNavigation(base,'Bad','javascript:alert(1)'),/valid external/);
+  assert.throws(()=>addExternalNavigation(base,'','https://example.com'),/menu label/);
+  const two=addExternalNavigation(withLink,'Store','https://shop.example.com','store');
+  assert.equal(reorderNavigation(two,2,-1).navigation.at(-2).id,'store');
+  assert.equal(removeNavigation(two,1).navigation.length,2);
+  assert.throws(()=>setNavigationItem(withLink,1,{href:'//bad.test'}),/valid external/);
+});
+test('new pages can be explicitly added to an existing navigation menu',()=>{
+  const base={...model,pages:[{id:'home',slug:'',title:'Home',sections:model.sections},{id:'contact',slug:'contact',title:'Contact',sections:model.sections}],navigation:[{id:'page:home',type:'page',pageId:'home',label:''}]};
+  const next=addPageNavigation(base,'contact');assert.equal(websiteNavigation(next).at(-1).pageId,'contact');
+  assert.throws(()=>addPageNavigation(next,'missing'),/existing page/);assert.throws(()=>addPageNavigation(next,'contact'),/already in the menu/);
+});
+test('image crop metadata is bounded and projected into the live media preview style',()=>{
+  const crop=mediaStyle({width:100,unit:'%',aspectRatio:'4 / 3',focalX:35,focalY:70,cropScale:1.8});
+  assert.equal(crop['--media-ratio'],'4 / 3');assert.equal(crop['--media-position'],'35% 70%');assert.equal(crop['--media-crop-scale'],1.8);
+  assert.equal(mediaStyle({cropScale:9})['--media-crop-scale'],2.5);
+});
+test('advanced and responsive styles render with safe bounds in published preview',()=>{
+  const output=sectionStyle({style:{fontSize:64,paddingX:20,borderWidth:2,borderColor:'#123456',borderRadius:12,shadow:'soft',fontWeight:700},responsive:{phone:{fontSize:30,paddingY:12,hidden:true}}},'phone');
+  assert.equal(output['--cyb-heading-size'],'30px');assert.equal(output.paddingInline,'20px');assert.equal(output.paddingBlock,'12px');assert.equal(output.border,'2px solid #123456');assert.equal(output.display,'none');
+  const bounded=sectionStyle({style:{fontSize:999,paddingY:999,borderRadius:999}},'laptop');assert.equal(bounded['--cyb-heading-size'],'120px');assert.equal(bounded.paddingBlock,'500px');assert.equal(bounded.borderRadius,'200px');
 });
 test('hidden products and expired hidden windows',()=>{
   assert.equal(publicProduct({status:'hidden'}),false);

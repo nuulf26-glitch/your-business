@@ -10,7 +10,7 @@ const business = {
 };
 const website = {
   editorVersion: 2, brandName: "Atelier Preview", template: "minimal",
-  sections: [{ id: "hero", type: "hero", title: "Synthetic preview", body: "Preview fixture content", buttonText: "Explore", href: "#collection" }], pages: [],
+  sections: [{ id: "hero", type: "hero", title: "Synthetic preview", body: "Preview fixture content", buttonText: "Explore", href: "#collection", media: [{ id: 'synthetic-hero-image', type: 'image', url: 'https://images.example.test/synthetic.jpg', alt: 'Synthetic image', aspectRatio: '16 / 9', width: 100, unit: '%' }] }], pages: [],
 };
 const product = {
   id: "synthetic-product", data: { name: "Synthetic QA product", category: "Care", sellingPrice: 80, costPrice: 20, stock: 4, status: "active", description: "Test-only fixture" },
@@ -107,6 +107,16 @@ test("editor draft save and publish use the existing API contracts", async ({ pa
   expect(calls.some((call) => call.pathname === "/websites/publish" && call.method === "POST")).toBeTruthy();
 });
 
+test("image crop controls preview and save persistent crop metadata", async ({ page }) => {
+  await seedProtectedUser(page);
+  const calls = await mockAppApi(page);
+  await page.goto("/editor");
+  await page.getByLabel("Crop zoom 1").fill("1.8");
+  await page.getByLabel("Aspect ratio").first().selectOption("4 / 3");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect.poll(() => calls.some(call => call.pathname === "/websites/draft" && call.method === "PUT" && call.body?.model?.sections?.[0]?.media?.[0]?.cropScale === 1.8 && call.body?.model?.sections?.[0]?.media?.[0]?.aspectRatio === "4 / 3")).toBeTruthy();
+});
+
 test("editor page management, nested-safe actions, and responsive toolbar work with synthetic data", async ({ page }) => {
   await seedProtectedUser(page);
   const calls = await mockAppApi(page);
@@ -131,6 +141,13 @@ test("editor page management, nested-safe actions, and responsive toolbar work w
   await page.locator(".page-actions").last().locator("summary").click();
   await page.getByRole("button", { name: "Set as homepage" }).click();
   await expect.poll(() => calls.some(call => call.pathname === "/websites/draft" && call.method === "PUT" && call.body?.model?.pages?.[0]?.title === "About")).toBeTruthy();
+  await page.getByRole("navigation", { name: "Editor navigation" }).getByRole("button", { name: /Pages/ }).click();
+  await page.getByLabel("External link label").fill("Instagram");
+  await page.getByLabel("External URL").fill("https://instagram.com/atelier-preview");
+  await page.getByRole("button", { name: "Add external link" }).click();
+  await page.getByLabel("About label").fill("Our story");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect.poll(() => calls.some(call => call.pathname === "/websites/draft" && call.method === "PUT" && call.body?.model?.navigation?.some(item => item.label === "Our story" && item.pageId === "about") && call.body?.model?.navigation?.some(item => item.label === "Instagram" && item.href === "https://instagram.com/atelier-preview"))).toBeTruthy();
 });
 
 test("products, orders, and customers render fixture records and preserve update requests", async ({ page }) => {

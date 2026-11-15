@@ -308,6 +308,13 @@ describe('backend critical operations', () => {
     expect(()=>validateWebsite({...model,pages:[{...model.pages[0],sections:[{id:'bad',type:'columns',children:[{id:'bad-child',type:'unknown'}]}]}]},true)).toThrow('Invalid or duplicate section');
   });
 
+  it('validates navigation targets and publishes custom labels and external links',()=>{
+    const model={brandName:'GETCYB Store',pages:[{id:'home',slug:'',title:'Home',sections:[{id:'hero',type:'hero'}]},{id:'about',slug:'about',title:'About',sections:[{id:'about',type:'text'}]}],navigation:[{id:'nav-home',type:'page',pageId:'home',label:'Welcome'},{id:'nav-about',type:'page',pageId:'about',label:'Our story'},{id:'nav-social',type:'external',label:'Instagram',href:'https://instagram.com/cyb'}]};
+    const published=publicWebsite(validateWebsite(model,true)) as any;expect(published.navigation[1].label).toBe('Our story');expect(published.navigation[2].href).toBe('https://instagram.com/cyb');
+    expect(()=>validateWebsite({...model,navigation:[...model.navigation,{id:'bad',type:'page',pageId:'deleted'}]},true)).toThrow('no longer exists');
+    expect(()=>validateWebsite({...model,navigation:[{id:'bad',type:'external',label:'Bad',href:'javascript:alert(1)'}]},true)).toThrow('HTTP or HTTPS');
+  });
+
   it('rejects a stale draft revision before writing', async () => {
     const db:any={business:{findFirst:jest.fn().mockResolvedValue({id:'owned-business'})},website:{findUnique:jest.fn().mockResolvedValue({revision:5}),updateMany:jest.fn()}};
     const controller=new WebsiteController(db);

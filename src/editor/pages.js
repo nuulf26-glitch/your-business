@@ -61,12 +61,53 @@ export function deleteWebsitePage(model, pageId) {
   if (!pages.some(page => page.id === pageId)) return model;
   if (pages[0].id === pageId) throw new Error('Choose another page as the homepage before deleting this page.');
   const next = pages.filter(page => page.id !== pageId);
-  return { ...model, pages: next, sections: next[0].sections };
+  // Remove internal menu entries for a deleted page in the same document update.
+  const navigation = Array.isArray(model.navigation) ? model.navigation.filter(item => item.type !== 'page' || item.pageId !== pageId) : model.navigation;
+  return { ...model, pages: next, sections: next[0].sections, ...(Array.isArray(model.navigation) ? { navigation } : {}) };
 }
 export function safeHref(value) {
   const href = String(value || '').trim();
   if (/^(https?:\/\/|mailto:|tel:|#|\/)/i.test(href) && !href.startsWith('//')) return href;
   return '';
+}
+export function websiteNavigation(model) {
+  const pages = websitePages(model);
+  const pageById = new Map(pages.map(page => [page.id, page]));
+  if (!Array.isArray(model.navigation)) return pages.map(page => ({ id: `page:${page.id}`, type: 'page', pageId: page.id, label: '' }));
+  return model.navigation.filter(item => item?.type === 'external' ? !!safeHref(item.href) && /^https?:\/\//i.test(item.href) : item?.type === 'page' && pageById.has(item.pageId));
+}
+export function setNavigationItem(model, index, patch) {
+  const items = websiteNavigation(model).map(item => ({ ...item }));
+  if (!items[index]) throw new Error('Choose a navigation link.');
+  const next = { ...items[index], ...patch };
+  if (next.label != null && String(next.label).length > 60) throw new Error('Menu labels must be 60 characters or fewer.');
+  if (next.type === 'external' && (!safeHref(next.href) || !/^https?:\/\//i.test(next.href))) throw new Error('Enter a valid external HTTPS or HTTP link.');
+  items[index] = next;
+  return { ...model, navigation: items };
+}
+export function addExternalNavigation(model, label, href, id = `external-${Date.now()}`) {
+  const cleanLabel = String(label || '').trim();
+  if (!cleanLabel || cleanLabel.length > 60) throw new Error('Enter a menu label of 1 to 60 characters.');
+  const cleanHref = String(href || '').trim();
+  if (!safeHref(cleanHref) || !/^https?:\/\//i.test(cleanHref)) throw new Error('Enter a valid external HTTPS or HTTP link.');
+  return { ...model, navigation: [...websiteNavigation(model), { id, type: 'external', label: cleanLabel, href: cleanHref }] };
+}
+export function addPageNavigation(model, pageId) {
+  const page = websitePages(model).find(item => item.id === pageId);
+  if (!page) throw new Error('Choose an existing page for the menu link.');
+  const items = websiteNavigation(model);
+  if (items.some(item => item.type === 'page' && item.pageId === pageId)) throw new Error('This page is already in the menu.');
+  return { ...model, navigation: [...items, { id: `page:${page.id}`, type: 'page', pageId: page.id, label: '' }] };
+}
+export function reorderNavigation(model, index, direction) {
+  const items = websiteNavigation(model).map(item => ({ ...item }));
+  const target = index + direction;
+  if (target < 0 || target >= items.length) return model;
+  [items[index], items[target]] = [items[target], items[index]];
+  return { ...model, navigation: items };
+}
+export function removeNavigation(model, index) {
+  return { ...model, navigation: websiteNavigation(model).filter((_, itemIndex) => itemIndex !== index) };
 }
 export function reorderPage(model, pageId, direction) {
   const pages = [...websitePages(model)];
