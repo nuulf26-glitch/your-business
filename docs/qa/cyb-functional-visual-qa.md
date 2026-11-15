@@ -4,7 +4,7 @@
 
 The Playwright run renders the actual React route components from the production-based PR branch. It runs Vite locally in GitHub Actions and intercepts `/api/v1/**` requests inside the test process with clearly synthetic fixtures. It does not connect to a CYB backend, log into a real account, or verify authenticated production behavior.
 
-Screenshots and `results.json` are attached to [GitHub Actions run 43743043104](https://github.com/nuulf26-glitch/your-business/actions/runs/43743043104) as artifact `cyb-functional-visual-qa-007bccd417f5583007c7cbb28a52cb1513eb8b45` (92 route/viewport images). The run passed 92/92 layout cases. A subsequent run for the latest polish commit is recorded in PR checks.
+Screenshots and `results.json` are attached to [GitHub Actions run 43743639038](https://github.com/nuulf26-glitch/your-business/actions/runs/43743043104) as artifact `cyb-functional-visual-qa-7f748b0b254be5e6fbd1546f50924265987f68b0` (92 route/viewport images). The run passed 92/92 layout cases. The passing run used commit `7f748b0b254be5e6fbd1546f50924265987f68b0`, which contains the final responsive UI fixes. A later documentation-only commit does not alter the tested frontend tree.
 
 Automated checks cover settled content, horizontal document overflow, visible navigation, controls outside the viewport, and accidental API requests escaping the local fixture. This is a responsive rendering check, not an assertion that the visual structure is identical to the showcase's synthetic proposal screens.
 
