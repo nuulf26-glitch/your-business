@@ -27,3 +27,6 @@ backend/private-backups/
 
 # Local Netlify folder
 .netlify
+artifacts/responsive/
+test-results/
+playwright-report/

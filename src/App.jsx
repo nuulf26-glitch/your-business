@@ -1,4 +1,6 @@
 const DesignPreview = lazy(() => import("./pages/DesignPreview"));
+const DesignProposals = lazy(() => import("./pages/DesignProposals"));
+const DesignShowcase = lazy(() => import("./pages/DesignShowcase"));
 const TryWebsite = lazy(() => import("./pages/TryWebsite"));
 import AppErrorBoundary from "./components/AppErrorBoundary";
 import { lazy, Suspense } from "react";
@@ -41,6 +43,9 @@ function App() {
       {/* Main public pages */}
       <Route path="/" element={<LandingPage />} />
       <Route path="/design-preview" element={<DesignPreview />} />
+      {/* Isolated visual review only; these routes use synthetic fixtures and no application data. */}
+      <Route path="/design-proposals" element={<DesignProposals />} />
+      <Route path="/design-showcase" element={<DesignShowcase />} />
       <Route path="/try" element={<TryWebsite />} />
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
