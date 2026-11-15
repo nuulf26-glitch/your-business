@@ -10,7 +10,7 @@ This continuation is based on production branch `codex/cyb-render-integration-20
 | Design system and production visual refinements | Already in production branch through PR #80 | Not recopied from PR #79, avoiding duplicate or stale versions. |
 | Functional application routes | Preserved from production branch | This continuation does not alter authentication, API routing, dashboard data behavior, editor persistence, checkout or payment logic. |
 
-**Verification status for this continuation:** pending CI after branch publication. Local build, lint, browser QA and regression results are recorded in the PR after execution; no result is claimed before that run.
+**Verification status for this continuation:** the production-based branch passed GitHub Actions run [#43736459492](https://github.com/nuulf26-glitch/your-business/actions/runs/43736459492): build, lint, and all 62 screen selections at each of the four viewports passed with zero layout assertion failures. The job captured 248 screen screenshots plus Dashboard state screenshots; the artifact is available from the run page. This is automated verification of the isolated showcase, not manual human inspection of all screenshots or authenticated application-route testing.
 
 ---
 

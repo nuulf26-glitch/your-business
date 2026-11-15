@@ -4,7 +4,11 @@ on:
   pull_request:
     branches: [main, codex/cyb-render-integration-20261109]
     paths:
+      - "src/App.jsx"
       - "src/pages/DesignShowcase.jsx"
+      - "src/pages/DesignProposals.jsx"
+      - "src/styles/design-proposals.css"
+      - "docs/design/**"
       - "src/pages/design-showcase.css"
       - "tests/responsive/**"
       - "playwright.config.js"
