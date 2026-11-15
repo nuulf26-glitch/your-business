@@ -12,7 +12,28 @@ function PlatformPayment() {
       : ""
   ));
   const [paymentComplete, setPaymentComplete] = useState(false);
+  const [priceCents, setPriceCents] = useState(24600);
+  const [temporaryTestPrice, setTemporaryTestPrice] = useState(false);
+  const [priceReady, setPriceReady] = useState(false);
   const [stripeLoading, setStripeLoading] = useState(() => Boolean(new URLSearchParams(window.location.search).get("session_id")));
+
+  useEffect(() => {
+    let active = true;
+    customBackendRequest("/payments/stripe/price").then((price) => {
+      if (!active) return;
+      if (!Number.isSafeInteger(price?.amountCents) || price.amountCents < 50 || String(price.currency).toLowerCase() !== "usd") {
+        throw new Error("CYB could not verify the USD price. Please try again later.");
+      }
+      setPriceCents(price.amountCents);
+      setTemporaryTestPrice(price.temporary === true);
+      setPriceReady(true);
+    }).catch((priceError) => {
+      if (!active) return;
+      setError(priceError.message || "CYB could not verify the price. Please try again later.");
+      setPriceReady(false);
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -100,8 +121,9 @@ function PlatformPayment() {
           </p>
 
           <div className="platform-payment-price">
-            <strong>$246</strong>
-            <span>One-time payment</span>
+            <strong>${(priceCents / 100).toFixed(0)}</strong>
+            <span>USD · One-time payment</span>
+            {temporaryTestPrice && <small>Authorized pre-launch test price</small>}
           </div>
 
           <div className="platform-payment-features">
@@ -140,7 +162,7 @@ function PlatformPayment() {
             </div>
           )}
 
-          <button type="button" className="platform-stripe-button" onClick={startStripeCheckout} disabled={stripeLoading}>
+          <button type="button" className="platform-stripe-button" onClick={startStripeCheckout} disabled={stripeLoading || !priceReady}>
             {stripeLoading ? "Checking payment…" : "Pay securely with Stripe"}
           </button>
 
