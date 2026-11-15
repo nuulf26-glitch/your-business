@@ -71,8 +71,11 @@ function DashboardLayout({ children }) {
 
   const navigationItems = [
     { label: "Overview", path: "/dashboard" },
+    { label: "Create website", path: "/create-website" },
     { label: "Website editor", path: "/editor" },
     { label: "Templates", path: "/templates" },
+    { label: "Store setup", path: "/store-setup" },
+    { label: "Store design", path: "/store-designer" },
     { label: "Products", path: "/products" },
     { label: "Orders", path: "/orders" },
     { label: "Customers", path: "/customers" },
