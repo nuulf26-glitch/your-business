@@ -1,59 +1,43 @@
-# CYB functional frontend visual QA
+# CYB functional UI visual QA and interaction evidence
 
-## Scope and evidence
+## Scope
 
-The Playwright run renders the actual React route components from the production-based PR branch. It runs Vite locally in GitHub Actions and intercepts `/api/v1/**` requests inside the test process with clearly synthetic fixtures. It does not connect to a CYB backend, log into a real account, or verify authenticated production behavior.
+This PR keeps CYB's real React routes and production business logic. The isolated PR #81 design showcase is used as a visual reference only; its synthetic records and proposal workflows are not copied into customer routes.
 
-Screenshots and `results.json` are attached to [GitHub Actions run 43744963477](https://github.com/nuulf26-glitch/your-business/actions/runs/43743043104) as artifact `cyb-functional-visual-qa-5301f9cb7e5b8706495df1c90a3b63e09a186c6f` (92 route/viewport images). The run passed 92/92 layout cases. The passing run used commit `5301f9cb7e5b8706495df1c90a3b63e09a186c6f`, including the latest Store Designer styling and responsive layout changes.
+Playwright renders the real frontend route components while intercepting every `/api/v1/**` request inside the test process. No backend, staging or production account, customer record, payment service, or database is used.
 
-Automated checks cover settled content, horizontal document overflow, visible navigation, controls outside the viewport, and accidental API requests escaping the local fixture. This is a responsive rendering check, not an assertion that the visual structure is identical to the showcase's synthetic proposal screens.
+## Responsive rendering
 
-## Route and viewport matrix
+GitHub Actions [run 43747045013](https://github.com/nuulf26-glitch/your-business/actions/runs/43747045013) passed build, ESLint, and **92/92 render checks** across 23 functional routes and all four requested viewports: 1440×900, 768×1024, 390×844, and 375×812.
 
-Each row is captured and checked at desktop 1440×900, tablet 768×1024, mobile 390×844, and mobile 375×812.
+The run produced 92 screenshots and `results.json` in artifact `cyb-functional-visual-qa-e333f310e1e113b5b6fc8ce58805bdeb7ff262af` (artifact ID `14174652269`; available for a limited retention period from the Actions run page).
 
-| Functional screen | Route | Render check |
-| --- | --- | --- |
-| Homepage | `/` | Pass |
-| Login | `/login` | Pass |
-| Signup | `/signup` | Pass |
-| Forgot password | `/forgot-password` | Pass |
-| Reset password | `/reset-password?token=visual-test` | Pass |
-| Dashboard | `/dashboard` | Pass |
-| Website editor | `/editor` | Pass |
-| Templates | `/templates` | Pass |
-| Create website | `/create-website` | Pass |
-| Products and inventory | `/products` | Pass |
-| Orders | `/orders` | Pass |
-| Order details | `/orders/fixture-order` | Pass |
-| Customers | `/customers` | Pass |
-| Business workspace | `/business` | Pass |
-| Settings | `/settings` | Pass |
-| Store setup | `/store-setup` | Pass |
-| Store designer | `/store-designer` | Pass |
-| Shipping | `/shipping` | Pass |
-| Public storefront | `/store/atelier-preview` | Pass |
-| Product page | `/product/fixture-product` | Pass |
-| Cart | `/cart` | Pass |
-| Checkout UI | `/checkout` | Pass |
-| Order confirmation UI | `/order-success` | Pass |
+Route coverage: homepage, login, signup, password recovery/reset, dashboard, editor, templates, website creation, products/inventory, orders/order details, customers, business workspace, settings, store setup/designer, shipping, storefront, product page, cart, checkout UI, and order confirmation.
 
-## Visual review notes and changes
+## Visual fixes and comparison
 
-- Functional routes use the CYB styling and workspace treatments already present in the production-based branch. The showcase is an illustrative design reference; its synthetic examples are not copied into real customer routes.
-- A mobile Dashboard screenshot exposed the direct “Net profit” label and “Not available” value sitting on the same line. The stat label/value now stack, with a readable value line height.
-- On small screens, the floating help action covered too much underlying content. It now collapses to a compact, accessible icon button; its accessible name remains available to assistive technology.
-- Shipping now uses a labeled section instead of nesting a second `<main>` inside the shared dashboard layout.
-- Store Designer had a nearly empty stylesheet that was not imported. Added a full responsive editor/preview design for its existing name, description, image, color, card-style, save, and preview controls; the save and data flows are unchanged.
-- Workspace navigation now wraps into visible rows on tablet widths while keeping its compact horizontal scroll treatment on small phones.
-- A visually reviewed mobile Editor screenshot retained its charcoal workspace and controls without horizontal page overflow. The Shipping mobile screen stacks its summary cards and controls without horizontal page overflow.
+- Side-by-side screenshot contact sheets compared all 23 route counterparts with the PR #81 references at desktop 1440×900 and mobile 390×844. Automated rendering checks covered every route at all four viewports.
+- The comparison found mobile order details retained a fixed minimum summary-column width, compressing the customer-information card. The page now switches to a single-column layout below 900px; the summary card becomes full-width.
+- The new order-details layout was visually inspected at 1440×900, 768×1024, 390×844, and 375×812 in the run's screenshots.
+- Existing previously confirmed refinements remain: responsive dashboard metrics/help control, tablet workspace navigation, complete Store Designer styling, and semantic Shipping layout.
+- Some showcase pages are explicitly illustrative proposals. Functional pages retain their real forms, actions, and data structure; proposal-only content is not shown to customers. Exact one-to-one copy/layout changes that would alter homepage messaging or functional information hierarchy still need product/design approval.
 
-## Checks and limits
+## Additional isolated interaction tests
 
-- Latest CI run [43744963477](https://github.com/nuulf26-glitch/your-business/actions/runs/43744963477): build, ESLint, and Playwright passed on commit `5301f9cb7e5b8706495df1c90a3b63e09a186c6f`.
-- `npm run build` — passed locally after the final polish.
-- `npm run lint` — passed locally after the final polish.
-- Existing isolated Node tests — 27 passed (integration tests excluded because the integration runner does not exit cleanly in this environment).
+Commit `ad311d0e82127fc5d357b54612edfe500e195af3` adds synthetic Playwright flows for cookie-shaped login/session UI, editor draft save/publish API requests, product/order/customer UI updates, and product-to-cart plus cash-on-delivery checkout. These tests use only in-process API fixtures and do not prove backend session security, API persistence, payment processing, or refunds.
+
+The local environment lacks the Playwright Chromium executable; the local flow-test command therefore stopped before executing browser tests. The GitHub Actions run above predates this test-only commit, and a new Actions run was not available for it. The flow specs are **not yet verified**.
+
+## Build and regression checks
+
+- `npm run build` — passed locally.
+- `npm run lint` — passed locally.
+- 33 isolated Node tests — passed.
 - `git diff --check` — passed.
-- Not verified: real login/session persistence, backend-backed Dashboard data, editor save/publish against a service, real product/order/customer mutations, checkout/payment/refund, and authenticated production routes. The available preview has no isolated backend/test-account session, so this change is not cleared for production deployment.
-- Visual matching is not pixel-perfect: showcase proposal content and its synthetic layouts intentionally differ from working forms, records, and controls on functional routes. Further product/design review is needed for any requested one-to-one layout/content changes that could alter workflows.
+- Responsive Playwright rendering — 92/92 passed on source commit `e333f310e1e113b5b6fc8ce58805bdeb7ff262af`. Current PR head `ad311d0e82127fc5d357b54612edfe500e195af3` adds only the new flow-test file after that run.
+
+## Release gate and remaining blockers
+
+**Do not deploy this PR to production yet.** No isolated backend/test-account environment has been made available, and preview-to-staging API access was rejected during the isolation review. Consequently, real login/session persistence, backend-backed editor save/publish, product/order/customer mutations, store checkout, refunds, and authenticated route compatibility have not been verified. The synthetic flow tests do not substitute for those checks.
+
+The required next step is an authorized isolated CYB test API/database with synthetic accounts and payment-provider test mode. Refund tests require a safe payment test environment; none was used. The PR remains Draft. No backend, database, authentication logic, Stripe, DNS, production deployment, or MUSE changes were made.
