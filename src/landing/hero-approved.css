@@ -1,0 +1,210 @@
+.approved-home-hero {
+  box-sizing: border-box;
+  padding: clamp(76px, 10vh, 118px) 5% 34px;
+  border-bottom: 1px solid #e7e0d5;
+  background: #f7f3ec;
+  color: #201d19;
+  text-align: center;
+}
+
+.approved-home-hero__inner,
+.approved-home-hero__benefits {
+  width: 100%;
+  max-width: 1100px;
+  margin-inline: auto;
+}
+
+.approved-home-hero__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 auto 22px;
+  padding: 7px 13px;
+  border: 1px solid #e4dbce;
+  border-radius: 999px;
+  background: #eee7dc;
+  color: #554b3d;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.approved-home-hero__badge span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8d7754;
+}
+
+.approved-home-hero__title {
+  max-width: 840px;
+  margin: 0 auto;
+  color: #211e1a;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(48px, 6vw, 78px);
+  font-weight: 400;
+  letter-spacing: -0.045em;
+  line-height: 1.04;
+  text-transform: none;
+}
+
+.approved-home-hero__title span {
+  display: block;
+  margin-top: 4px;
+  color: #927b58;
+  font-style: italic;
+}
+
+.approved-home-hero__description {
+  max-width: 650px;
+  margin: 22px auto 28px;
+  color: #655e54;
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+.approved-home-hero__form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  width: min(100%, 760px);
+  margin: 0 auto;
+}
+
+.approved-home-hero__form input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  padding: 0 16px;
+  border: 1px solid #d9d0c3;
+  border-radius: 4px;
+  outline: none;
+  background: #fffdfa;
+  color: #211e1a;
+  font: inherit;
+  font-size: 14px;
+}
+
+.approved-home-hero__form input:focus-visible {
+  border-color: #927b58;
+  box-shadow: 0 0 0 3px rgb(146 123 88 / 18%);
+}
+
+.approved-home-hero__form button {
+  display: inline-flex;
+  min-height: 54px;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 0 22px;
+  border: 1px solid #201d19;
+  border-radius: 4px;
+  background: #201d19;
+  color: #fffdfa;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background-color 160ms ease, transform 160ms ease;
+}
+
+.approved-home-hero__form button:hover {
+  transform: translateY(-1px);
+  background: #39342c;
+}
+
+.approved-home-hero__form button:focus-visible,
+.approved-home-hero__note button:focus-visible {
+  outline: 3px solid #bba77f;
+  outline-offset: 3px;
+}
+
+.approved-home-hero__form button span {
+  font-size: 17px;
+}
+
+.approved-home-hero__note {
+  margin: 11px 0 50px;
+  color: #71695e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.approved-home-hero__note button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.approved-home-hero__benefits {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-top: 22px;
+  border-top: 1px solid #e3dbcf;
+  color: #655e54;
+  font-size: 12px;
+}
+
+.approved-home-hero__benefits i {
+  width: 3px;
+  height: 3px;
+  flex: 0 0 3px;
+  border-radius: 50%;
+  background: #a18b68;
+}
+
+@media (max-width: 680px) {
+  .approved-home-hero {
+    padding: 62px 22px 24px;
+  }
+
+  .approved-home-hero__title {
+    max-width: 560px;
+    font-size: clamp(42px, 11vw, 58px);
+    letter-spacing: -0.04em;
+    line-height: 1.08;
+  }
+
+  .approved-home-hero__description {
+    margin: 18px auto 24px;
+    font-size: 15px;
+  }
+
+  .approved-home-hero__form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .approved-home-hero__form button {
+    width: 100%;
+  }
+
+  .approved-home-hero__note {
+    margin-bottom: 38px;
+  }
+
+  .approved-home-hero__benefits {
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    font-size: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .approved-home-hero__form button {
+    transition: none;
+  }
+
+  .approved-home-hero__form button:hover {
+    transform: none;
+  }
+}
