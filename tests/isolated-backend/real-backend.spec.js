@@ -63,6 +63,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   await secondTab.setViewportSize({ width: 390, height: 844 });
   await secondTab.goto('/dashboard');
   await expect(secondTab).toHaveURL(/\/dashboard(?:$|\?)/);
+  await waitForSettledScreen(secondTab, 'dashboard second tab');
   const secondTabAuth = await requestFromPage(secondTab, '/auth/me');
   expect(secondTabAuth.id).toBe(auth.id);
   await checkNoHorizontalOverflow(secondTab, 'dashboard mobile');
