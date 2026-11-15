@@ -251,6 +251,7 @@
 
 .dashboard-stat-card,
 .dashboard-card {
+  min-width: 0;
   border: 1px solid #deded9;
   border-radius: 18px;
   background: #ffffff;
@@ -500,6 +501,9 @@
 }
 
 .dashboard-orders-table {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
 }
 
@@ -588,7 +592,7 @@
 
   .dashboard-main-grid,
   .dashboard-bottom-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
