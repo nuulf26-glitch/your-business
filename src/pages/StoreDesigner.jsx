@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../layouts/DashboardLayout";
 import { subscribeAppUser } from "../services/customBackendSession";
 import { getStore, saveStore } from "../services/storeService";
+import "../styles/storeDesigner.css";
 
 const templates = [
   {

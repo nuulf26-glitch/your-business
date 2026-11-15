@@ -25,24 +25,16 @@ function ForgotPassword() {
 
       await customBackendRequest('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email: email.trim() }) });
 
-      setMessage("Password reset email sent. Check your inbox.");
+      setMessage("If an account matches that email, we’ll send a password reset link. Check your inbox shortly.");
     } catch (resetError) {
-      console.error(resetError);
-
-      if (resetError.code === "auth/user-not-found") {
-        setError("No account found with this email.");
-      } else if (resetError.code === "auth/invalid-email") {
-        setError("Please enter a valid email.");
-      } else {
-        setError("Something went wrong. Please try again.");
-      }
+      setError(resetError.status === 429 ? "Too many requests. Please wait a minute and try again." : "We could not process your request. Please check the email format and try again.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="auth-page">
+    <div className="auth-page auth-page--single">
       <section className="auth-form-panel">
         <div className="auth-form-wrapper">
 
@@ -62,10 +54,13 @@ function ForgotPassword() {
 
           <form className="auth-form" onSubmit={handleReset}>
             <div className="auth-field">
-              <label>Email address</label>
+              <label htmlFor="forgotPasswordEmail">Email address</label>
 
               <input
+                id="forgotPasswordEmail"
                 type="email"
+                autoComplete="email"
+                required
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="name@example.com"

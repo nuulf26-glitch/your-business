@@ -2,9 +2,9 @@ import { useNavigate } from "react-router-dom";
 import "./landing.css";
 
 const steps = [
-  { number: "01", title: "Describe your business", text: "Create your account, then share what you do and the look you have in mind." },
-  { number: "02", title: "Edit your website draft", text: "Edit your website draft. Adjust the copy, colors, type and section order, then preview it on desktop or mobile." },
-  { number: "03", title: "Join CYB when you are ready", text: "Edit your website draft and activate lifetime access when you are ready to publish." },
+  { number: "01", title: "Describe your business", text: "Share what you do and the look you have in mind. No account or payment is needed to start." },
+  { number: "02", title: "Explore and edit your preview", text: "Review a private website concept, adjust the copy, colors, type and section order, then see it on desktop or mobile." },
+  { number: "03", title: "Join CYB when you are ready", text: "Keep your preview when you create an account. Choose lifetime access and publish only after activation." },
 ];
 
 function HowItWorks() {
@@ -52,7 +52,7 @@ function HowItWorks() {
             </p>
             <button
               type="button"
-              onClick={() => navigate("/signup")}
+              onClick={() => navigate("/try")}
               style={{
                 background: "#111",
                 color: "#fff",
@@ -98,14 +98,14 @@ function HowItWorks() {
               Make changes visually. See every update instantly.
             </h3>
             <p style={{ color: "#555", fontSize: "1rem", lineHeight: "1.6", fontFamily: "'Mograp', sans-serif" }}>
-              Create a website draft first. Change its copy, colors, typography and section order before activating CYB.
+              Make a private preview first. Change its copy, colors, typography and section order before deciding whether to activate CYB.
             </p>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "30px", borderTop: "1px solid #dcdad4", paddingTop: "40px" }}>
             <div>
               <strong style={{ display: "block", fontSize: "1rem", marginBottom: "8px", color: "#111", fontFamily: "'Mograp', sans-serif" }}>+ Add sections</strong>
-              <p style={{ color: "#666", fontSize: "0.9rem", margin: 0, fontFamily: "'Mograp', sans-serif" }}>Start with a professional website layout for your business.</p>
+              <p style={{ color: "#666", fontSize: "0.9rem", margin: 0, fontFamily: "'Mograp', sans-serif" }}>Preview a curated homepage with your business category in mind.</p>
             </div>
             <div>
               <strong style={{ display: "block", fontSize: "1rem", marginBottom: "8px", color: "#111", fontFamily: "'Mograp', sans-serif" }}>− Remove anything</strong>

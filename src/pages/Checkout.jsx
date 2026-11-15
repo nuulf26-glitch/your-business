@@ -100,7 +100,7 @@ const storeUrl = cart[0]?.storeUrl || "";
         address: form.address.trim(),
         city: form.city.trim(),
         notes: form.notes.trim(),
-        items: cart,
+        items: cart.map(item => ({ ...item, id: item.id || item.productId })),
         subtotal,
         shipping,
         total,

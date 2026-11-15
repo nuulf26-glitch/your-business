@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { logout } from "../services/authService";
 import { subscribeAppUser } from "../services/customBackendSession";
 import { getStore } from "../services/storeService";
+import "../styles/workspace-layout.css";
 
 function DashboardLayout({ children }) {
   const navigate = useNavigate();
@@ -69,69 +70,42 @@ function DashboardLayout({ children }) {
   }
 
   const navigationItems = [
-    { label: "Business workspace", path: "/business" },
+    { label: "Overview", path: "/dashboard" },
+    { label: "Create website", path: "/create-website" },
     { label: "Website editor", path: "/editor" },
-    {
-      label: "Dashboard",
-      path: "/dashboard",
-    },
-    {
-      label: "Products",
-      path: "/products",
-    },
-    {
-      label: "Orders",
-      path: "/orders",
-    },
-    {
-      label: "Customers",
-      path: "/customers",
-    },
-    {
-      label: "Shipping",
-      path: "/shipping",
-    },
-    {
-      label: "Settings",
-      path: "/settings",
-    },
+    { label: "Templates", path: "/templates" },
+    { label: "Store setup", path: "/store-setup" },
+    { label: "Store design", path: "/store-designer" },
+    { label: "Products", path: "/products" },
+    { label: "Orders", path: "/orders" },
+    { label: "Customers", path: "/customers" },
+    { label: "Business tools", path: "/business" },
+    { label: "Shipping", path: "/shipping" },
+    { label: "Settings", path: "/settings" },
   ];
 
   return (
-    <div style={styles.page}>
-      <aside style={styles.sidebar}>
-        <h2 style={styles.logo}>
-          CYB
-        </h2>
+    <div className="workspace-layout">
+      <aside className="workspace-sidebar">
+        <NavLink className="workspace-logo" to="/dashboard" aria-label="CYB dashboard">CYB<span>BUSINESS STUDIO</span></NavLink>
 
         <button
           type="button"
           onClick={handleStorePreview}
           disabled={loadingStore}
-          style={{
-            ...styles.previewButton,
-            opacity: loadingStore ? 0.6 : 1,
-            cursor: loadingStore
-              ? "not-allowed"
-              : "pointer",
-          }}
+          className="workspace-preview-button"
         >
           {loadingStore
             ? "Loading Store..."
             : "Open Store Preview"}
         </button>
 
-        <nav style={styles.navigation}>
+        <nav className="workspace-navigation" aria-label="Workspace">
           {navigationItems.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
-              style={({ isActive }) => ({
-                ...styles.link,
-                backgroundColor: isActive
-                  ? "rgba(255, 255, 255, 0.14)"
-                  : "transparent",
-              })}
+              className={({ isActive }) => isActive ? "workspace-nav-link active" : "workspace-nav-link"}
             >
               {item.label}
             </NavLink>
@@ -141,90 +115,17 @@ function DashboardLayout({ children }) {
         <button
           type="button"
           onClick={handleLogout}
-          style={styles.logoutButton}
+          className="workspace-logout-button"
         >
           Logout
         </button>
       </aside>
 
-      <main style={styles.main}>
+      <main className="workspace-main">
         {children}
       </main>
     </div>
   );
 }
-
-const styles = {
-  page: {
-    display: "flex",
-    minHeight: "100vh",
-    backgroundColor: "#f7f7fb",
-  },
-
-  sidebar: {
-    width: "250px",
-    minWidth: "250px",
-    height: "100vh",
-    padding: "30px",
-    boxSizing: "border-box",
-    backgroundColor: "#111827",
-    color: "#ffffff",
-    display: "flex",
-    flexDirection: "column",
-    position: "sticky",
-    top: 0,
-  },
-
-  logo: {
-    margin: 0,
-    fontSize: "24px",
-  },
-
-  previewButton: {
-    width: "100%",
-    marginTop: "28px",
-    padding: "13px 12px",
-    border: "1px solid rgba(255, 255, 255, 0.3)",
-    borderRadius: "10px",
-    backgroundColor: "#ffffff",
-    color: "#111827",
-    fontSize: "14px",
-    fontWeight: "700",
-  },
-
-  navigation: {
-    marginTop: "22px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-  },
-
-  link: {
-    padding: "12px 14px",
-    borderRadius: "9px",
-    color: "#ffffff",
-    textDecoration: "none",
-    fontSize: "17px",
-  },
-
-  logoutButton: {
-    width: "100%",
-    marginTop: "auto",
-    padding: "14px",
-    border: "none",
-    borderRadius: "12px",
-    backgroundColor: "#ef4444",
-    color: "#ffffff",
-    fontSize: "15px",
-    fontWeight: "600",
-    cursor: "pointer",
-  },
-
-  main: {
-    flex: 1,
-    minWidth: 0,
-    padding: "40px",
-  },
-};
 
 export default DashboardLayout;

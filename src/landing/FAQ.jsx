@@ -19,12 +19,12 @@ const faqs = [
   },
   {
     question: "What can I do before paying?",
-    answer: "Create a free account to build and edit a website draft. Publishing is available after CYB Lifetime Access is activated.",
+    answer: "Create one private website preview, edit its text, colors, typography and section order, and view it on desktop, tablet or mobile. The preview lasts seven days and cannot be published.",
   },
-  { question: "Can I build my website before paying?", answer: "Yes. Create a free account and work on your website draft. Activate lifetime access when you are ready to publish." },
+  { question: "Does the free preview use AI?", answer: "No. CYB creates a curated design preview without sending your prompt to an AI provider. This keeps the preview available without anonymous AI usage." },
   { question: "How much is lifetime access?", answer: "CYB Lifetime Access is a one-time payment of $246 USD. Review the current Terms of Service for the applicable 30-day refund terms." },
-  { question: "Can I save my website draft?", answer: "Yes. Your website changes are saved to your account so you can return and continue editing." },
-  { question: "When can I publish my website?", answer: "You can publish after activating CYB Lifetime Access with the one-time payment." },
+  { question: "Can I keep my preview if I join?", answer: "Yes. Create your account from the preview screen and your saved website draft will be carried into your account." },
+  { question: "Can I publish the free preview?", answer: "No. Publishing remains available only after account activation." },
   {
     question: "Can I edit my website later?",
     answer:

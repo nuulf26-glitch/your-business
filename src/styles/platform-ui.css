@@ -1,0 +1,49 @@
+/* Shared refinements for existing commerce and account screens. */
+:is(.products-page,.orders-page,.customers-page,.settings-page,.shipping-page,.store-setup-page,.store-designer-page,.checkout-page,.cart-page,.create-website-page) {
+  color: var(--cyb-ink);
+  font-family: var(--cyb-font-ui);
+}
+:is(.products-header,.orders-header,.customers-header,.settings-header,.shipping-header,.store-setup-header) h1,
+.checkout-heading h1,.cart-heading h1,.wizard-sidebar-content h1 {
+  font-family: var(--cyb-font-display);
+  font-weight: 500;
+  letter-spacing: -.045em;
+}
+:is(.products-summary-grid,.orders-summary-grid,.customers-summary-grid) > *,
+:is(.product-form-card,.products-list-card,.orders-card,.customers-card,.settings-card,.settings-status-card,.store-setup-card,.checkout-form-card,.checkout-summary-card,.wizard-card) {
+  border-color: var(--cyb-line);
+  border-radius: var(--cyb-radius-md);
+  box-shadow: var(--cyb-shadow-card);
+}
+:is(.products-page,.orders-page,.customers-page,.settings-page,.shipping-page,.store-setup-page,.store-designer-page,.checkout-page,.create-website-page) :is(input,select,textarea) {
+  border-color: var(--cyb-line);
+  border-radius: var(--cyb-radius-sm);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+:is(.products-page,.orders-page,.customers-page,.settings-page,.shipping-page,.store-setup-page,.store-designer-page,.checkout-page,.create-website-page) :is(input,select,textarea):focus {
+  border-color: var(--cyb-taupe);
+  box-shadow: var(--cyb-focus);
+  outline: 0;
+}
+:is(.products-page,.orders-page,.customers-page,.settings-page,.shipping-page,.store-setup-page,.store-designer-page,.checkout-page,.create-website-page) button {
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+:is(.products-page,.orders-page,.customers-page) table { border-collapse: separate; border-spacing: 0; }
+:is(.products-page,.orders-page,.customers-page) th { color: var(--cyb-muted); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+:is(.products-page,.orders-page,.customers-page) tbody tr:hover { background: #f8f8f8; }
+.create-website-page .wizard-sidebar { background: #1b1b1b; }
+.create-website-page .wizard-logo { letter-spacing: -.08em; }
+.create-website-page .wizard-sidebar-content h1 { font-family: var(--cyb-font-display); font-weight: 500; }
+.create-website-page .wizard-card { background: var(--cyb-paper); }
+.create-website-page .template-choice-card { border-radius: 9px; }
+.create-website-page .template-choice-card.selected { border-color: var(--cyb-accent); box-shadow: var(--cyb-focus); }
+.checkout-page { background: var(--cyb-ivory); }
+.checkout-logo { font-family: var(--cyb-font-display); }
+.checkout-form-card,.checkout-summary-card { background: var(--cyb-paper); }
+
+@media(max-width:760px) {
+  :is(.products-page,.orders-page,.customers-page) { overflow-x: hidden; }
+  :is(.products-page,.orders-page,.customers-page) :is(.products-table-wrap,.orders-table-wrap,.customers-table-wrap) { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  :is(.products-page,.orders-page,.customers-page) table { min-width: 620px; }
+  .create-website-page .create-website-shell { min-height: 100vh; }
+}

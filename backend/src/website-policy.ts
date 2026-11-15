@@ -37,3 +37,40 @@ export function publicWebsite(model:Record<string,any>){
   if(!result.brandName)result.brandName=model.businessName||model.storeName||'Your Business';
   return result;
 }
+
+function publicationProjection(model:Record<string,any>={}){
+  const projection=publicWebsite(model);
+  // The first page's sections are also stored as a legacy compatibility alias.
+  if(Array.isArray(projection.pages)&&(projection.pages as any[]).length)delete projection.sections;
+  return projection;
+}
+
+function stableValue(value:any):any{
+  if(Array.isArray(value))return value.map(stableValue);
+  if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(key=>[key,stableValue(value[key])]));
+  return value;
+}
+
+function safePathKey(key:string){return key.replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,48)||'_';}
+
+/** Returns field paths only; never returns snapshot values or media URLs. */
+export function publicationDifferencePaths(draft:Record<string,any>|null|undefined,published:Record<string,any>|null|undefined){
+  const left=publicationProjection(draft||{}),right=publicationProjection(published||{}),paths:string[]=[];
+  const compare=(a:any,b:any,path:string)=>{
+    if(JSON.stringify(stableValue(a))===JSON.stringify(stableValue(b)))return;
+    if(Array.isArray(a)||Array.isArray(b)){
+      if(!Array.isArray(a)||!Array.isArray(b)){paths.push(path||'$');return;}
+      const aa=Array.isArray(a)?a:[],bb=Array.isArray(b)?b:[];
+      for(let index=0;index<Math.max(aa.length,bb.length);index++)compare(aa[index],bb[index],`${path}[${index}]`);
+      return;
+    }
+    if(a&&b&&typeof a==='object'&&typeof b==='object'){
+      const keys=[...new Set([...Object.keys(a),...Object.keys(b)])].sort();
+      for(const key of keys)compare(a[key],b[key],path?`${path}.${safePathKey(key)}`:safePathKey(key));
+      return;
+    }
+    paths.push(path||'$');
+  };
+  compare(left,right,'');
+  return paths;
+}
