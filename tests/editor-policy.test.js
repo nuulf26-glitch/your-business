@@ -82,7 +82,7 @@ test('image crop metadata is bounded and projected into the live media preview s
 });
 test('advanced and responsive styles render with safe bounds in published preview',()=>{
   const output=sectionStyle({style:{fontSize:64,paddingX:20,borderWidth:2,borderColor:'#123456',borderRadius:12,shadow:'soft',fontWeight:700},responsive:{phone:{fontSize:30,paddingY:12,hidden:true}}},'phone');
-  assert.equal(output['--cyb-heading-size'],'30px');assert.equal(output.paddingInline,'20px');assert.equal(output.paddingBlock,'12px');assert.equal(output.border,'2px solid #123456');assert.equal(output.display,'none');
+  assert.equal(output['--cyb-heading-size'],'30px');assert.equal(output['--cyb-font-weight'],700);assert.equal(output.paddingInline,'20px');assert.equal(output.paddingBlock,'12px');assert.equal(output.border,'2px solid #123456');assert.equal(output.display,'none');
   const bounded=sectionStyle({style:{fontSize:999,paddingY:999,borderRadius:999}},'laptop');assert.equal(bounded['--cyb-heading-size'],'120px');assert.equal(bounded.paddingBlock,'500px');assert.equal(bounded.borderRadius,'200px');
 });
 test('hidden products and expired hidden windows',()=>{
