@@ -1,6 +1,8 @@
 name: CYB functional frontend visual QA
 
 on:
+  push:
+    branches: [codex/cyb-functional-design-match-prod-20261115]
   pull_request:
     branches: [codex/cyb-render-integration-20261109]
     paths:
