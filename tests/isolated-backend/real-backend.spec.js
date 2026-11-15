@@ -31,6 +31,13 @@ async function checkNoHorizontalOverflow(page, label) {
     .toBeLessThanOrEqual(dimensions.viewport + 2);
 }
 
+async function waitForSettledScreen(page, label) {
+  await expect.poll(async () => {
+    const text = (await page.locator('#root').innerText()).trim();
+    return text.length > 20 && !text.includes('Loading CYB…') && !text.includes('Loading...');
+  }, { timeout: 30_000, message: `${label} should finish rendering before screenshot capture` }).toBe(true);
+}
+
 test('real auth, editor persistence, catalog, COD checkout, and mobile views use isolated API', async ({ page, context }) => {
   const email = process.env.E2E_TEST_EMAIL;
   const password = process.env.E2E_TEST_PASSWORD;
@@ -46,6 +53,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   await page.getByRole('button', { name: 'Log in' }).click();
   await expect(page).toHaveURL(/\/dashboard(?:$|\?)/);
   await expect(page.locator('body')).not.toContainText('Page Not Found');
+  await waitForSettledScreen(page, 'dashboard desktop');
   await checkNoHorizontalOverflow(page, 'dashboard desktop');
   await page.screenshot({ path: `${artifactsDir}/dashboard-1440x900.png`, fullPage: true });
 
@@ -62,10 +70,12 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
 
   await page.setViewportSize({ width: 768, height: 1024 });
   await page.goto('/dashboard');
+  await waitForSettledScreen(page, 'dashboard tablet');
   await checkNoHorizontalOverflow(page, 'dashboard tablet');
   await page.screenshot({ path: `${artifactsDir}/dashboard-768x1024.png`, fullPage: true });
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto('/dashboard');
+  await waitForSettledScreen(page, 'dashboard narrow mobile');
   await checkNoHorizontalOverflow(page, 'dashboard narrow mobile');
   await page.screenshot({ path: `${artifactsDir}/dashboard-375x812.png`, fullPage: true });
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -79,6 +89,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   ];
   for (const [route, label] of routes) {
     await page.goto(route);
+    await waitForSettledScreen(page, label);
     await expect(page.locator('body'), `${label} route should remain authenticated`).not.toContainText('Page Not Found');
     await checkNoHorizontalOverflow(page, `${label} desktop`);
     await page.screenshot({ path: `${artifactsDir}/${label}-1440x900.png`, fullPage: true });
