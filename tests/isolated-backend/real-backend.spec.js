@@ -204,11 +204,17 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(refundedAnalytics.revenue).toBe(0);
   expect(refundedAnalytics.refunds).toBe(expectedTotal);
 
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "returned" } });
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "returned" } });
+  const returned = await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}`);
+  expect(returned).toMatchObject({ fulfillmentStatus: "returned", paymentStatus: "Refunded" });
+
   const cancelOrder = await requestFromPage(page, "/public/orders", "POST", { data: { storeUrl: slug, customerName: "Synthetic Cancellation Customer", email: `cancel-${process.env.GITHUB_RUN_ID || "local"}@example.test`, items: [{ id: product.id, quantity: 1 }] } });
   await requestFromPage(page, `/public/orders/${encodeURIComponent(cancelOrder.id)}/cash-on-delivery`, "POST", { token: cancelOrder.cashOnDeliveryToken });
   await requestFromPage(page, `/orders/${encodeURIComponent(cancelOrder.id)}/fulfillment`, "PATCH", { data: { status: "cancelled" } });
+  await requestFromPage(page, `/orders/${encodeURIComponent(cancelOrder.id)}/fulfillment`, "PATCH", { data: { status: "cancelled" } });
   const storedProducts = await requestFromPage(page, "/products");
-  expect(storedProducts.find((item) => item.id === product.id).data.variants[0].stock).toBe(3);
+  expect(storedProducts.find((item) => item.id === product.id).data.variants[0].stock).toBe(4);
 
   await secondTab.close();
 });
