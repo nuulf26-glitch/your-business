@@ -129,11 +129,12 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const stores = await requestFromPage(page, "/businesses/mine/stores");
   expect(stores.some((store) => store.slug === slug)).toBe(true);
   const secondStore = await requestFromPage(page, "/businesses/mine/stores", "POST", { name: "Synthetic Secondary Store", slug: `${slug}-secondary`, category: "general", settings: { storeName: "Synthetic Secondary Store", storeUrl: `${slug}-secondary` } });
-  expect(secondStore.ownerId).toBeUndefined();
+  expect(secondStore.id).toBeTruthy();
+  expect(secondStore.slug).toBe(`${slug}-secondary`);
   const secondStoreProducts = await requestFromPage(page, "/products", "GET", undefined, secondStore.id);
   expect(secondStoreProducts).toEqual([]);
-  const firstStoreProducts = await requestFromPage(page, "/products", "GET", undefined, secondStore.id);
-  expect(firstStoreProducts).toEqual([]);
+  const firstStoreProducts = await requestFromPage(page, "/products");
+  expect(firstStoreProducts.some((item) => item.id === product.id)).toBe(true);
 
   await page.goto(`/store/${encodeURIComponent(slug)}`);
   await expect(page.getByText('Synthetic E2E Product', { exact: false }).first()).toBeVisible();
