@@ -184,7 +184,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
   const paidCustomer = await requestFromPage(page, "/customers");
   const checkoutCustomer = paidCustomer.find((item) => item.email?.startsWith("checkout-"));
-  expect(checkoutCustomer.data).toMatchObject({ totalSpent: 18, paidOrders: 1 });
+  expect(checkoutCustomer).toMatchObject({ totalSpent: 18, paidOrders: 1 });
   const revenue = await requestFromPage(page, "/business/mine/commerce-analytics");
   expect(revenue.revenue).toBe(18);
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "processing" } });
