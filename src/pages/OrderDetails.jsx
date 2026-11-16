@@ -105,43 +105,32 @@ function OrderDetails() {
     }
   }
 
+  async function handlePaymentChange(status) {
+    try {
+      setUpdating(true); setError(""); setSuccessMessage("");
+      const updated = await customBackendRequest(`/orders/${encodeURIComponent(orderId)}/payment`, { method: "PATCH", body: JSON.stringify({ data: { status } }) });
+      setOrder((current) => ({ ...current, ...(updated || {}), paymentStatus: status === "paid" ? "Paid" : "Refunded" }));
+      setSuccessMessage(status === "paid" ? "Payment recorded once." : "Refund recorded.");
+    } catch (paymentError) {
+      console.error("Could not update payment:", paymentError);
+      setError("Could not update the payment. Reload and retry.");
+    } finally { setUpdating(false); }
+  }
+
   async function handleSaveTracking(event) {
     event.preventDefault();
-
-    if (!shippingCompany.trim() || !trackingNumber.trim()) {
-      setError("Please enter the shipping company and tracking number.");
-      setSuccessMessage("");
-      return;
-    }
-
+    if (!shippingCompany.trim() || !trackingNumber.trim()) { setError("Please enter the shipping company and tracking number."); setSuccessMessage(""); return; }
     try {
-      setSavingTracking(true);
-      setError("");
-      setSuccessMessage("");
-
-      const trackingData = {
-        shippingCompany: shippingCompany.trim(),
-        trackingNumber: trackingNumber.trim(),
-        trackingUrl: trackingUrl.trim(),
-        shippingUpdatedAt: new Date().toISOString(),
-      };
-
-      await customBackendRequest(`/orders/${encodeURIComponent(orderId)}`, { method: 'PATCH', body: JSON.stringify({ data: trackingData }) });
-
-      setOrder((currentOrder) => ({
-        ...currentOrder,
-        ...trackingData,
-      }));
-
+      setSavingTracking(true); setError(""); setSuccessMessage("");
+      const trackingData = { carrier: shippingCompany.trim(), trackingNumber: trackingNumber.trim(), trackingUrl: trackingUrl.trim() };
+      const updated = await customBackendRequest(`/orders/${encodeURIComponent(orderId)}/fulfillment`, { method: "PATCH", body: JSON.stringify({ data: { status: order.fulfillmentStatus || order.status || "new", ...trackingData } }) });
+      setOrder((current) => ({ ...current, ...(updated || {}), shippingCarrier: trackingData.carrier, trackingNumber: trackingData.trackingNumber, trackingUrl: trackingData.trackingUrl }));
       setSuccessMessage("Tracking information saved successfully.");
     } catch (trackingError) {
       console.error("Error saving tracking information:", trackingError);
       setError("Could not save the tracking information.");
-    } finally {
-      setSavingTracking(false);
-    }
+    } finally { setSavingTracking(false); }
   }
-
   function formatDate(createdAt) {
     if (!createdAt) {
       return "No date";
@@ -222,15 +211,22 @@ function OrderDetails() {
               }
               style={styles.statusSelect}
             >
-              <option value="New">New</option>
-              <option value="Processing">Processing</option>
-              <option value="Shipped">Shipped</option>
-              <option value="Completed">Completed</option>
-              <option value="Cancelled">Cancelled</option>
+              <option value="new">New</option>
+              <option value="processing">Processing</option>
+              <option value="packed">Packed</option>
+              <option value="shipped">Shipped</option>
+              <option value="delivered">Delivered</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="returned">Returned</option>
             </select>
           </div>
         </div>
 
+        <div className="order-payment-summary" style={{ margin: "12px 0 20px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <strong>Payment: {order.paymentStatus || "Pending"}</strong>
+          {String(order.paymentStatus || "").toLowerCase() !== "paid" && String(order.paymentStatus || "").toLowerCase() !== "refunded" && <button type="button" disabled={updating} onClick={() => handlePaymentChange("paid")}>Mark collected</button>}
+          {String(order.paymentStatus || "").toLowerCase() === "paid" && <button type="button" disabled={updating} onClick={() => handlePaymentChange("refunded")}>Record full refund</button>
+        </div>
         {error && <div style={styles.errorMessage}>{error}</div>}
 
         {successMessage && (
@@ -303,6 +299,17 @@ function OrderDetails() {
               )}
             </section>
 
+            {Array.isArray(order.timeline) && order.timeline.length > 0 && (
+              <section style={styles.mainCard}>
+                <h2 style={styles.sectionTitle}>Order timeline</h2>
+                <ol>{order.timeline.map((event, index) => (
+                  <li key={String(event.recordedAt || event.at || index) + "-" + index}>
+                    <strong>{String(event.status || event.type || "Update").replace(/^./, c => c.toUpperCase())}</strong>
+                    <span> — {formatDate(event.recordedAt || event.at)}</span>
+                  </li>
+                ))}</ol>
+              </section>
+            )}
             <section style={styles.productsCard}>
               <h2 style={styles.sectionTitle}>
                 Products ({totalItems})
