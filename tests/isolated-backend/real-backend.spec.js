@@ -5,19 +5,19 @@ import process from 'node:process';
 const artifactsDir = 'artifacts/isolated-backend/screenshots';
 fs.mkdirSync(artifactsDir, { recursive: true });
 
-async function requestFromPage(page, path, method = 'GET', data) {
-  const result = await page.evaluate(async ({ path, method, data }) => {
+async function requestFromPage(page, path, method = 'GET', data, businessId) {
+  const result = await page.evaluate(async ({ path, method, data, businessId }) => {
     const response = await fetch(`/api/v1${path}`, {
       method,
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(businessId ? { 'x-cyb-business-id': businessId } : {}) },
       ...(data === undefined ? {} : { body: JSON.stringify(data) }),
     });
     return {
       status: response.status,
       body: await response.json().catch(() => null),
     };
-  }, { path, method, data });
+  }, { path, method, data, businessId });
   expect(result.status, `${method} ${path} returned ${JSON.stringify(result.body)}`).toBeLessThan(400);
   return result.body;
 }
@@ -125,6 +125,15 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(product.name).toBe('Synthetic E2E Product');
   const products = await requestFromPage(page, '/products');
   expect(products.some((item) => item.id === product.id)).toBe(true);
+
+  const stores = await requestFromPage(page, "/businesses/mine/stores");
+  expect(stores.some((store) => store.slug === slug)).toBe(true);
+  const secondStore = await requestFromPage(page, "/businesses/mine/stores", "POST", { name: "Synthetic Secondary Store", slug: `${slug}-secondary`, category: "general", settings: { storeName: "Synthetic Secondary Store", storeUrl: `${slug}-secondary` } });
+  expect(secondStore.ownerId).toBeUndefined();
+  const secondStoreProducts = await requestFromPage(page, "/products", "GET", undefined, secondStore.id);
+  expect(secondStoreProducts).toEqual([]);
+  const firstStoreProducts = await requestFromPage(page, "/products", "GET", undefined, secondStore.id);
+  expect(firstStoreProducts).toEqual([]);
 
   await page.goto(`/store/${encodeURIComponent(slug)}`);
   await expect(page.getByText('Synthetic E2E Product', { exact: false }).first()).toBeVisible();
