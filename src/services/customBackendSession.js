@@ -1,6 +1,9 @@
 const baseUrl = (import.meta.env?.VITE_CUSTOM_BACKEND_URL || '').replace(/\/$/, '');
 const apiBase = `${baseUrl}/api/v1`;
 const cachedUserKey = 'getcyb_session_user';
+const activeBusinessKey = 'cyb_active_business_id';
+export function getActiveBusinessId() { try { return localStorage.getItem(activeBusinessKey) || ''; } catch { return ''; } }
+export function setActiveBusinessId(id) { try { if (id) localStorage.setItem(activeBusinessKey, String(id)); else localStorage.removeItem(activeBusinessKey); } catch {} }
 const authSyncKey = 'getcyb_auth_sync';
 let authChannel = null;
 try {
@@ -30,7 +33,7 @@ export async function customBackendRequest(path, options = {}) {
       // Keep the browser open long enough for the API's 50s provider deadline,
       // with a small buffer for server response handling.
       signal: options.signal || AbortSignal.timeout(path.includes('/ai/') ? 55000 : 45000),
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      headers: { 'Content-Type': 'application/json', ...(getActiveBusinessId() ? { 'x-cyb-business-id': getActiveBusinessId() } : {}), ...(options.headers || {}) },
     });
   } catch (error) {
     if (error.name === 'TimeoutError' || error.name === 'AbortError') throw new Error('The custom backend took too long to respond. Check your connection and try again.', { cause: error });
