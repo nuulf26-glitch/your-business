@@ -369,7 +369,18 @@ export class BusinessController {
     const safeKeys=['storeName','businessName','description','storeDescription','logoUrl','coverImageUrl','contactEmail','contactPhone','themeColor','primaryColor','backgroundColor','textColor','template','cardStyle','businessCategory','currency','language'];
     const publicSettings=Object.fromEntries(safeKeys.filter(key=>typeof settings[key]==='string').map(key=>[key,settings[key]]));
     const catalog=settings.businessCatalog||settings.catalog;
-    return {id:business.id,name:business.name,slug:business.slug,category:business.category,settings:{...publicSettings,...(catalog?{businessCatalog:catalog,catalog}: {})}};
+    const commerce=settings.commerceSettings as Record<string,any>|undefined;
+    const publicCommerce=commerce?{
+      currency:commerce.currency,
+      shippingZones:Array.isArray(commerce.shippingZones)?commerce.shippingZones.filter((zone:any)=>zone.enabled!==false).map((zone:any)=>({name:zone.name,countryCodes:zone.countryCodes,fee:zone.fee,freeShippingThreshold:zone.freeShippingThreshold})):[],
+      pickupEnabled:commerce.pickupEnabled===true,
+      taxEnabled:commerce.taxEnabled===true,
+      taxRatePercent:commerce.taxRatePercent,
+      taxShipping:commerce.taxShipping===true,
+      taxLabel:commerce.taxLabel,
+      discounts:Array.isArray(commerce.discounts)?commerce.discounts.filter((discount:any)=>discount.enabled!==false).map((discount:any)=>({code:discount.code,type:discount.type,value:discount.value,startsAt:discount.startsAt,endsAt:discount.endsAt})):[],
+    }:undefined;
+    return {id:business.id,name:business.name,slug:business.slug,category:business.category,settings:{...publicSettings,...(catalog?{businessCatalog:catalog,catalog}: {}),...(publicCommerce?{commerceSettings:publicCommerce}:{})}};
   }
 }
 
