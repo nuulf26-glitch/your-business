@@ -364,6 +364,8 @@ function addToCart(product) {
                 This store has not added products yet.
               </p>
             </div>
+          ) : visibleProducts.length === 0 ? (
+            <div className="public-store-empty"><h3>No matching products</h3><p>Try another search or category.</p></div>
           ) : (
             <div className="public-products-grid">
               {visibleProducts.map((product) => (
