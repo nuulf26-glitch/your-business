@@ -10,6 +10,8 @@ import {
   getProducts,
   updateProduct,
   deleteProduct,
+  duplicateProduct,
+  archiveProduct,
 } from "../services/productService";
 
 import "../styles/products.css";
@@ -424,6 +426,26 @@ setProducts(updatedProducts);
       top: 0,
       behavior: "smooth",
     });
+  }
+
+  async function handleDuplicate(productId) {
+    try {
+      const duplicate = await duplicateProduct(productId);
+      setProducts(current => [duplicate, ...current]);
+      setImageError("Product duplicated as a hidden draft. Review its details before publishing.");
+    } catch (error) {
+      setImageError(error.message || "Could not duplicate product.");
+    }
+  }
+
+  async function handleArchive(productId) {
+    if (!window.confirm("Archive this product? It will be removed from the public store.")) return;
+    try {
+      await archiveProduct(productId);
+      setProducts(current => current.map(product => product.id === productId ? { ...product, status: "archived" } : product));
+    } catch (error) {
+      setImageError(error.message || "Could not archive product.");
+    }
   }
 
   async function handleDelete(productId) {
@@ -973,6 +995,9 @@ setProducts(updatedProducts);
                             >
                               Edit
                             </button>
+
+                            <button type="button" onClick={() => handleDuplicate(product.id)}>Duplicate</button>
+                            <button type="button" onClick={() => handleArchive(product.id)} disabled={normalizeStatus(product) === "archived"}>Archive</button>
 
                             <button
                               type="button"
