@@ -403,7 +403,7 @@ function addToCart(product) {
 </p>
 
 <p className="public-product-price">
-  {productPrice(product).toFixed(2)}
+  {product.currency||'USD'} {productPrice(product).toFixed(2)}
 </p>
 
 <span className="public-product-stock">
