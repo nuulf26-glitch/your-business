@@ -43,7 +43,8 @@ describe('OrderController collected revenue', () => {
     await controller.updateStatus(request, { status: 'paid' } as any);
     expect(customer.data).toMatchObject({ totalSpent: 35, paidOrders: 1, orders: 1 });
     expect(row.data.paidAt).toBe(paidAt);
-    expect(tx.order.updateMany).toHaveBeenCalledTimes(2);
+    expect(row.data.paymentHistory).toHaveLength(1);
+    expect(tx.order.updateMany).toHaveBeenCalledTimes(1);
   });
 
   it('retains a single refund record and removes refunded funds from collected spend', async () => {
