@@ -320,6 +320,35 @@ export class BusinessController {
     const days=new Map<string,any>(),pages=new Map<string,number>(),sources=new Map<string,number>();for(const row of rows){const data=row.data as any,key=row.createdAt.toISOString().slice(0,10);const day=days.get(key)||{date:key,bookings:0,inquiries:0,orders:0,visits:0,pageViews:0};if(row.type==='bookings')day.bookings++;if(row.type==='inquiries')day.inquiries++;if(row.type==='pickupOrders')day.orders++;if(row.type==='pageViews'){day.pageViews++;if(data.uniqueVisit)day.visits++;pages.set(data.page,(pages.get(data.page)||0)+1);if(data.uniqueVisit)sources.set(data.source,(sources.get(data.source)||0)+1);}days.set(key,day);}
     return {days:[...days.values()].slice(0,30).sort((a,b)=>b.date.localeCompare(a.date)),pages:[...pages].map(([page,views])=>({page,views})).sort((a,b)=>b.views-a.views).slice(0,10),sources:[...sources].map(([source,visits])=>({source,visits})).sort((a,b)=>b.visits-a.visits).slice(0,10)};
   }
+  @UseGuards(SessionGuard) @Get('mine/commerce-analytics') async commerceAnalytics(@Req() req:Request & {user:any}) {
+    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    if(!business)return {revenue:0,orders:0,averageOrderValue:0,refunds:0,unpaidCodOrders:0,conversionRate:null,uniqueVisits:0,days:[],bestSellers:[],inventoryAlerts:[]};
+    const [orders,products,views]=await Promise.all([
+      this.db.order.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:3000}),
+      this.db.product.findMany({where:{businessId:business.id},take:3000}),
+      this.db.businessRecord.findMany({where:{businessId:business.id,type:'pageViews'},orderBy:{createdAt:'desc'},take:5000}),
+    ]);
+    const paid=orders.filter(row=>String((row.data as any)?.paymentStatus||'').toLowerCase()==='paid');
+    const revenueCents=paid.reduce((sum,row)=>sum+Number((row.data as any)?.collectedAmountCents??row.amountCents??0),0);
+    const refundedCents=orders.reduce((sum,row)=>sum+(Array.isArray((row.data as any)?.refundHistory)?(row.data as any).refundHistory.reduce((part:number,item:any)=>part+(Number(item.amountCents)||0),0):0),0);
+    const days=new Map<string,{date:string,revenue:number,orders:number,refunds:number}>();
+    const productsById=new Map(products.map(product=>[product.id,product.name]));
+    const sold=new Map<string,{productId:string,name:string,quantity:number,revenue:number}>();
+    for(const row of orders){
+      const data=row.data as any,key=new Date(row.createdAt).toISOString().slice(0,10),day=days.get(key)||{date:key,revenue:0,orders:0,refunds:0};
+      day.orders++;
+      if(String(data.paymentStatus||'').toLowerCase()==='paid'){
+        const collected=Number(data.collectedAmountCents??row.amountCents??0);day.revenue+=collected/100;
+        for(const line of Array.isArray(data.items)?data.items:[]){const id=String(line.id||line.productId||''),quantity=Number(line.quantity)||0,current=sold.get(id)||{productId:id,name:String(line.name||productsById.get(id)||'Product'),quantity:0,revenue:0};current.quantity+=quantity;current.revenue+=(Number(line.price)||0)*quantity;sold.set(id,current);}
+      }
+      day.refunds+=(Array.isArray(data.refundHistory)?data.refundHistory.reduce((part:number,item:any)=>part+(Number(item.amountCents)||0),0):0)/100;
+      days.set(key,day);
+    }
+    const uniqueVisits=new Set(views.filter(row=>(row.data as any)?.uniqueVisit).map(row=>String((row.data as any)?.visitId||(row.data as any)?.sessionId||row.id))).size;
+    const unpaidCodOrders=orders.filter(row=>['cash on delivery','pending'].includes(String((row.data as any)?.paymentStatus||'').toLowerCase())&&!['cancelled','returned'].includes(String((row.data as any)?.fulfillmentStatus||row.status).toLowerCase())).length;
+    const inventoryAlerts=products.map(product=>({id:product.id,name:product.name,stock:Number((product.data as any)?.stock),threshold:Number((product.data as any)?.lowStockThreshold??5)})).filter(product=>Number.isFinite(product.stock)&&product.stock<=product.threshold).sort((a,b)=>a.stock-b.stock);
+    return {revenue:revenueCents/100,orders:orders.length,paidOrders:paid.length,averageOrderValue:paid.length?revenueCents/100/paid.length:0,refunds:refundedCents/100,unpaidCodOrders,uniqueVisits,conversionRate:uniqueVisits?paid.length/uniqueVisits: null,days:[...days.values()].slice(0,30).sort((a,b)=>a.date.localeCompare(b.date)),bestSellers:[...sold.values()].sort((a,b)=>b.quantity-a.quantity).slice(0,10),inventoryAlerts};
+  }
   @UseGuards(SessionGuard) @Get('mine/clients') async clients(@Req() req:Request & {user:any}) {
     const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)return [];
     const [bookings,notes]=await Promise.all([this.db.businessRecord.findMany({where:{businessId:business.id,type:'bookings'},orderBy:{createdAt:'desc'},take:300}),this.db.businessRecord.findMany({where:{businessId:business.id,type:'clientNotes'},take:500})]);
