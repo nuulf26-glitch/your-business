@@ -176,8 +176,15 @@ test("products, orders, and customers render fixture records and preserve update
   await page.locator("#sellingPrice").fill("25");
   await page.locator("#category").fill("Test");
   await page.locator("#stock").fill("3");
+  await page.getByRole("button", { name: "Add variant" }).click();
+  await page.getByLabel("Variant 1 name").fill("Small / Black");
+  await page.getByLabel("Variant 1 SKU").fill("QA-SMALL-BLACK");
+  await page.getByLabel("Variant 1 price").fill("20");
+  await page.getByLabel("Variant 1 stock").fill("2");
   await page.getByRole("button", { name: "Add product", exact: true }).click();
   await expect.poll(() => calls.some((call) => call.pathname === "/products" && call.method === "POST")).toBeTruthy();
+  const createdProductCall = calls.find((call) => call.pathname === "/products" && call.method === "POST");
+  expect(createdProductCall.body.data.variants).toContainEqual(expect.objectContaining({ name: "Small / Black", sku: "QA-SMALL-BLACK", price: 20, stock: 2 }));
 
   await page.goto("/orders/synthetic-order");
   await page.locator("#status").selectOption("processing");
