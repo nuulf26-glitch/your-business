@@ -13,3 +13,6 @@ export async function addCustomerFromCheckout(customer) {
 export async function getCustomers() { return (await customBackendRequest('/customers')).map(fromCustomer); }
 export async function deleteCustomer(id) { return customBackendRequest(`/customers/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
 export async function updateCustomerStatus(id, status) { return fromCustomer(await customBackendRequest(`/customers/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) })); }
+
+export async function getCustomerDetails(id) { return fromCustomer(await customBackendRequest(`/customers/${encodeURIComponent(id)}`)); }
+export async function updateCustomerNotes(id, note) { return customBackendRequest(`/customers/${encodeURIComponent(id)}/notes`, { method: 'PATCH', body: JSON.stringify({ data: { note } }) }); }
