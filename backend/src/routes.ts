@@ -15,6 +15,7 @@ import { applyAiWebsiteOperations, normalizeGeneratedWebsite } from './ai-websit
 import { allocate, localParts } from './availability';
 import { expectedStripeMode, stripeKeyMode, stripeModeMatchesApplication } from './stripe-mode';
 import { productDataValidationError } from './product-policy';
+import { calculateStoreOrderTotals, validateStoreCommerceSettings } from './store-commerce-policy';
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 function stagingDiagnosticsEnabled(){
@@ -277,6 +278,20 @@ export class AuthController {
 export class BusinessController {
   constructor(private db:DbService){}
   @UseGuards(SessionGuard) @Get('mine') async mine(@Req() req:Request & {user:any}) { return this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}}); }
+  @UseGuards(SessionGuard) @Get('mine/commerce-settings') async commerceSettings(@Req() req:Request & {user:any}) {
+    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    if(!business)throw new NotFoundException('Business not found');
+    return (business.settings as Record<string,any>)?.commerceSettings||{currency:'USD',shippingZones:[],pickupEnabled:false,taxEnabled:false,taxRatePercent:0,discounts:[]};
+  }
+  @UseGuards(SessionGuard) @Put('mine/commerce-settings') async saveCommerceSettings(@Req() req:Request & {user:any},@Body() dto:JsonInput) {
+    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    if(!business)throw new NotFoundException('Business not found');
+    const error=validateStoreCommerceSettings(dto.data);
+    if(error)throw new BadRequestException(error);
+    const settings={...(business.settings as Record<string,unknown>),commerceSettings:dto.data};
+    const saved=await this.db.business.update({where:{id:business.id},data:{settings:settings as any}});
+    return (saved.settings as Record<string,any>).commerceSettings;
+  }
   @UseGuards(SessionGuard) @Get('mine/catalog') async catalog(@Req() req:Request & {user:any}) {
     const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
     const settings=(business?.settings||{}) as Record<string,unknown>;
