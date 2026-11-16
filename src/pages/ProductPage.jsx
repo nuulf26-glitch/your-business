@@ -122,7 +122,7 @@ function ProductPage() {
             <h1>{product.name}</h1>
 
             <p className="product-page-price">
-              USD {productPrice(purchaseProduct).toFixed(2)}
+              {product.currency||'USD'} {productPrice(purchaseProduct).toFixed(2)}
             </p>
 
             {variants.length > 0 && (
