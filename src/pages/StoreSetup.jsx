@@ -261,6 +261,13 @@ localStorage.setItem(
             </div>
           </section>
 
+          <section className="store-setup-card">
+            <div className="store-setup-card-number">04</div>
+            <div className="store-setup-card-content">
+              <div className="store-setup-card-heading">
+                <div><span>Store contact & currency</span><h2>Help customers reach you</h2></div>
+                <p>These details appear in your public storefront and order experience.</p>
+              </div>
               <div className="store-setup-field">
                 <label htmlFor="logoUrl">Logo image URL</label>
                 <input id="logoUrl" type="url" value={logoUrl} onChange={event => setLogoUrl(event.target.value)} placeholder="https://…" />
@@ -283,7 +290,9 @@ localStorage.setItem(
                   <option value="GBP">GBP — pound sterling</option>
                 </select>
               </div>
+            </div>
           </section>
+
 
           <section className="store-setup-card">
             <div className="store-setup-card-number">
