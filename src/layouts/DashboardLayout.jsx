@@ -33,7 +33,11 @@ function DashboardLayout({ children }) {
           setStores(rows);
           const savedId = getActiveBusinessId();
           const selected = rows.find(store => store.id === savedId) || rows[0] || null;
-          if (selected && selected.id !== savedId) setActiveBusinessId(selected.id);
+          if (selected && selected.id !== savedId) {
+            setActiveBusinessId(selected.id);
+            window.location.reload();
+            return;
+          }
           setActiveBusinessIdState(selected?.id || "");
           setStoreUrl(selected?.storeUrl || "");
         } catch (error) {
