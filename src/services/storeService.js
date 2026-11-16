@@ -15,3 +15,20 @@ export async function getStoreByUrl(storeUrl) {
   try { return fromBusiness(await customBackendRequest(`/businesses/public/${encodeURIComponent(storeUrl)}`)); }
   catch (error) { if (error.status === 404) return null; throw error; }
 }
+
+export async function listStores() {
+  const rows = await customBackendRequest('/businesses/mine/stores');
+  return rows.map(row => fromBusiness({ ...row, ownerId: null, settings: {} }));
+}
+export async function createStore(data) {
+  const result = await customBackendRequest('/businesses/mine/stores', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: data.businessName || data.storeName || 'My Business',
+      slug: data.storeUrl,
+      category: data.businessCategory || 'general',
+      settings: data,
+    }),
+  });
+  return fromBusiness(result);
+}
