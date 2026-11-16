@@ -534,3 +534,32 @@
   cursor: not-allowed;
   opacity: 0.5;
 }
+
+
+.public-store-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) repeat(2, minmax(150px, 1fr));
+  gap: 14px;
+  margin: 24px 0;
+  align-items: end;
+}
+.public-store-filters label {
+  display: grid;
+  gap: 7px;
+  color: #635e57;
+  font-size: 0.8rem;
+}
+.public-store-filters input,
+.public-store-filters select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #d8d1c6;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #211f1c;
+  background: #fff;
+  font: inherit;
+}
+@media (max-width: 640px) {
+  .public-store-filters { grid-template-columns: 1fr; gap: 10px; }
+}
