@@ -11,6 +11,6 @@ export function appendCart(cart,product,quantity=1){
  const current=cart.find(item=>item.productId===product.id&&String(item.variantId||'')===variantId);
  const requested=(Number(current?.quantity)||0)+Math.max(1,Math.floor(Number(quantity)||1));
  const amount=hasTrackedStock?Math.min(stock,requested):requested;
- const item={productId:product.id,name:product.name,price:product.price,imageUrl:product.imageUrl||'',category:product.category||'',quantity:amount,storeUrl:product.storeUrl,currency:product.currency||'USD',...(variantId?{variantId,variantName:product.variantName||'',sku:product.sku||''}:{})};
+ const item={productId:product.id,name:product.name,price:product.price,imageUrl:product.imageUrl||'',category:product.category||'',quantity:amount,storeUrl:product.storeUrl,currency:product.currency||'USD',...(hasTrackedStock?{stock}:{}),...(variantId?{variantId,variantName:product.variantName||'',sku:product.sku||''}:{})};
  return current?cart.map(row=>row.productId===product.id&&String(row.variantId||'')===variantId?item:row):[...cart,item];
 }
