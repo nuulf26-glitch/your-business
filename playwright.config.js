@@ -4,7 +4,7 @@ export default defineConfig({
   testDir: "./tests/functional-visual",
   fullyParallel: false,
   workers: 1,
-  timeout: 20 * 60 * 1000,
+  timeout: 90_000,
   expect: { timeout: 10_000 },
   reporter: [["list"], ["json", { outputFile: "artifacts/functional-visual/results.json" }]],
   use: {

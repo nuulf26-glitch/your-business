@@ -118,6 +118,7 @@ test("image crop controls preview and save persistent crop metadata", async ({ p
 });
 
 test("editor page management, nested-safe actions, and responsive toolbar work with synthetic data", async ({ page }) => {
+  test.setTimeout(90_000);
   await seedProtectedUser(page);
   const calls = await mockAppApi(page);
   for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1024 }, { width: 390, height: 844 }, { width: 375, height: 812 }]) {
@@ -127,7 +128,14 @@ test("editor page management, nested-safe actions, and responsive toolbar work w
     await expect(page.getByRole("combobox", { name: "Current page" })).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     expect(overflow, `horizontal overflow at ${viewport.width}px`).toBeFalsy();
+    if (viewport.width <= 900) {
+      await page.getByRole("button", { name: "Add & pages" }).click();
+      await expect(page.getByRole("navigation", { name: "Editor navigation" })).toBeVisible();
+    }
+    await page.getByRole("navigation", { name: "Editor navigation" }).getByRole("button", { name: /Pages/ }).click();
+    await expect(page.getByText("Website pages")).toBeVisible();
   }
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole("navigation", { name: "Editor navigation" }).getByRole("button", { name: /Pages/ }).click();
   await page.getByLabel("New page name").fill("About");
   await page.getByRole("button", { name: "Add page" }).click();
