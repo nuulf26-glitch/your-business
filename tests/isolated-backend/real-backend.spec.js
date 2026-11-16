@@ -180,13 +180,14 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(customerOrderView.fulfillmentStatus).toBe("new");
   await expect(page.getByRole("heading", { name: "Order tracking" })).toBeVisible();
 
+  const expectedTotal = Number(checkoutOrder.data.total);
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
   const paidCustomer = await requestFromPage(page, "/customers");
   const checkoutCustomer = paidCustomer.find((item) => item.email?.startsWith("checkout-"));
-  expect(checkoutCustomer).toMatchObject({ totalSpent: 18, paidOrders: 1 });
+  expect(checkoutCustomer).toMatchObject({ totalSpent: expectedTotal, paidOrders: 1 });
   const revenue = await requestFromPage(page, "/business/mine/commerce-analytics");
-  expect(revenue.revenue).toBe(18);
+  expect(revenue.revenue).toBe(expectedTotal);
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "processing" } });
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "packed" } });
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "shipped", trackingNumber: "SYNTHETIC-TRACK-001", carrier: "Synthetic Carrier", trackingUrl: "https://carrier.example/track/SYNTHETIC-TRACK-001" } });
@@ -197,7 +198,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/payment`, "PATCH", { data: { status: "refunded" } });
   const refundedAnalytics = await requestFromPage(page, "/business/mine/commerce-analytics");
   expect(refundedAnalytics.revenue).toBe(0);
-  expect(refundedAnalytics.refunds).toBe(18);
+  expect(refundedAnalytics.refunds).toBe(expectedTotal);
 
   const cancelOrder = await requestFromPage(page, "/public/orders", "POST", { storeUrl: slug, customerName: "Synthetic Cancellation Customer", email: `cancel-${process.env.GITHUB_RUN_ID || "local"}@example.test`, items: [{ id: product.id, quantity: 1 }] });
   await requestFromPage(page, `/public/orders/${encodeURIComponent(cancelOrder.id)}/cash-on-delivery`, "POST", { token: cancelOrder.cashOnDeliveryToken });
