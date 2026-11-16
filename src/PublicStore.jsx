@@ -23,6 +23,9 @@ function PublicStore() {
   const [websiteSetup, setWebsiteSetup] = useState(null);
   const [editorData, setEditorData] = useState(null);
   const [products, setProducts] = useState([]);
+  const [productSearch, setProductSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [productSort, setProductSort] = useState("featured");
 
   useEffect(() => {
     let active = true;
@@ -113,6 +116,21 @@ function addToCart(product) {
   try { localStorage.setItem('businessCart',JSON.stringify(appendCart(readCart(localStorage),{...product,price:productPrice(product)}))); alert('Added to cart'); }
   catch(error) { alert(error.message); }
 }
+
+  const categories = useMemo(() => [...new Set(products.map(product => product.category).filter(Boolean))], [products]);
+  const visibleProducts = useMemo(() => {
+    const query=productSearch.trim().toLowerCase();
+    const rows=products.filter(product=>
+      (!query || [product.name,product.description,product.category].some(value=>String(value||'').toLowerCase().includes(query))) &&
+      (categoryFilter==='All' || product.category===categoryFilter)
+    );
+    return rows.sort((a,b)=>{
+      if(productSort==='price-low')return productPrice(a)-productPrice(b);
+      if(productSort==='price-high')return productPrice(b)-productPrice(a);
+      if(productSort==='name')return String(a.name||'').localeCompare(String(b.name||''));
+      return 0;
+    });
+  },[products,productSearch,categoryFilter,productSort]);
 
   function openProduct(productId) {
     navigate(`/product/${productId}`);
@@ -330,6 +348,14 @@ function addToCart(product) {
             </p>
           </div>
 
+          {products.length > 0 && (
+            <div className="public-store-filters" aria-label="Product filters">
+              <label>Search products<input type="search" value={productSearch} onChange={event=>setProductSearch(event.target.value)} placeholder="Search products" /></label>
+              <label>Category<select value={categoryFilter} onChange={event=>setCategoryFilter(event.target.value)}><option>All</option>{categories.map(category=><option key={category} value={category}>{category}</option>)}</select></label>
+              <label>Sort by<select value={productSort} onChange={event=>setProductSort(event.target.value)}><option value="featured">Featured</option><option value="price-low">Price: low to high</option><option value="price-high">Price: high to low</option><option value="name">Name</option></select></label>
+            </div>
+          )}
+
           {products.length === 0 ? (
             <div className="public-store-empty">
               <h3>No products yet</h3>
@@ -340,7 +366,7 @@ function addToCart(product) {
             </div>
           ) : (
             <div className="public-products-grid">
-              {products.map((product) => (
+              {visibleProducts.map((product) => (
                 <article
                   className="public-product-card"
                   key={product.id}
@@ -375,33 +401,23 @@ function addToCart(product) {
 </p>
 
 <p className="public-product-price">
-  {Number(
-    product.sellingPrice
-  ).toFixed(2)}
+  {productPrice(product).toFixed(2)}
 </p>
 
 <span className="public-product-stock">
-  {product.stock > 0
-    ? `${product.stock} available`
-    : "Out of stock"}
+  {product.stock === undefined || product.stock === null || String(product.stock).trim() === ""
+    ? "Available"
+    : Number(product.stock) > 0 ? `${product.stock} available` : "Out of stock"}
 </span>
 
-                    <button
-  type="button"
-  disabled={product.stock <= 0}
-  onClick={(event) => {
-    event.stopPropagation();
-
-    if (product.stock > 0) {
-     addToCart(product)
-
-    }
-  }}
->
-  {product.stock > 0
-    ? "Add to cart"
-    : "Out of stock"}
-</button>
+                    {Array.isArray(product.variants) && product.variants.length > 0 ? (
+                      <button type="button" onClick={event=>{event.stopPropagation();openProduct(product.id);}}>Choose options</button>
+                    ) : (
+                      <button type="button" disabled={product.stock !== undefined && product.stock !== null && String(product.stock).trim() !== "" && Number(product.stock) <= 0}
+                        onClick={event=>{event.stopPropagation();addToCart(product);}}>
+                        {product.stock !== undefined && product.stock !== null && String(product.stock).trim() !== "" && Number(product.stock) <= 0 ? "Out of stock" : "Add to cart"}
+                      </button>
+                    )}
                   </div>
                 </article>
               ))}
