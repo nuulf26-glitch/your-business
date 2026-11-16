@@ -159,7 +159,7 @@ Object.assign(newOrder, saved, { id: saved.id, backendId: saved.id });
       navigate("/payment");
     } catch (checkoutError) {
       console.error("Could not create order:", checkoutError);
-      setError("Something went wrong. Please try again.");
+      setError(checkoutError.message || "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
