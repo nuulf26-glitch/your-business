@@ -3,6 +3,8 @@ import { customBackendRequest } from "../services/customBackendSession";
 import "./storeCommerceSettings.css";
 
 const defaults = { currency: "USD", shippingZones: [], pickupEnabled: false, taxEnabled: false, taxRatePercent: 0, taxShipping: false, taxLabel: "Tax", discounts: [] };
+const localDateTime = value => { if(!value)return ""; const date=new Date(value); return Number.isNaN(date.getTime())?"":date.toISOString().slice(0,16); };
+const isoDateTime = value => value?new Date(value).toISOString():null;
 
 export default function StoreCommerceSettings() {
   const [settings,setSettings]=useState(defaults);
@@ -32,7 +34,7 @@ export default function StoreCommerceSettings() {
       currency:String(settings.currency||"USD").toUpperCase(),
       shippingZones:settings.shippingZones.map(zone=>({...zone,countryCodes:String(zone.countryCodesText??(zone.countryCodes||[]).join(",")).split(",").map(code=>code.trim().toUpperCase()).filter(Boolean),fee:Number(zone.fee||0),freeShippingThreshold:zone.freeShippingThreshold===""||zone.freeShippingThreshold==null?null:Number(zone.freeShippingThreshold)})),
       taxRatePercent:Number(settings.taxRatePercent||0),
-      discounts:settings.discounts.map(code=>({...code,code:String(code.code||"").trim().toUpperCase(),value:Number(code.value||0),usageLimit:code.usageLimit===""||code.usageLimit==null?null:Number(code.usageLimit)})),
+      discounts:settings.discounts.map(code=>({...code,code:String(code.code||"").trim().toUpperCase(),value:Number(code.value||0),usageLimit:code.usageLimit===""||code.usageLimit==null?null:Number(code.usageLimit),startsAt:isoDateTime(code.startsAt),endsAt:isoDateTime(code.endsAt)})),
     };
     try{const saved=await customBackendRequest("/businesses/mine/commerce-settings",{method:"PUT",body:JSON.stringify({data})});setSettings({...defaults,...saved});setMessage("Store commerce settings saved.");}
     catch(error){setMessage(error.message||"Could not save these settings.");}
@@ -78,6 +80,8 @@ export default function StoreCommerceSettings() {
             <label>Type<select value={code.type||"percent"} onChange={event=>updateDiscount(index,"type",event.target.value)}><option value="percent">Percentage</option><option value="fixed">Fixed amount</option></select></label>
             <label>Value<input type="number" min="0" step="0.01" value={code.value??0} onChange={event=>updateDiscount(index,"value",event.target.value)}/></label>
             <label>Use limit<input type="number" min="1" step="1" value={code.usageLimit??""} onChange={event=>updateDiscount(index,"usageLimit",event.target.value)} placeholder="Unlimited"/></label>
+            <label>Starts at<input type="datetime-local" value={localDateTime(code.startsAt)} onChange={event=>updateDiscount(index,"startsAt",event.target.value)}/></label>
+            <label>Ends at<input type="datetime-local" value={localDateTime(code.endsAt)} onChange={event=>updateDiscount(index,"endsAt",event.target.value)}/></label>
             <label className="commerce-toggle"><input type="checkbox" checked={code.enabled!==false} onChange={event=>updateDiscount(index,"enabled",event.target.checked)}/> Enabled</label>
             <button type="button" aria-label={`Remove discount ${code.code||index+1}`} onClick={()=>setSettings(current=>({...current,discounts:current.discounts.filter((_,i)=>i!==index)}))}>Remove</button>
           </div>)}
