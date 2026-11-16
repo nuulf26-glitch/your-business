@@ -160,4 +160,31 @@ describe('PublicOrderController', () => {
     expect(tx.product.updateMany).not.toHaveBeenCalled();
     expect(tx.order.create).not.toHaveBeenCalled();
   });
+
+  it('applies merchant currency, shipping, tax, and discount settings server-side', async () => {
+    const tx:any={
+      order:{findMany:jest.fn().mockResolvedValue([]),create:jest.fn().mockResolvedValue({id:'order_config',status:'new',createdAt:new Date(),data:{}})},
+      customer:{findFirst:jest.fn().mockResolvedValue(null),create:jest.fn().mockResolvedValue({})},
+    };
+    const db:any={
+      business:{findUnique:jest.fn().mockResolvedValue({id:'biz_1',slug:'sample-shop',settings:{commerceSettings:{currency:'AED',shippingZones:[{countryCodes:['AE'],fee:5}],taxEnabled:true,taxRatePercent:5,discounts:[{code:'WELCOME',type:'percent',value:10,usageLimit:2}]}},website:{published:{}}})},
+      product:{findMany:jest.fn().mockResolvedValue([{id:'prod_1',name:'Item',data:{sellingPrice:100}}])},
+      $transaction:jest.fn(async(callback:any)=>callback(tx)),
+    };
+    await new PublicOrderController(db).create({data:{storeUrl:'sample-shop',customerName:'A Customer',email:'a@example.com',countryCode:'AE',discountCode:'welcome',items:[{productId:'prod_1',quantity:1}]}});
+    const saved=tx.order.create.mock.calls[0][0].data;
+    expect(saved).toMatchObject({currency:'AED',amountCents:9950});
+    expect(saved.data).toMatchObject({subtotal:100,shipping:5,discount:10,tax:4.5,total:99.5,discountCode:'WELCOME'});
+  });
+
+  it('rejects a discount after its configured order usage limit is reached', async () => {
+    const tx:any={order:{findMany:jest.fn().mockResolvedValue([{status:'new',data:{discountCode:'WELCOME'} }]),create:jest.fn()},customer:{findFirst:jest.fn(),create:jest.fn()}};
+    const db:any={
+      business:{findUnique:jest.fn().mockResolvedValue({id:'biz_1',slug:'sample-shop',settings:{commerceSettings:{discounts:[{code:'WELCOME',type:'fixed',value:5,usageLimit:1}]}},website:{published:{}}})},
+      product:{findMany:jest.fn().mockResolvedValue([{id:'prod_1',name:'Item',data:{sellingPrice:20}}])},
+      $transaction:jest.fn(async(callback:any)=>callback(tx)),
+    };
+    await expect(new PublicOrderController(db).create({data:{storeUrl:'sample-shop',customerName:'A Customer',email:'a@example.com',discountCode:'WELCOME',items:[{productId:'prod_1',quantity:1}]}})).rejects.toThrow('usage limit');
+    expect(tx.order.create).not.toHaveBeenCalled();
+  });
 });
