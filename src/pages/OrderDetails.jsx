@@ -28,7 +28,7 @@ function OrderDetails() {
         const orderData = await customBackendRequest(`/orders/${encodeURIComponent(orderId)}`);
 
         setOrder(orderData);
-        setShippingCompany(orderData.shippingCompany || "");
+        setShippingCompany(orderData.shippingCarrier || orderData.shippingCompany || "");
         setTrackingNumber(orderData.trackingNumber || "");
         setTrackingUrl(orderData.trackingUrl || "");
       } catch (loadError) {
@@ -89,7 +89,7 @@ function OrderDetails() {
       setError("");
       setSuccessMessage("");
 
-      await customBackendRequest(`/orders/${encodeURIComponent(orderId)}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus.toLowerCase() }) });
+      await customBackendRequest(`/orders/${encodeURIComponent(orderId)}/fulfillment`, { method: 'PATCH', body: JSON.stringify({ data: { status: newStatus.toLowerCase() } }) });
 
       setOrder((currentOrder) => ({
         ...currentOrder,
