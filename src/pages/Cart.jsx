@@ -178,11 +178,11 @@ function Cart() {
 
                         <div className="cart-item-price">
                           <span>
-                            USD {Number(item.price).toFixed(2)} each
+                            {item.currency||'USD'} {Number(item.price).toFixed(2)} each
                           </span>
 
                           <strong>
-                            USD{" "}
+                            {item.currency||'USD'}{" "}
                             {(
                               Number(item.price) *
                               Number(item.quantity)
