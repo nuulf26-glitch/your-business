@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/cart.css";
 
+function cartKey(item) { return `${item.productId}:${String(item.variantId || '')}`; }
+
 function Cart() {
   const navigate = useNavigate();
 
@@ -24,14 +26,14 @@ function Cart() {
     }, 0);
   }, [cart]);
 
-  function updateQuantity(productId, newQuantity) {
+  function updateQuantity(itemKey, newQuantity) {
     if (newQuantity < 1) {
       return;
     }
 
     setCart((currentCart) =>
       currentCart.map((item) =>
-        item.productId === productId
+        cartKey(item) === itemKey
           ? {
               ...item,
               quantity: newQuantity,
@@ -41,9 +43,9 @@ function Cart() {
     );
   }
 
-  function removeItem(productId) {
+  function removeItem(itemKey) {
     setCart((currentCart) =>
-      currentCart.filter((item) => item.productId !== productId)
+      currentCart.filter((item) => cartKey(item) !== itemKey)
     );
   }
 
@@ -118,7 +120,7 @@ function Cart() {
 
               <div className="cart-items-list">
                 {cart.map((item) => (
-                  <article className="cart-item" key={item.productId}>
+                  <article className="cart-item" key={cartKey(item)}>
                     <div className="cart-item-image">
                       {item.imageUrl ? (
                         <img src={item.imageUrl} alt={item.name} />
@@ -134,11 +136,12 @@ function Cart() {
                         <div>
                           <span>{item.category || "Product"}</span>
                           <h3>{item.name}</h3>
+                          {item.variantName && <small>{item.variantName}</small>}
                         </div>
 
                         <button
                           type="button"
-                          onClick={() => removeItem(item.productId)}
+                          onClick={() => removeItem(cartKey(item))}
                         >
                           Remove
                         </button>
@@ -150,7 +153,7 @@ function Cart() {
                             type="button"
                             onClick={() =>
                               updateQuantity(
-                                item.productId,
+                                cartKey(item),
                                 item.quantity - 1
                               )
                             }
@@ -164,7 +167,7 @@ function Cart() {
                             type="button"
                             onClick={() =>
                               updateQuantity(
-                                item.productId,
+                                cartKey(item),
                                 item.quantity + 1
                               )
                             }
