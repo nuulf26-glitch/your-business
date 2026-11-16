@@ -3,7 +3,7 @@ const apiBase = `${baseUrl}/api/v1`;
 const cachedUserKey = 'getcyb_session_user';
 const activeBusinessKey = 'cyb_active_business_id';
 export function getActiveBusinessId() { try { return localStorage.getItem(activeBusinessKey) || ''; } catch { return ''; } }
-export function setActiveBusinessId(id) { try { if (id) localStorage.setItem(activeBusinessKey, String(id)); else localStorage.removeItem(activeBusinessKey); } catch {} }
+export function setActiveBusinessId(id) { try { if (id) localStorage.setItem(activeBusinessKey, String(id)); else localStorage.removeItem(activeBusinessKey); } catch { /* Storage can be disabled by the browser or privacy settings. */ } }
 const authSyncKey = 'getcyb_auth_sync';
 let authChannel = null;
 try {
