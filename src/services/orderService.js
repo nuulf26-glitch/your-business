@@ -7,3 +7,6 @@ export async function addOrder(order) { return fromOrder(await customBackendRequ
 export async function getOrders() { return (await customBackendRequest('/orders')).map(fromOrder); }
 export async function updateOrderStatus(id, status) { return fromOrder(await customBackendRequest(`/orders/${encodeURIComponent(id)}/status`, { method: 'PATCH', body: JSON.stringify({ status: String(status).toLowerCase() }) })); }
 export async function deleteOrder(id) { return customBackendRequest(`/orders/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
+export async function getOrder(id) { return fromOrder(await customBackendRequest(`/orders/${encodeURIComponent(id)}`)); }
+export async function updatePaymentStatus(id, status) { return fromOrder(await customBackendRequest(`/orders/${encodeURIComponent(id)}/payment`, { method: 'PATCH', body: JSON.stringify({ data: { status: String(status).toLowerCase() } }) })); }
+export async function updateFulfillment(id, data) { return fromOrder(await customBackendRequest(`/orders/${encodeURIComponent(id)}/fulfillment`, { method: 'PATCH', body: JSON.stringify({ data }) })); }
