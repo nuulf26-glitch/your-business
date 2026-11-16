@@ -25,6 +25,7 @@ describe('PublicOrderController', () => {
       data: expect.objectContaining({ amountCents: 3500, currency: 'USD' }),
     }));
     const stored = tx.order.create.mock.calls[0][0].data.data;
+    expect(tx.customer.create.mock.calls[0][0].data.data).toMatchObject({ totalSpent: 0, paidOrders: 0, orders: 1 });
     expect(stored.subtotal).toBe(10);
     expect(stored.shipping).toBe(25);
     expect(stored.total).toBe(35);
