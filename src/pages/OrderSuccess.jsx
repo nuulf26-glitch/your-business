@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/orderSuccess.css";
 
@@ -9,7 +9,18 @@ function readCompletedOrder() {
 
 function OrderSuccess() {
   const navigate = useNavigate();
-  const [order] = useState(readCompletedOrder);
+  const [order, setOrder] = useState(readCompletedOrder);
+  const [tracking, setTracking] = useState(null);
+
+  useEffect(() => {
+    if (!order?.id || !order?.cashOnDeliveryToken) return;
+    let active = true;
+    fetch(`/api/v1/public/orders/${encodeURIComponent(order.id)}?token=${encodeURIComponent(order.cashOnDeliveryToken)}`, { credentials: "include" })
+      .then(response => response.ok ? response.json() : null)
+      .then(value => { if (active && value) { setTracking(value); setOrder(current => ({ ...current, status: value.fulfillmentStatus, paymentStatus: value.paymentStatus })); } })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [order?.id, order?.cashOnDeliveryToken]);
 
   if (!order) {
     return (
@@ -77,6 +88,14 @@ function OrderSuccess() {
             </div>
           </div>
 
+          {tracking && <div className="order-success-tracking" aria-live="polite">
+            <h2>Order tracking</h2>
+            <p>Status: <strong>{tracking.fulfillmentStatus}</strong> · Payment: {tracking.paymentStatus}</p>
+            {tracking.shippingCarrier && <p>Carrier: {tracking.shippingCarrier}</p>}
+            {tracking.trackingNumber && <p>Tracking number: {tracking.trackingNumber}</p>}
+            {tracking.trackingUrl && <a href={tracking.trackingUrl} target="_blank" rel="noreferrer">Track shipment</a>}
+            {tracking.timeline?.length > 0 && <ol>{tracking.timeline.map((item, index) => <li key={String(item.recordedAt || item.at || index) + "-" + index}>{item.status} · {new Date(item.recordedAt || item.at).toLocaleString()}</li>)}</ol>}
+          </div>}
           <div className="order-success-items">
             <h2>Order items</h2>
 
