@@ -286,10 +286,17 @@ describe('backend critical operations', () => {
   });
 
   it('scopes order updates to the signed-in owner business', async () => {
-    const db:any={business:{findFirst:jest.fn().mockResolvedValue({id:'business-owned'})},order:{updateMany:jest.fn().mockResolvedValue({count:0}),findUnique:jest.fn()}};
+    const tx:any={order:{findFirst:jest.fn().mockResolvedValue(null),updateMany:jest.fn(),findUnique:jest.fn()}};
+    const db:any={
+      business:{findFirst:jest.fn().mockResolvedValue({id:'business-owned'})},
+      $transaction:jest.fn(async(callback:any)=>callback(tx)),
+    };
     await expect(new OrderController(db).updateStatus({user:{id:'owner-1'},params:{id:'another-business-order'}} as any,{status:'delivered'} as any)).rejects.toThrow('Order not found');
-    expect(db.order.updateMany).toHaveBeenCalledWith({where:{id:'another-business-order',businessId:'business-owned'},data:{status:'delivered'}});
-    expect(db.order.findUnique).not.toHaveBeenCalled();
+    expect(db.business.findFirst).toHaveBeenCalledWith({where:{ownerId:'owner-1'}});
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.order.findFirst).toHaveBeenCalledWith({where:{id:'another-business-order',businessId:'business-owned'}});
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
+    expect(tx.order.findUnique).not.toHaveBeenCalled();
   });
 
   it('rejects unsafe published links and strips private root fields', () => {
