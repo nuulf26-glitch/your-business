@@ -56,6 +56,7 @@ class LegacySessionInput {
   @IsString() @MinLength(32) @MaxLength(200) sessionToken!: string;
 }
 class StoreInput { @IsString() @MaxLength(120) name!: string; @IsString() @MaxLength(100) slug!: string; @IsString() category!: string; @IsObject() settings!: object; }
+async function selectedBusiness(db:DbService,req:Request & {user:any},include?:Record<string,unknown>){const id=String(req.get('x-cyb-business-id')||'').trim();return db.business.findFirst({where:id?{ownerId:req.user.id,id}:{ownerId:req.user.id},...(include?{include}: {})});}
 class JsonInput { @IsObject() data!: Record<string, unknown>; }
 class WebsiteInput { @IsObject() model!: Record<string, unknown>; @IsOptional() @IsInt() @Min(0) expectedRevision?: number; }
 class AiPromptInput { @IsString() @MinLength(8) @MaxLength(1200) prompt!: string; @IsOptional() @IsIn(['create','modify']) mode?:'create'|'modify'; @IsOptional() @IsObject() model?:Record<string,unknown>; }
@@ -277,14 +278,32 @@ export class AuthController {
 @Controller('businesses')
 export class BusinessController {
   constructor(private db:DbService){}
-  @UseGuards(SessionGuard) @Get('mine') async mine(@Req() req:Request & {user:any}) { return this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}}); }
+  @UseGuards(SessionGuard) @Get('mine') async mine(@Req() req:Request & {user:any}) { return selectedBusiness(this.db,req,{website:true}); }
+  @UseGuards(SessionGuard) @Get('mine/stores') async stores(@Req() req:Request & {user:any}) {
+    const rows=await this.db.business.findMany({where:{ownerId:req.user.id},include:{website:true},orderBy:{createdAt:'asc'}});
+    return rows.map(row=>({id:row.id,name:row.name,slug:row.slug,category:row.category,createdAt:row.createdAt,published:!!row.website?.published}));
+  }
+  @UseGuards(SessionGuard) @Post('mine/stores') async createStore(@Req() req:Request & {user:any},@Body() dto:StoreInput) {
+    const name=String(dto.name||'').trim(),slug=String(dto.slug||'').trim().toLowerCase();
+    if(!name)throw new BadRequestException('Store name required');
+    if(!/^[a-z0-9-]{1,100}$/.test(slug))throw new BadRequestException('Slug must use lowercase letters, numbers, and hyphens');
+    const [count,existing]=await Promise.all([
+      this.db.business.count({where:{ownerId:req.user.id}}),
+      this.db.business.findUnique({where:{slug}}),
+    ]);
+    if(count>=20)throw new BadRequestException('An account can have up to 20 stores');
+    if(existing)throw new ConflictException('Website address is already taken');
+    const settings={...(dto.settings as Record<string,unknown>),storeName:name,businessName:name,storeUrl:slug};
+    try{return await this.db.business.create({data:{ownerId:req.user.id,name,slug,category:dto.category||'general',settings:settings as any,website:{create:{}}}});}
+    catch(error){if(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==='P2002')throw new ConflictException('Website address is already taken');throw error;}
+  }
   @UseGuards(SessionGuard) @Get('mine/commerce-settings') async commerceSettings(@Req() req:Request & {user:any}) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const business=await selectedBusiness(this.db,req);
     if(!business)throw new NotFoundException('Business not found');
     const storeSettings=business.settings as Record<string,any>;return storeSettings?.commerceSettings||{currency:storeSettings?.currency||'USD',shippingZones:[],pickupEnabled:false,taxEnabled:false,taxRatePercent:0,discounts:[]};
   }
   @UseGuards(SessionGuard) @Put('mine/commerce-settings') async saveCommerceSettings(@Req() req:Request & {user:any},@Body() dto:JsonInput) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const business=await selectedBusiness(this.db,req);
     if(!business)throw new NotFoundException('Business not found');
     const error=validateStoreCommerceSettings(dto.data);
     if(error)throw new BadRequestException(error);
@@ -293,12 +312,12 @@ export class BusinessController {
     return (saved.settings as Record<string,any>).commerceSettings;
   }
   @UseGuards(SessionGuard) @Get('mine/catalog') async catalog(@Req() req:Request & {user:any}) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const business=await selectedBusiness(this.db,req);
     const settings=(business?.settings||{}) as Record<string,unknown>;
     return settings.businessCatalog||settings.catalog||null;
   }
   @UseGuards(SessionGuard) @Put('mine/catalog') async saveCatalog(@Req() req:Request & {user:any},@Body() dto:JsonInput) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const business=await selectedBusiness(this.db,req);
     if(!business)throw new NotFoundException('Business not found');
     const catalog=dto.data as Record<string,any>;
     if(!['salon','restaurant','store','services','portfolio','general'].includes(String(catalog.businessCategory)))throw new BadRequestException('Choose a business category');
@@ -309,19 +328,19 @@ export class BusinessController {
   @UseGuards(SessionGuard) @Get('mine/records') async records(@Req() req:Request & {user:any}) {
     const type=String(req.query.type||'');
     if(!['bookings','inquiries','notifications','pickupOrders'].includes(type))throw new BadRequestException('Invalid business record type');
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const business=await selectedBusiness(this.db,req);
     if(!business)return [];
     const rows=await this.db.businessRecord.findMany({where:{businessId:business.id,type},orderBy:{createdAt:'desc'},take:300});
     return rows.map(row=>({...(row.data as Record<string,unknown>),id:row.id,type:row.type,status:row.status,read:row.read,createdAt:row.createdAt.toISOString()}));
   }
   @UseGuards(SessionGuard) @Get('mine/analytics') async analytics(@Req() req:Request & {user:any}) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)return {days:[],pages:[],sources:[]};
+    const business=await selectedBusiness(this.db,req);if(!business)return {days:[],pages:[],sources:[]};
     const rows=await this.db.businessRecord.findMany({where:{businessId:business.id,type:{in:['bookings','inquiries','pickupOrders','pageViews']}},orderBy:{createdAt:'desc'},take:2000});
     const days=new Map<string,any>(),pages=new Map<string,number>(),sources=new Map<string,number>();for(const row of rows){const data=row.data as any,key=row.createdAt.toISOString().slice(0,10);const day=days.get(key)||{date:key,bookings:0,inquiries:0,orders:0,visits:0,pageViews:0};if(row.type==='bookings')day.bookings++;if(row.type==='inquiries')day.inquiries++;if(row.type==='pickupOrders')day.orders++;if(row.type==='pageViews'){day.pageViews++;if(data.uniqueVisit)day.visits++;pages.set(data.page,(pages.get(data.page)||0)+1);if(data.uniqueVisit)sources.set(data.source,(sources.get(data.source)||0)+1);}days.set(key,day);}
     return {days:[...days.values()].slice(0,30).sort((a,b)=>b.date.localeCompare(a.date)),pages:[...pages].map(([page,views])=>({page,views})).sort((a,b)=>b.views-a.views).slice(0,10),sources:[...sources].map(([source,visits])=>({source,visits})).sort((a,b)=>b.visits-a.visits).slice(0,10)};
   }
   @UseGuards(SessionGuard) @Get('mine/commerce-analytics') async commerceAnalytics(@Req() req:Request & {user:any}) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const business=await selectedBusiness(this.db,req);
     if(!business)return {revenue:0,orders:0,averageOrderValue:0,refunds:0,unpaidCodOrders:0,conversionRate:null,uniqueVisits:0,days:[],bestSellers:[],inventoryAlerts:[]};
     const [orders,products,views]=await Promise.all([
       this.db.order.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:3000}),
@@ -350,16 +369,16 @@ export class BusinessController {
     return {revenue:revenueCents/100,orders:orders.length,paidOrders:paid.length,averageOrderValue:paid.length?revenueCents/100/paid.length:0,refunds:refundedCents/100,unpaidCodOrders,uniqueVisits,conversionRate:uniqueVisits?paid.length/uniqueVisits: null,days:[...days.values()].slice(0,30).sort((a,b)=>a.date.localeCompare(b.date)),bestSellers:[...sold.values()].sort((a,b)=>b.quantity-a.quantity).slice(0,10),inventoryAlerts};
   }
   @UseGuards(SessionGuard) @Get('mine/clients') async clients(@Req() req:Request & {user:any}) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)return [];
+    const business=await selectedBusiness(this.db,req);if(!business)return [];
     const [bookings,notes]=await Promise.all([this.db.businessRecord.findMany({where:{businessId:business.id,type:'bookings'},orderBy:{createdAt:'desc'},take:300}),this.db.businessRecord.findMany({where:{businessId:business.id,type:'clientNotes'},take:500})]);
     const crypto=require('node:crypto'),noteMap=new Map(notes.map(note=>[(note.data as any).clientId,(note.data as any).note||''])),map=new Map<string,any>();
     for(const row of bookings){const data=row.data as any,email=String(data.email||'').toLowerCase();if(!email)continue;const id=crypto.createHash('sha256').update(email).digest('hex');const client=map.get(id)||{id,name:data.name||'',email,phone:data.phone||'',bookings:[],note:noteMap.get(id)||''};client.bookings.push({id:row.id,start:data.start,serviceName:data.serviceName||'Table reservation',status:row.status});map.set(id,client);}
     return [...map.values()];
   }
-  @UseGuards(SessionGuard) @Put('mine/client-notes/:id') async saveClientNote(@Req() req:Request & {user:any},@Body() dto:JsonInput){const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)throw new NotFoundException('Business not found');const id=String(req.params['id']);if(!/^[a-f0-9]{64}$/.test(id))throw new BadRequestException('Invalid client');const note=String(dto.data.note||'').slice(0,5000);const prior=await this.db.businessRecord.findFirst({where:{businessId:business.id,type:'clientNotes',data:{path:['clientId'],equals:id}}});if(prior)return this.db.businessRecord.update({where:{id:prior.id},data:{data:{clientId:id,note} as any}});return this.db.businessRecord.create({data:{businessId:business.id,type:'clientNotes',data:{clientId:id,note} as any}});}
-  @UseGuards(SessionGuard) @Patch('mine/records/:id/reschedule') async rescheduleBooking(@Req() req:Request & {user:any},@Body() dto:JsonInput){const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)throw new NotFoundException('Business not found');const row=await this.db.businessRecord.findFirst({where:{id:String(req.params['id']),businessId:business.id,type:'bookings',status:'confirmed'}});if(!row)throw new NotFoundException('Confirmed booking not found');const start=String(dto.data.start||''),startMs=Date.parse(start),catalog=(business.settings as any).businessCatalog;if(!Number.isFinite(startMs)||startMs<Date.now())throw new BadRequestException('Choose a future time');if(!catalog)throw new BadRequestException('Booking availability is not configured');return this.db.$transaction(async tx=>{const date=localParts(startMs,catalog.timeZone||'UTC').date;await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${business.id}), hashtext(${date}))`;const rows=await tx.businessRecord.findMany({where:{businessId:business.id,type:'bookings'},take:1000});const current=row.data as any;let slot:any;try{slot=allocate(catalog,{kind:current.kind,start,serviceId:current.serviceId,staffId:current.staffId,guests:current.guests},rows.filter(item=>item.id!==row.id).map(item=>item.data));}catch(error){throw new BadRequestException(error instanceof Error?error.message:'This time is unavailable');}const data={...current,...slot,date:localParts(slot.start,catalog.timeZone||'UTC').date,start:new Date(slot.start).toISOString(),end:new Date(slot.end).toISOString(),rescheduledAt:new Date().toISOString()};return tx.businessRecord.update({where:{id:row.id},data:{data:data as any}});});}
+  @UseGuards(SessionGuard) @Put('mine/client-notes/:id') async saveClientNote(@Req() req:Request & {user:any},@Body() dto:JsonInput){const business=await selectedBusiness(this.db,req);if(!business)throw new NotFoundException('Business not found');const id=String(req.params['id']);if(!/^[a-f0-9]{64}$/.test(id))throw new BadRequestException('Invalid client');const note=String(dto.data.note||'').slice(0,5000);const prior=await this.db.businessRecord.findFirst({where:{businessId:business.id,type:'clientNotes',data:{path:['clientId'],equals:id}}});if(prior)return this.db.businessRecord.update({where:{id:prior.id},data:{data:{clientId:id,note} as any}});return this.db.businessRecord.create({data:{businessId:business.id,type:'clientNotes',data:{clientId:id,note} as any}});}
+  @UseGuards(SessionGuard) @Patch('mine/records/:id/reschedule') async rescheduleBooking(@Req() req:Request & {user:any},@Body() dto:JsonInput){const business=await selectedBusiness(this.db,req);if(!business)throw new NotFoundException('Business not found');const row=await this.db.businessRecord.findFirst({where:{id:String(req.params['id']),businessId:business.id,type:'bookings',status:'confirmed'}});if(!row)throw new NotFoundException('Confirmed booking not found');const start=String(dto.data.start||''),startMs=Date.parse(start),catalog=(business.settings as any).businessCatalog;if(!Number.isFinite(startMs)||startMs<Date.now())throw new BadRequestException('Choose a future time');if(!catalog)throw new BadRequestException('Booking availability is not configured');return this.db.$transaction(async tx=>{const date=localParts(startMs,catalog.timeZone||'UTC').date;await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${business.id}), hashtext(${date}))`;const rows=await tx.businessRecord.findMany({where:{businessId:business.id,type:'bookings'},take:1000});const current=row.data as any;let slot:any;try{slot=allocate(catalog,{kind:current.kind,start,serviceId:current.serviceId,staffId:current.staffId,guests:current.guests},rows.filter(item=>item.id!==row.id).map(item=>item.data));}catch(error){throw new BadRequestException(error instanceof Error?error.message:'This time is unavailable');}const data={...current,...slot,date:localParts(slot.start,catalog.timeZone||'UTC').date,start:new Date(slot.start).toISOString(),end:new Date(slot.end).toISOString(),rescheduledAt:new Date().toISOString()};return tx.businessRecord.update({where:{id:row.id},data:{data:data as any}});});}
   @UseGuards(SessionGuard) @Post('mine/records/bookings') async createOwnerBooking(@Req() req:Request & {user:any},@Body() dto:JsonInput) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const business=await selectedBusiness(this.db,req);
     if(!business)throw new NotFoundException('Business not found');
     const data=dto.data as Record<string,unknown>;
     if(data.storeUrl&&data.storeUrl!==business.slug)throw new NotFoundException('Business not found');
@@ -369,7 +388,7 @@ export class BusinessController {
     return {id:record.id,start,status:record.status};
   }
   @UseGuards(SessionGuard) @Patch('mine/records/:id') async updateRecord(@Req() req:Request & {user:any},@Body() dto:OrderStatusInput) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const business=await selectedBusiness(this.db,req);
     if(!business)throw new NotFoundException('Business not found');
     const type=String(req.query.type||'');
     if(type==='notifications'){
@@ -386,7 +405,7 @@ export class BusinessController {
   @UseGuards(SessionGuard) @Put('mine') async save(@Req() req:Request & {user:any},@Body() dto:StoreInput) {
     if(!/^[a-z0-9-]{1,100}$/.test(dto.slug)) throw new BadRequestException('Slug must use lowercase letters, numbers, and hyphens');
     const existing=await this.db.business.findUnique({where:{slug:dto.slug}}); if(existing&&existing.ownerId!==req.user.id) throw new ConflictException('Website address is already taken');
-    const current=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const current=await selectedBusiness(this.db,req);
     if(current) return this.db.business.update({where:{id:current.id},data:{name:dto.name,slug:dto.slug,category:dto.category,settings:{...(current.settings as Record<string,unknown>),...dto.settings} as any}});
     return this.db.business.create({data:{ownerId:req.user.id,name:dto.name,slug:dto.slug,category:dto.category,settings:dto.settings,website:{create:{}}}});
   }
@@ -429,13 +448,13 @@ export class PublicBusinessController {
 @UseGuards(SessionGuard)
 export class ProductController {
   constructor(private db:DbService){}
-  private async business(userId:string){const b=await this.db.business.findFirst({where:{ownerId:userId}});if(!b)throw new NotFoundException('Create a business first');return b;}
-  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.business(req.user.id);return this.db.product.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'}});}
-  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const error=productDataValidationError(dto.data);if(error)throw new BadRequestException(error);const name=String(dto.data.name||'').trim();await assertOwnedMedia(this.db,req.user.id,dto.data);return this.db.product.create({data:{businessId:b.id,name,data:dto.data as any}});}
-  @Put(':id') async update(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');await assertOwnedMedia(this.db,req.user.id,dto.data);const merged={...(prior.data as Record<string,unknown>),...dto.data};const error=productDataValidationError({...merged,name:dto.data.name??prior.name});if(error)throw new BadRequestException(error);const name=String(merged.name||prior.name).trim();const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{name,data:merged as any}});if(!result.count)throw new NotFoundException('Product not found');return this.db.product.findUnique({where:{id}});}
-  @Post(':id/duplicate') async duplicate(@Req() req:Request & {user:any}){const b=await this.business(req.user.id);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');const data={...(prior.data as Record<string,any>),name:`${prior.name} (copy)`,status:'hidden',sku:''};await assertOwnedMedia(this.db,req.user.id,data);return this.db.product.create({data:{businessId:b.id,name:data.name,data:data as any}});}
-  @Patch(':id/archive') async archive(@Req() req:Request & {user:any}){const b=await this.business(req.user.id);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');const data={...(prior.data as Record<string,unknown>),status:'archived',archivedAt:new Date().toISOString()};const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{data:data as any}});if(!result.count)throw new NotFoundException('Product not found');return {archived:true,id};}
-  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.business(req.user.id);const result=await this.db.product.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Product not found');return {deleted:true};}
+  private async business(req:Request & {user:any}){const b=await selectedBusiness(this.db,req);if(!b)throw new NotFoundException('Create a business first');return b;}
+  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.business(req);return this.db.product.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'}});}
+  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req);const error=productDataValidationError(dto.data);if(error)throw new BadRequestException(error);const name=String(dto.data.name||'').trim();await assertOwnedMedia(this.db,req.user.id,dto.data);return this.db.product.create({data:{businessId:b.id,name,data:dto.data as any}});}
+  @Put(':id') async update(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');await assertOwnedMedia(this.db,req.user.id,dto.data);const merged={...(prior.data as Record<string,unknown>),...dto.data};const error=productDataValidationError({...merged,name:dto.data.name??prior.name});if(error)throw new BadRequestException(error);const name=String(merged.name||prior.name).trim();const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{name,data:merged as any}});if(!result.count)throw new NotFoundException('Product not found');return this.db.product.findUnique({where:{id}});}
+  @Post(':id/duplicate') async duplicate(@Req() req:Request & {user:any}){const b=await this.business(req);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');const data={...(prior.data as Record<string,any>),name:`${prior.name} (copy)`,status:'hidden',sku:''};await assertOwnedMedia(this.db,req.user.id,data);return this.db.product.create({data:{businessId:b.id,name:data.name,data:data as any}});}
+  @Patch(':id/archive') async archive(@Req() req:Request & {user:any}){const b=await this.business(req);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');const data={...(prior.data as Record<string,unknown>),status:'archived',archivedAt:new Date().toISOString()};const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{data:data as any}});if(!result.count)throw new NotFoundException('Product not found');return {archived:true,id};}
+  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.business(req);const result=await this.db.product.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Product not found');return {deleted:true};}
 }
 
 @Controller('public/products')
@@ -456,21 +475,21 @@ export class PublicProductController {
 @UseGuards(SessionGuard)
 export class CustomerController {
   constructor(private db:DbService){}
-  private async business(userId:string){const business=await this.db.business.findFirst({where:{ownerId:userId}});if(!business)throw new NotFoundException('Business not found');return business;}
+  private async business(req:Request & {user:any}){const business=await selectedBusiness(this.db,req);if(!business)throw new NotFoundException('Business not found');return business;}
   @Get() async list(@Req() req:Request & {user:any}) {
-    const business=await this.business(req.user.id),rows=await this.db.customer.findMany({where:{businessId:business.id},orderBy:{id:'desc'},take:500});
+    const business=await this.business(req),rows=await this.db.customer.findMany({where:{businessId:business.id},orderBy:{id:'desc'},take:500});
     const search=String(req.query.search||'').trim().toLowerCase(),status=String(req.query.status||'').toLowerCase();
     return rows.filter(row=>{const data=row.data as any;return (!status||String(data.status||'').toLowerCase()===status)&&(!search||[data.name,data.email,data.phone].some(value=>String(value||'').toLowerCase().includes(search)));}).map(row=>({id:row.id,...(row.data as Record<string,unknown>)}));
   }
   @Get(':id') async one(@Req() req:Request & {user:any}) {
-    const business=await this.business(req.user.id),id=String(req.params['id']),customer=await this.db.customer.findFirst({where:{id,businessId:business.id}});
+    const business=await this.business(req),id=String(req.params['id']),customer=await this.db.customer.findFirst({where:{id,businessId:business.id}});
     if(!customer)throw new NotFoundException('Customer not found');
     const email=String((customer.data as any)?.email||'').trim().toLowerCase();
     const orders=email?(await this.db.order.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:500})).filter(row=>String((row.data as any)?.email||'').trim().toLowerCase()===email):[];
     return {id,...(customer.data as Record<string,unknown>),orders:orders.map(row=>({...publicOrderData(row.data),id:row.id,status:String((row.data as any)?.fulfillmentStatus||row.status),paymentStatus:(row.data as any)?.paymentStatus||'Pending',createdAt:row.createdAt}))};
   }
   @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){
-    const business=await this.business(req.user.id);
+    const business=await this.business(req);
     const email=String(dto.data.email||'').trim().toLowerCase();
     if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer email');
     return this.db.customer.create({data:{businessId:business.id,data:{...dto.data,...(email?{email}:{}),status:dto.data.status||'Active',totalSpent:0,paidOrders:0,orders:0} as any}});
@@ -478,7 +497,7 @@ export class CustomerController {
   @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:CustomerStatusInput){
     const status=String(dto.status||'').trim();
     if(!['New','Active','Inactive','VIP','Blocked'].includes(status))throw new BadRequestException('Invalid customer status');
-    const business=await this.business(req.user.id),id=String(req.params['id']),customer=await this.db.customer.findFirst({where:{id,businessId:business.id}});
+    const business=await this.business(req),id=String(req.params['id']),customer=await this.db.customer.findFirst({where:{id,businessId:business.id}});
     if(!customer)throw new NotFoundException('Customer not found');
     const data={...(customer.data as Record<string,unknown>),status};
     const result=await this.db.customer.updateMany({where:{id,businessId:business.id},data:{data:data as any}});
@@ -488,7 +507,7 @@ export class CustomerController {
   @Patch(':id/notes') async updateNotes(@Req() req:Request & {user:any},@Body() dto:JsonInput){
     const note=String(dto.data.note||'').trim();
     if(note.length>2000)throw new BadRequestException('Customer notes cannot exceed 2000 characters');
-    const business=await this.business(req.user.id),id=String(req.params['id']),customer=await this.db.customer.findFirst({where:{id,businessId:business.id}});
+    const business=await this.business(req),id=String(req.params['id']),customer=await this.db.customer.findFirst({where:{id,businessId:business.id}});
     if(!customer)throw new NotFoundException('Customer not found');
     const data={...(customer.data as Record<string,any>),notes:note,noteUpdatedAt:new Date().toISOString()};
     const result=await this.db.customer.updateMany({where:{id,businessId:business.id},data:{data:data as any}});
@@ -496,7 +515,7 @@ export class CustomerController {
     return {id,notes:note,noteUpdatedAt:data.noteUpdatedAt};
   }
   @Delete(':id') async remove(@Req() req:Request & {user:any}){
-    const business=await this.business(req.user.id),result=await this.db.customer.deleteMany({where:{id:String(req.params['id']),businessId:business.id}});
+    const business=await this.business(req),result=await this.db.customer.deleteMany({where:{id:String(req.params['id']),businessId:business.id}});
     if(!result.count)throw new NotFoundException('Customer not found');
     return {deleted:true};
   }
@@ -506,9 +525,9 @@ export class CustomerController {
 @UseGuards(SessionGuard)
 export class OrderController {
   constructor(private db:DbService){}
-  private async business(userId:string){const business=await this.db.business.findFirst({where:{ownerId:userId}});if(!business)throw new NotFoundException('Business not found');return business;}
+  private async business(req:Request & {user:any}){const business=await selectedBusiness(this.db,req);if(!business)throw new NotFoundException('Business not found');return business;}
   @Get() async list(@Req() req:Request & {user:any}) {
-    const business=await this.business(req.user.id),rows=await this.db.order.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:500});
+    const business=await this.business(req),rows=await this.db.order.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:500});
     const search=String(req.query.search||'').trim().toLowerCase(),status=String(req.query.status||'').toLowerCase(),payment=String(req.query.paymentStatus||'').toLowerCase();
     return rows.filter(row=>{
       const data=publicOrderData(row.data),fulfillment=String((row.data as any)?.fulfillmentStatus||row.status).toLowerCase(),paid=String((row.data as any)?.paymentStatus||'').toLowerCase();
@@ -517,13 +536,13 @@ export class OrderController {
     }).map(row=>({...row,data:publicOrderData(row.data)}));
   }
   @Get(':id') async one(@Req() req:Request & {user:any}) {
-    const business=await this.business(req.user.id),row=await this.db.order.findFirst({where:{id:String(req.params['id']),businessId:business.id}});
+    const business=await this.business(req),row=await this.db.order.findFirst({where:{id:String(req.params['id']),businessId:business.id}});
     if(!row)throw new NotFoundException('Order not found');
     const data=publicOrderData(row.data);
     return {...data,id:row.id,status:String(data.fulfillmentStatus||row.status),paymentStatus:data.paymentStatus||'Pending',createdAt:row.createdAt};
   }
   @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput) {
-    const business=await this.business(req.user.id),data=dto.data as Record<string,any>,amount=Number(data.total??data.amount);
+    const business=await this.business(req),data=dto.data as Record<string,any>,amount=Number(data.total??data.amount);
     const fulfillmentStatus=String(data.fulfillmentStatus||data.status||'new').toLowerCase();
     return this.db.order.create({data:{businessId:business.id,status:fulfillmentStatus,amountCents:Number.isFinite(amount)?Math.round(amount*100):null,currency:String(data.currency||'USD'),data:{...data,fulfillmentStatus} as any}});
   }
@@ -566,7 +585,7 @@ export class OrderController {
     }
   }
   private async setPaymentStatus(req:Request & {user:any},id:string,status:'paid'|'refunded') {
-    const business=await this.business(req.user.id);
+    const business=await this.business(req);
     return this.db.$transaction(async tx=>{
       const current=await tx.order.findFirst({where:{id,businessId:business.id}});
       if(!current)throw new NotFoundException('Order not found');
@@ -596,7 +615,7 @@ export class OrderController {
     const status=String(input.status||'').toLowerCase();
     const valid=['new','processing','packed','shipped','delivered','cancelled','returned'];
     if(!valid.includes(status))throw new BadRequestException('Invalid fulfillment status');
-    const business=await this.business(req.user.id);
+    const business=await this.business(req);
     const trackingNumber=input.trackingNumber===undefined?undefined:String(input.trackingNumber||'').trim();
     const carrier=input.carrier===undefined?undefined:String(input.carrier||'').trim();
     let trackingUrl=input.trackingUrl===undefined?undefined:String(input.trackingUrl||'').trim();
@@ -640,7 +659,7 @@ export class OrderController {
     return this.setFulfillment(req,String(req.params['id']),dto.data);
   }
   @Patch(':id') async updateDetails(@Req() req:Request & {user:any},@Body() dto:JsonInput){
-    const business=await this.business(req.user.id),id=String(req.params['id']);
+    const business=await this.business(req),id=String(req.params['id']);
     const row=await this.db.order.findFirst({where:{id,businessId:business.id}});
     if(!row)throw new NotFoundException('Order not found');
     const allowed=['notes','shippingAddress','customerPhone'];
@@ -651,7 +670,7 @@ export class OrderController {
     return this.one(req);
   }
   @Delete(':id') async remove(@Req() req:Request & {user:any}){
-    const business=await this.business(req.user.id),id=String(req.params['id']);
+    const business=await this.business(req),id=String(req.params['id']);
     const row=await this.db.order.findFirst({where:{id,businessId:business.id}});
     if(!row)throw new NotFoundException('Order not found');
     if(['paid','refunded'].includes(String((row.data as any)?.paymentStatus||'').toLowerCase()))throw new ConflictException('Orders with financial history cannot be deleted.');
@@ -805,7 +824,7 @@ export class TrialPreviewController {
 @Controller('websites')
 export class WebsiteController {
   constructor(private db:DbService){}
-  private async businessFor(req:Request & {user:any}){const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)throw new NotFoundException('Create a business first');return business;}
+  private async businessFor(req:Request & {user:any}){const business=await selectedBusiness(this.db,req);if(!business)throw new NotFoundException('Create a business first');return business;}
   private async requirePaidPublishing(userId:string){const access=await this.db.subscription.findUnique({where:{userId}});if(access?.status!=='ACTIVE'||access.billingType!=='ONE_TIME')throw new ForbiddenException('Activate CYB Lifetime Access before publishing your website. Your draft is saved.');}
   @UseGuards(SessionGuard) @Get('ai/status') async aiStatus(){return {available:Boolean(process.env.OPENAI_API_KEY?.trim()),usageLimited:false};}
   @UseGuards(SessionGuard) @Throttle({default:{limit:8,ttl:60_000}}) @Post('ai/design') async aiDesign(@Req() req:Request & {user:any},@Body() dto:AiPromptInput){
@@ -847,7 +866,7 @@ export class WebsiteController {
     const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB guide for visitors who have not created an account yet. Answer concise questions about CYB, starting a website, and the general website-building process. Do not claim to see or change a visitor’s account or website. If a question needs account-specific details, tell them to sign in. If you are unsure about a CYB feature, say so instead of guessing.',input:`Visitor context: ${context}\nQuestion: ${dto.message}`},apiKey,'AI help');
     const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};
   }
-  @UseGuards(SessionGuard) @Get('draft') async draft(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});return b?.website||null;}
+  @UseGuards(SessionGuard) @Get('draft') async draft(@Req() req:Request & {user:any}) {const b=await selectedBusiness(this.db,req,{website:true});return b?.website||null;}
   @UseGuards(SessionGuard) @Get('publication-diagnostic') async publicationDiagnostic(@Req() req:Request & {user:any}) {
     if(!stagingDiagnosticsEnabled())throw new NotFoundException();
     const business=await this.businessFor(req),website=await this.db.website.findUnique({where:{businessId:business.id}});
@@ -857,7 +876,7 @@ export class WebsiteController {
     return {status,hasDraft:!!website?.draft,hasPublished,hasPublishedAt,changedPathCount:paths.length,changedPaths:paths.slice(0,80),truncated:paths.length>80};
   }
   @UseGuards(SessionGuard) @Put('draft') async saveDraft(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){
-    const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');
+    const b=await selectedBusiness(this.db,req);if(!b)throw new NotFoundException('Create a business first');
     const model=validateWebsite(dto.model,false);await assertOwnedMedia(this.db,req.user.id,model);
     const current=await this.db.website.findUnique({where:{businessId:b.id}});
     if(dto.expectedRevision!==undefined&&(current?.revision??0)!==dto.expectedRevision)throw new ConflictException('This website changed in another session. Reload the latest draft before saving your edits.');
@@ -867,7 +886,7 @@ export class WebsiteController {
     return this.db.website.findUnique({where:{businessId:b.id}});
   }
   @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){
-    const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business before publishing');await this.requirePaidPublishing(req.user.id);
+    const b=await selectedBusiness(this.db,req);if(!b)throw new NotFoundException('Create a business before publishing');await this.requirePaidPublishing(req.user.id);
     const model=validateWebsite(dto.model,true);await assertOwnedMedia(this.db,req.user.id,model);
     return this.db.$transaction(async tx=>{
       const current=await tx.website.findUnique({where:{businessId:b.id}});
@@ -878,9 +897,9 @@ export class WebsiteController {
       const version=await tx.websiteVersion.create({data:{websiteId:site.id,snapshot:site.draft as any}});return {published:true,revision:site.revision,slug:b.slug,versionId:version.id};
     });
   }
-  @UseGuards(SessionGuard) @Post('unpublish') async unpublish(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');return this.db.website.updateMany({where:{businessId:b.id},data:{published:Prisma.DbNull,publishedAt:null}});}
-  @UseGuards(SessionGuard) @Get('versions') async versions(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)return [];return (await this.db.websiteVersion.findMany({where:{websiteId:b.website.id},orderBy:{createdAt:'desc'},take:10})).map(({snapshot,createdAt,...version})=>({...version,model:snapshot,publishedAt:createdAt}));}
-  @UseGuards(SessionGuard) @Post('restore/:id') async restore(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)throw new NotFoundException('Website not found');const version=await this.db.websiteVersion.findFirst({where:{id:String(req.params['id']),websiteId:b.website.id}});if(!version)throw new NotFoundException('Version not found');const model=validateWebsite(version.snapshot,false);return this.db.website.update({where:{businessId:b.id},data:{draft:model as any,revision:{increment:1}}});}
+  @UseGuards(SessionGuard) @Post('unpublish') async unpublish(@Req() req:Request & {user:any}){const b=await selectedBusiness(this.db,req);if(!b)throw new NotFoundException('Business not found');return this.db.website.updateMany({where:{businessId:b.id},data:{published:Prisma.DbNull,publishedAt:null}});}
+  @UseGuards(SessionGuard) @Get('versions') async versions(@Req() req:Request & {user:any}){const b=await selectedBusiness(this.db,req,{website:true});if(!b?.website)return [];return (await this.db.websiteVersion.findMany({where:{websiteId:b.website.id},orderBy:{createdAt:'desc'},take:10})).map(({snapshot,createdAt,...version})=>({...version,model:snapshot,publishedAt:createdAt}));}
+  @UseGuards(SessionGuard) @Post('restore/:id') async restore(@Req() req:Request & {user:any}){const b=await selectedBusiness(this.db,req,{website:true});if(!b?.website)throw new NotFoundException('Website not found');const version=await this.db.websiteVersion.findFirst({where:{id:String(req.params['id']),websiteId:b.website.id}});if(!version)throw new NotFoundException('Version not found');const model=validateWebsite(version.snapshot,false);return this.db.website.update({where:{businessId:b.id},data:{draft:model as any,revision:{increment:1}}});}
   @Get('public/:slug') async publicSite(@Req() req:Request){const slug=String(req.params['slug']||'');const business=await this.db.business.findUnique({where:{slug}});if(!business)throw new NotFoundException('Website not found');const site=await this.db.website.findUnique({where:{businessId:business.id}});return {business:{name:business.name,slug:business.slug,category:business.category},website:site?.published||null,published:!!site?.published};}
 }
 
