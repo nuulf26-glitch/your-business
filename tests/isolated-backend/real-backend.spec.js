@@ -200,7 +200,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(refundedAnalytics.revenue).toBe(0);
   expect(refundedAnalytics.refunds).toBe(expectedTotal);
 
-  const cancelOrder = await requestFromPage(page, "/public/orders", "POST", { storeUrl: slug, customerName: "Synthetic Cancellation Customer", email: `cancel-${process.env.GITHUB_RUN_ID || "local"}@example.test`, items: [{ id: product.id, quantity: 1 }] });
+  const cancelOrder = await requestFromPage(page, "/public/orders", "POST", { data: { storeUrl: slug, customerName: "Synthetic Cancellation Customer", email: `cancel-${process.env.GITHUB_RUN_ID || "local"}@example.test`, items: [{ id: product.id, quantity: 1 }] } });
   await requestFromPage(page, `/public/orders/${encodeURIComponent(cancelOrder.id)}/cash-on-delivery`, "POST", { token: cancelOrder.cashOnDeliveryToken });
   await requestFromPage(page, `/orders/${encodeURIComponent(cancelOrder.id)}/fulfillment`, "PATCH", { data: { status: "cancelled" } });
   const storedProducts = await requestFromPage(page, "/products");
