@@ -21,6 +21,10 @@ function StoreSetup() {
   const [storeUrl, setStoreUrl] = useState("");
   const [description, setDescription] = useState("");
   const [themeColor, setThemeColor] = useState("#111111");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [currency, setCurrency] = useState("AED");
 
   const [loadingStore, setLoadingStore] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -46,6 +50,10 @@ function StoreSetup() {
 
         setStoreUrl(store.storeUrl || "");
         setDescription(store.description || "");
+        setLogoUrl(store.logoUrl || "");
+        setContactEmail(store.contactEmail || "");
+        setContactPhone(store.contactPhone || "");
+        setCurrency(store.currency || "AED");
 
         setThemeColor(
           store.themeColor ||
@@ -94,8 +102,11 @@ function StoreSetup() {
         description: description.trim(),
         themeColor,
         primaryColor: themeColor,
+        logoUrl: logoUrl.trim(),
+        contactEmail: contactEmail.trim(),
+        contactPhone: contactPhone.trim(),
         language: "English",
-        currency: "USD",
+        currency,
       });
 localStorage.setItem(
   "websiteSetup",
@@ -104,6 +115,7 @@ localStorage.setItem(
     storeUrl: cleanedStoreUrl,
     description: description.trim(),
     themeColor,
+    logoUrl: logoUrl.trim(),
   })
 );
 
@@ -247,6 +259,30 @@ localStorage.setItem(
                 </div>
               </div>
             </div>
+          </section>
+
+              <div className="store-setup-field">
+                <label htmlFor="logoUrl">Logo image URL</label>
+                <input id="logoUrl" type="url" value={logoUrl} onChange={event => setLogoUrl(event.target.value)} placeholder="https://…" />
+                <small>Use an image URL from your CYB media library.</small>
+              </div>
+              <div className="store-setup-field">
+                <label htmlFor="contactEmail">Customer contact email</label>
+                <input id="contactEmail" type="email" value={contactEmail} onChange={event => setContactEmail(event.target.value)} placeholder="hello@yourstore.com" />
+              </div>
+              <div className="store-setup-field">
+                <label htmlFor="contactPhone">Customer contact phone</label>
+                <input id="contactPhone" type="tel" value={contactPhone} onChange={event => setContactPhone(event.target.value)} placeholder="+971…" />
+              </div>
+              <div className="store-setup-field">
+                <label htmlFor="storeCurrency">Store currency</label>
+                <select id="storeCurrency" value={currency} onChange={event => setCurrency(event.target.value)}>
+                  <option value="AED">AED — UAE dirham</option>
+                  <option value="USD">USD — US dollar</option>
+                  <option value="EUR">EUR — euro</option>
+                  <option value="GBP">GBP — pound sterling</option>
+                </select>
+              </div>
           </section>
 
           <section className="store-setup-card">
