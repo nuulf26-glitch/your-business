@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { logout } from "../services/authService";
 import { subscribeAppUser } from "../services/customBackendSession";
-import { getStore, listStores, createStore } from "../services/storeService";
+import { listStores, createStore } from "../services/storeService";
 import { getActiveBusinessId, setActiveBusinessId } from "../services/customBackendSession";
 import "../styles/workspace-layout.css";
 
