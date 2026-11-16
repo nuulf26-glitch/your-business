@@ -138,6 +138,19 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   await expect(page.getByRole('heading', { name: 'Shopping cart' })).toBeVisible();
   await page.getByRole('button', { name: 'Continue to checkout' }).click();
   await expect(page.getByRole('heading', { name: 'Delivery details' })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/store/${encodeURIComponent(slug)}`);
+  await expect(page.getByText("Synthetic E2E Product", { exact: false }).first()).toBeVisible();
+  await checkNoHorizontalOverflow(page, "storefront mobile");
+  await page.screenshot({ path: `${artifactsDir}/storefront-390x844.png`, fullPage: true });
+  await page.goto(`/product/${encodeURIComponent(product.id)}`);
+  await checkNoHorizontalOverflow(page, "product mobile");
+  await page.goto("/cart");
+  await page.getByRole("button", { name: "Continue to checkout" }).click();
+  await expect(page.getByRole("heading", { name: "Delivery details" })).toBeVisible();
+  await checkNoHorizontalOverflow(page, "checkout mobile");
+  await page.screenshot({ path: `${artifactsDir}/checkout-390x844.png`, fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.locator('input[name="fullName"]').fill('Synthetic Checkout Customer');
   await page.locator('input[name="email"]').fill(`checkout-${process.env.GITHUB_RUN_ID || 'local'}@example.test`);
   await page.locator('input[name="phone"]').fill('+971500000000');
@@ -160,20 +173,6 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(checkoutOrder.data.paymentStatus).toBe('Cash on delivery');
   const customers = await requestFromPage(page, '/customers');
   expect(customers.some((item) => item.data?.email?.startsWith('checkout-'))).toBe(true);
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`/store/${encodeURIComponent(slug)}`);
-  await expect(page.getByText("Synthetic E2E Product", { exact: false }).first()).toBeVisible();
-  await checkNoHorizontalOverflow(page, "storefront mobile");
-  await page.screenshot({ path: `${artifactsDir}/storefront-390x844.png`, fullPage: true });
-  await page.goto(`/product/${encodeURIComponent(product.id)}`);
-  await checkNoHorizontalOverflow(page, "product mobile");
-  await page.goto("/cart");
-  await page.getByRole("button", { name: "Continue to checkout" }).click();
-  await expect(page.getByRole("heading", { name: "Delivery details" })).toBeVisible();
-  await checkNoHorizontalOverflow(page, "checkout mobile");
-  await page.screenshot({ path: `${artifactsDir}/checkout-390x844.png`, fullPage: true });
-  await page.setViewportSize({ width: 1440, height: 900 });
 
   const completedOrder = await page.evaluate(() => JSON.parse(localStorage.getItem("completedOrder") || "null"));
   expect(completedOrder?.cashOnDeliveryToken).toBeTruthy();
