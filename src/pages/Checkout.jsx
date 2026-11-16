@@ -52,9 +52,11 @@ function Checkout() {
   const currency=commerceSettings.currency||cart[0]?.currency||'USD';
   const zones=Array.isArray(commerceSettings.shippingZones)?commerceSettings.shippingZones:[];
   const availableCountries=[...new Set(zones.flatMap(zone=>zone.countryCodes||[]))];
+  const hasDeliveryZone=zones.length===0||form.deliveryMethod==='pickup'||zones.some(zone=>(zone.countryCodes||[]).includes(String(form.countryCode||'').toUpperCase()));
   const shipping=useMemo(()=>{
     if(form.deliveryMethod==='pickup')return 0;
     const zone=zones.find(item=>(item.countryCodes||[]).includes(String(form.countryCode||'').toUpperCase()));
+    if(zones.length&&!zone)return 0;
     if(zone)return zone.freeShippingThreshold!=null&&subtotal>=Number(zone.freeShippingThreshold)?0:Number(zone.fee)||0;
     return subtotal>=300?0:25;
   },[zones,form.deliveryMethod,form.countryCode,subtotal]);
@@ -74,6 +76,7 @@ function Checkout() {
   }
 
   function validateForm() {
+    if (!hasDeliveryZone) { setError("This store does not deliver to the selected country."); return false; }
     if (
       !form.fullName.trim() ||
       !form.email.trim() ||
@@ -340,7 +343,7 @@ Object.assign(newOrder, saved, { id: saved.id, backendId: saved.id });
             <div className="checkout-summary-row">
               <span>Shipping</span>
               <strong>
-                {shipping === 0 ? "Free" : `${currency} ${shipping.toFixed(2)}`}
+                {!hasDeliveryZone ? "Unavailable" : shipping === 0 ? "Free" : `${currency} ${shipping.toFixed(2)}`}
               </strong>
             </div>
 
