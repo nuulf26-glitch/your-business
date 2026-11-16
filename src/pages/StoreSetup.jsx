@@ -24,7 +24,6 @@ function StoreSetup() {
   const [logoUrl, setLogoUrl] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [contactPhone, setContactPhone] = useState("");
-  const [currency, setCurrency] = useState("AED");
 
   const [loadingStore, setLoadingStore] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -53,7 +52,6 @@ function StoreSetup() {
         setLogoUrl(store.logoUrl || "");
         setContactEmail(store.contactEmail || "");
         setContactPhone(store.contactPhone || "");
-        setCurrency(store.currency || "AED");
 
         setThemeColor(
           store.themeColor ||
@@ -106,7 +104,7 @@ function StoreSetup() {
         contactEmail: contactEmail.trim(),
         contactPhone: contactPhone.trim(),
         language: "English",
-        currency,
+        currency: "USD",
       });
 localStorage.setItem(
   "websiteSetup",
@@ -397,7 +395,7 @@ localStorage.setItem(
             <div className="store-setup-card-number">04</div>
             <div className="store-setup-card-content">
               <div className="store-setup-card-heading">
-                <div><span>Store contact & currency</span><h2>Help customers reach you</h2></div>
+                <div><span>Store contact details</span><h2>Help customers reach you</h2></div>
                 <p>These details appear in your public storefront and order experience.</p>
               </div>
               <div className="store-setup-field">
@@ -413,15 +411,7 @@ localStorage.setItem(
                 <label htmlFor="contactPhone">Customer contact phone</label>
                 <input id="contactPhone" type="tel" value={contactPhone} onChange={event => setContactPhone(event.target.value)} placeholder="+971…" />
               </div>
-              <div className="store-setup-field">
-                <label htmlFor="storeCurrency">Store currency</label>
-                <select id="storeCurrency" value={currency} onChange={event => setCurrency(event.target.value)}>
-                  <option value="AED">AED — UAE dirham</option>
-                  <option value="USD">USD — US dollar</option>
-                  <option value="EUR">EUR — euro</option>
-                  <option value="GBP">GBP — pound sterling</option>
-                </select>
-              </div>
+
             </div>
           </section>
 
