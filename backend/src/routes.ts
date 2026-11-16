@@ -437,47 +437,159 @@ export class CustomerController {
 @UseGuards(SessionGuard)
 export class OrderController {
   constructor(private db:DbService){}
-  @Get() async list(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)return [];return (await this.db.order.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'},take:300})).map(row=>({...row,data:publicOrderData(row.data)}));}
-  @Get(':id') async one(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const row=await this.db.order.findFirst({where:{id:String(req.params['id']),businessId:b.id}});if(!row)throw new NotFoundException('Order not found');return {...publicOrderData(row.data),id:row.id,status:row.status,createdAt:row.createdAt};}
-  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const data=dto.data as Record<string,any>;const amount=Number(data.total??data.amount);return this.db.order.create({data:{businessId:b.id,status:String(data.status||'pending'),amountCents:Number.isFinite(amount)?Math.round(amount*100):null,currency:String(data.currency||'USD'),data:data as any}});}
-  @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:OrderStatusInput){
-    const status=dto.status.toLowerCase();
-    const valid=['new','pending','paid','processing','shipped','delivered','cancelled','refunded'];if(!valid.includes(status))throw new BadRequestException('Invalid order status');
-    const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');
-    const id=String(req.params['id']);
+  private async business(userId:string){const business=await this.db.business.findFirst({where:{ownerId:userId}});if(!business)throw new NotFoundException('Business not found');return business;}
+  @Get() async list(@Req() req:Request & {user:any}) {
+    const business=await this.business(req.user.id),rows=await this.db.order.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:500});
+    const search=String(req.query.search||'').trim().toLowerCase(),status=String(req.query.status||'').toLowerCase(),payment=String(req.query.paymentStatus||'').toLowerCase();
+    return rows.filter(row=>{
+      const data=publicOrderData(row.data),fulfillment=String((row.data as any)?.fulfillmentStatus||row.status).toLowerCase(),paid=String((row.data as any)?.paymentStatus||'').toLowerCase();
+      const matchesSearch=!search||[row.id,data.customerName,data.email,data.phone,...(Array.isArray(data.items)?data.items.map((item:any)=>item.name):[])].some(value=>String(value||'').toLowerCase().includes(search));
+      return matchesSearch&&(!status||fulfillment===status)&&(!payment||paid===payment);
+    }).map(row=>({...row,data:publicOrderData(row.data)}));
+  }
+  @Get(':id') async one(@Req() req:Request & {user:any}) {
+    const business=await this.business(req.user.id),row=await this.db.order.findFirst({where:{id:String(req.params['id']),businessId:business.id}});
+    if(!row)throw new NotFoundException('Order not found');
+    const data=publicOrderData(row.data);
+    return {...data,id:row.id,status:String(data.fulfillmentStatus||row.status),paymentStatus:data.paymentStatus||'Pending',createdAt:row.createdAt};
+  }
+  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput) {
+    const business=await this.business(req.user.id),data=dto.data as Record<string,any>,amount=Number(data.total??data.amount);
+    const fulfillmentStatus=String(data.fulfillmentStatus||data.status||'new').toLowerCase();
+    return this.db.order.create({data:{businessId:business.id,status:fulfillmentStatus,amountCents:Number.isFinite(amount)?Math.round(amount*100):null,currency:String(data.currency||'USD'),data:{...data,fulfillmentStatus} as any}});
+  }
+  private async refreshCustomerTotals(tx:any,businessId:string,email:string) {
+    if(!email)return;
+    const customer=await tx.customer.findFirst({where:{businessId,data:{path:['email'],equals:email}}});
+    if(!customer)return;
+    const orders=await tx.order.findMany({where:{businessId}});
+    const matching=orders.filter((row:any)=>String((row.data as any)?.email||'').trim().toLowerCase()===email);
+    const paid=matching.filter((row:any)=>String((row.data as any)?.paymentStatus||'').toLowerCase()==='paid');
+    const spentCents=paid.reduce((sum:number,row:any)=>sum+(Number((row.data as any)?.collectedAmountCents??row.amountCents??Math.round(Number((row.data as any)?.total||0)*100))||0),0);
+    const refundedCents=paid.reduce((sum:number,row:any)=>sum+(Array.isArray((row.data as any)?.refundHistory)?(row.data as any).refundHistory.reduce((total:number,item:any)=>total+(Number(item.amountCents)||0),0):0),0);
+    const customerData={...(customer.data as Record<string,any>),totalSpent:Math.max(0,spentCents-refundedCents)/100,paidOrders:paid.length,orders:matching.length,lastOrder:matching[0]?.createdAt?.toISOString?.()||(customer.data as any)?.lastOrder};
+    await tx.customer.update({where:{id:customer.id},data:{data:customerData as any}});
+  }
+  private async restoreInventory(tx:any,businessId:string,orderData:Record<string,any>) {
+    const items=Array.isArray(orderData.items)?orderData.items:[];
+    const groups=new Map<string,any[]>();
+    for(const item of items){const id=String(item.id||item.productId||'');if(!id)continue;groups.set(id,[...(groups.get(id)||[]),item]);}
+    for(const [productId,lines] of groups){
+      const current=await tx.product.findFirst({where:{id:productId,businessId}});
+      if(!current)continue;
+      const original=current.data as Record<string,any>,next:any={...original};let changed=false;
+      for(const line of lines){
+        const quantity=Number(line.quantity);if(!Number.isInteger(quantity)||quantity<1)continue;
+        const variantId=String(line.variantId||'');
+        if(variantId&&Array.isArray(next.variants)){
+          const variants=[...next.variants],index=variants.findIndex((value:any)=>String(value?.id||value?.sku||value?.name||'')===variantId);
+          if(index>=0){
+            const variant={...variants[index]};
+            if(variant.stock!==undefined&&variant.stock!==null&&String(variant.stock).trim()!==''){variant.stock=Math.max(0,Number(variant.stock)||0)+quantity;variants[index]=variant;next.variants=variants;changed=true;}
+            else if(next.stock!==undefined&&next.stock!==null&&String(next.stock).trim()!==''){next.stock=Math.max(0,Number(next.stock)||0)+quantity;changed=true;}
+          }
+        }else if(next.stock!==undefined&&next.stock!==null&&String(next.stock).trim()!==''){next.stock=Math.max(0,Number(next.stock)||0)+quantity;changed=true;}
+      }
+      if(changed){
+        const restored=await tx.product.updateMany({where:{id:productId,businessId,data:{equals:original as any}},data:{data:next as any}});
+        if(restored.count!==1)throw new ConflictException('Inventory changed while the order was being cancelled. Retry the update.');
+      }
+    }
+  }
+  private async setPaymentStatus(req:Request & {user:any},id:string,status:'paid'|'refunded') {
+    const business=await this.business(req.user.id);
     return this.db.$transaction(async tx=>{
-      const current=await tx.order.findFirst({where:{id,businessId:b.id}});
+      const current=await tx.order.findFirst({where:{id,businessId:business.id}});
       if(!current)throw new NotFoundException('Order not found');
-      const data={...(current.data as Record<string,any>)};
-      const priorPaymentStatus=String(data.paymentStatus||'Pending').toLowerCase();
-      if(status==='paid'&&priorPaymentStatus!=='paid'){
-        data.paymentStatus='Paid';data.paidAt=new Date().toISOString();
+      const data={...(current.data as Record<string,any>)},prior=String(data.paymentStatus||'Pending').toLowerCase();
+      if(status==='paid'&&prior==='paid')return current;
+      if(status==='refunded'&&prior==='refunded')return current;
+      if(status==='paid'&&prior==='refunded')throw new ConflictException('A refunded order cannot be marked paid again without a new collection record.');
+      if(status==='refunded'&&prior!=='paid')throw new BadRequestException('Only a collected payment can be refunded.');
+      const now=new Date().toISOString(),history=Array.isArray(data.paymentHistory)?data.paymentHistory:[];
+      if(status==='paid'){
+        data.paymentStatus='Paid';data.paidAt=now;
         data.collectedAmountCents=current.amountCents??Math.round(Number(data.total||0)*100);
-      }else if(status==='refunded'&&priorPaymentStatus==='paid'){
+        data.paymentHistory=[...history,{type:'collected',amountCents:data.collectedAmountCents,recordedAt:now,method:data.paymentMethod||'cash'}];
+      }else{
         data.paymentStatus='Refunded';
         const refunds=Array.isArray(data.refundHistory)?data.refundHistory:[];
-        data.refundHistory=[...refunds,{amountCents:Number(data.collectedAmountCents||current.amountCents||0),recordedAt:new Date().toISOString(),status:'recorded'}];
-      }else if(status==='cancelled'&&priorPaymentStatus!=='paid'&&priorPaymentStatus!=='refunded'){
-        data.paymentStatus='Cancelled';
+        data.refundHistory=[...refunds,{amountCents:Number(data.collectedAmountCents||current.amountCents||0),recordedAt:now,status:'recorded'}];
+        data.paymentHistory=[...history,{type:'refund',amountCents:Number(data.collectedAmountCents||current.amountCents||0),recordedAt:now}];
       }
-      const updated=await tx.order.updateMany({where:{id,businessId:b.id,status:current.status},data:{status,data:data as any}});
-      if(!updated.count)throw new ConflictException('Order changed while this update was being saved. Reload and try again.');
-      const email=String(data.email||'').trim().toLowerCase();
-      if(email){
-        const customer=await tx.customer.findFirst({where:{businessId:b.id,data:{path:['email'],equals:email}}});
-        if(customer){
-          const orders=await tx.order.findMany({where:{businessId:b.id}});
-          const paidOrders=orders.filter(row=>String((row.data as any)?.email||'').trim().toLowerCase()===email&&String((row.data as any)?.paymentStatus||'').toLowerCase()==='paid');
-          const totalSpent=paidOrders.reduce((sum,row)=>sum+(Number((row.data as any)?.collectedAmountCents??row.amountCents??Math.round(Number((row.data as any)?.total||0)*100))||0),0)/100;
-          const customerData={...(customer.data as Record<string,any>),totalSpent,paidOrders:paidOrders.length,orders:orders.filter(row=>String((row.data as any)?.email||'').trim().toLowerCase()===email).length};
-          await tx.customer.update({where:{id:customer.id},data:{data:customerData as any}});
-        }
-      }
+      const updated=await tx.order.updateMany({where:{id,businessId:business.id,status:current.status,data:{equals:current.data as any}},data:{data:data as any}});
+      if(updated.count!==1)throw new ConflictException('Order changed while the payment update was being saved. Reload and try again.');
+      await this.refreshCustomerTotals(tx,business.id,String(data.email||'').trim().toLowerCase());
       return tx.order.findUnique({where:{id}});
     });
   }
-  @Patch(':id') async updateDetails(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const row=await this.db.order.findFirst({where:{id,businessId:b.id}});if(!row)throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...dto.data};const result=await this.db.order.update({where:{id},data:{data:data as any}});return {...publicOrderData(result.data),id:result.id,status:result.status,createdAt:result.createdAt};}
-  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const result=await this.db.order.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Order not found');return {deleted:true};}
+  private async setFulfillment(req:Request & {user:any},id:string,input:Record<string,any>) {
+    const status=String(input.status||'').toLowerCase();
+    const valid=['new','processing','packed','shipped','delivered','cancelled','returned'];
+    if(!valid.includes(status))throw new BadRequestException('Invalid fulfillment status');
+    const business=await this.business(req.user.id);
+    const trackingNumber=input.trackingNumber===undefined?undefined:String(input.trackingNumber||'').trim();
+    const carrier=input.carrier===undefined?undefined:String(input.carrier||'').trim();
+    let trackingUrl=input.trackingUrl===undefined?undefined:String(input.trackingUrl||'').trim();
+    if(trackingNumber&&trackingNumber.length>120)throw new BadRequestException('Tracking number is too long');
+    if(carrier&&carrier.length>80)throw new BadRequestException('Carrier name is too long');
+    if(trackingUrl){try{const url=new URL(trackingUrl);if(url.protocol!=='https:')throw new Error();}catch{throw new BadRequestException('Tracking URL must be a valid HTTPS URL');}}
+    return this.db.$transaction(async tx=>{
+      const current=await tx.order.findFirst({where:{id,businessId:business.id}});
+      if(!current)throw new NotFoundException('Order not found');
+      const data={...(current.data as Record<string,any>)},prior=String(data.fulfillmentStatus||current.status||'new').toLowerCase();
+      if(prior===status&&trackingNumber===undefined&&carrier===undefined&&trackingUrl===undefined)return current;
+      const transitions:Record<string,string[]>={new:['processing','cancelled'],pending:['processing','cancelled'],processing:['packed','cancelled'],packed:['shipped','cancelled'],shipped:['delivered','returned'],delivered:['returned'],cancelled:[],returned:[]};
+      if(prior!==status&&!(transitions[prior]||[]).includes(status))throw new ConflictException(`Cannot move fulfillment from ${prior} to ${status}.`);
+      const now=new Date().toISOString(),timeline=Array.isArray(data.timeline)?data.timeline:[];
+      if(prior!==status){
+        if(status==='cancelled'||status==='returned'){
+          if(!data.inventoryRestoredAt){await this.restoreInventory(tx,business.id,data);data.inventoryRestoredAt=now;data.inventoryHistory=[...(Array.isArray(data.inventoryHistory)?data.inventoryHistory:[]),{type:'released',recordedAt:now,reason:status}];}
+        }
+        data.fulfillmentStatus=status;
+        data.timeline=[...timeline,{type:'fulfillment',status,recordedAt:now}];
+      }
+      if(trackingNumber!==undefined)data.trackingNumber=trackingNumber||null;
+      if(carrier!==undefined)data.shippingCarrier=carrier||null;
+      if(trackingUrl!==undefined)data.trackingUrl=trackingUrl||null;
+      const updated=await tx.order.updateMany({where:{id,businessId:business.id,status:current.status,data:{equals:current.data as any}},data:{status,data:data as any}});
+      if(updated.count!==1)throw new ConflictException('Order changed while fulfillment was being updated. Reload and try again.');
+      return tx.order.findUnique({where:{id}});
+    });
+  }
+  @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:OrderStatusInput){
+    const status=dto.status.toLowerCase(),id=String(req.params['id']);
+    if(status==='paid'||status==='refunded')return this.setPaymentStatus(req,id,status);
+    return this.setFulfillment(req,id,{status});
+  }
+  @Patch(':id/payment') async updatePayment(@Req() req:Request & {user:any},@Body() dto:JsonInput){
+    const status=String(dto.data.status||'').toLowerCase();
+    if(status!=='paid'&&status!=='refunded')throw new BadRequestException('Invalid payment status');
+    return this.setPaymentStatus(req,String(req.params['id']),status);
+  }
+  @Patch(':id/fulfillment') async updateFulfillment(@Req() req:Request & {user:any},@Body() dto:JsonInput){
+    return this.setFulfillment(req,String(req.params['id']),dto.data);
+  }
+  @Patch(':id') async updateDetails(@Req() req:Request & {user:any},@Body() dto:JsonInput){
+    const business=await this.business(req.user.id),id=String(req.params['id']);
+    const row=await this.db.order.findFirst({where:{id,businessId:business.id}});
+    if(!row)throw new NotFoundException('Order not found');
+    const allowed=['notes','shippingAddress','customerPhone'];
+    const patch=Object.fromEntries(Object.entries(dto.data).filter(([key])=>allowed.includes(key)));
+    const data={...(row.data as Record<string,unknown>),...patch};
+    const updated=await this.db.order.updateMany({where:{id,businessId:business.id,status:row.status,data:{equals:row.data as any}},data:{data:data as any}});
+    if(!updated.count)throw new ConflictException('Order changed. Reload and try again.');
+    return this.one(req);
+  }
+  @Delete(':id') async remove(@Req() req:Request & {user:any}){
+    const business=await this.business(req.user.id),id=String(req.params['id']);
+    const row=await this.db.order.findFirst({where:{id,businessId:business.id}});
+    if(!row)throw new NotFoundException('Order not found');
+    if(['paid','refunded'].includes(String((row.data as any)?.paymentStatus||'').toLowerCase()))throw new ConflictException('Orders with financial history cannot be deleted.');
+    const result=await this.db.order.deleteMany({where:{id,businessId:business.id,status:row.status}});
+    if(!result.count)throw new ConflictException('Order changed. Reload and try again.');
+    return {deleted:true};
+  }
 }
 
 // Customer checkout is intentionally public. The order is attached to a published
