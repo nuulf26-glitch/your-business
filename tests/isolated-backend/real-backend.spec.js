@@ -120,7 +120,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(publicWebsite.published).toBe(true);
 
   const product = await requestFromPage(page, '/products', 'POST', {
-    data: { name: 'Synthetic E2E Product', description: 'Isolated test item', sellingPrice: 18, status: 'active', stock: 4 },
+    data: { name: 'Synthetic E2E Product', description: 'Isolated test item', sellingPrice: 18, status: 'active', stock: 4, variants: [{ id: 'synthetic-small', name: 'Small', sku: 'E2E-SMALL', price: 18, stock: 4 }] },
   });
   expect(product.name).toBe('Synthetic E2E Product');
   const products = await requestFromPage(page, '/products');
