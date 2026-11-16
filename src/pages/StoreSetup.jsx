@@ -261,37 +261,7 @@ localStorage.setItem(
             </div>
           </section>
 
-          <section className="store-setup-card">
-            <div className="store-setup-card-number">04</div>
-            <div className="store-setup-card-content">
-              <div className="store-setup-card-heading">
-                <div><span>Store contact & currency</span><h2>Help customers reach you</h2></div>
-                <p>These details appear in your public storefront and order experience.</p>
-              </div>
-              <div className="store-setup-field">
-                <label htmlFor="logoUrl">Logo image URL</label>
-                <input id="logoUrl" type="url" value={logoUrl} onChange={event => setLogoUrl(event.target.value)} placeholder="https://…" />
-                <small>Use an image URL from your CYB media library.</small>
-              </div>
-              <div className="store-setup-field">
-                <label htmlFor="contactEmail">Customer contact email</label>
-                <input id="contactEmail" type="email" value={contactEmail} onChange={event => setContactEmail(event.target.value)} placeholder="hello@yourstore.com" />
-              </div>
-              <div className="store-setup-field">
-                <label htmlFor="contactPhone">Customer contact phone</label>
-                <input id="contactPhone" type="tel" value={contactPhone} onChange={event => setContactPhone(event.target.value)} placeholder="+971…" />
-              </div>
-              <div className="store-setup-field">
-                <label htmlFor="storeCurrency">Store currency</label>
-                <select id="storeCurrency" value={currency} onChange={event => setCurrency(event.target.value)}>
-                  <option value="AED">AED — UAE dirham</option>
-                  <option value="USD">USD — US dollar</option>
-                  <option value="EUR">EUR — euro</option>
-                  <option value="GBP">GBP — pound sterling</option>
-                </select>
-              </div>
-            </div>
-          </section>
+
 
 
           <section className="store-setup-card">
@@ -419,6 +389,38 @@ localStorage.setItem(
                     and buttons remain easy to read.
                   </p>
                 </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="store-setup-card">
+            <div className="store-setup-card-number">04</div>
+            <div className="store-setup-card-content">
+              <div className="store-setup-card-heading">
+                <div><span>Store contact & currency</span><h2>Help customers reach you</h2></div>
+                <p>These details appear in your public storefront and order experience.</p>
+              </div>
+              <div className="store-setup-field">
+                <label htmlFor="logoUrl">Logo image URL</label>
+                <input id="logoUrl" type="url" value={logoUrl} onChange={event => setLogoUrl(event.target.value)} placeholder="https://…" />
+                <small>Use an image URL from your CYB media library.</small>
+              </div>
+              <div className="store-setup-field">
+                <label htmlFor="contactEmail">Customer contact email</label>
+                <input id="contactEmail" type="email" value={contactEmail} onChange={event => setContactEmail(event.target.value)} placeholder="hello@yourstore.com" />
+              </div>
+              <div className="store-setup-field">
+                <label htmlFor="contactPhone">Customer contact phone</label>
+                <input id="contactPhone" type="tel" value={contactPhone} onChange={event => setContactPhone(event.target.value)} placeholder="+971…" />
+              </div>
+              <div className="store-setup-field">
+                <label htmlFor="storeCurrency">Store currency</label>
+                <select id="storeCurrency" value={currency} onChange={event => setCurrency(event.target.value)}>
+                  <option value="AED">AED — UAE dirham</option>
+                  <option value="USD">USD — US dollar</option>
+                  <option value="EUR">EUR — euro</option>
+                  <option value="GBP">GBP — pound sterling</option>
+                </select>
               </div>
             </div>
           </section>
