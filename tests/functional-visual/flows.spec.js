@@ -180,8 +180,8 @@ test("products, orders, and customers render fixture records and preserve update
   await expect.poll(() => calls.some((call) => call.pathname === "/products" && call.method === "POST")).toBeTruthy();
 
   await page.goto("/orders/synthetic-order");
-  await page.locator("#status").selectOption("Processing");
-  await expect.poll(() => calls.some((call) => call.pathname === "/orders/synthetic-order/status" && call.method === "PATCH")).toBeTruthy();
+  await page.locator("#status").selectOption("processing");
+  await expect.poll(() => calls.some((call) => call.pathname === "/orders/synthetic-order/fulfillment" && call.method === "PATCH")).toBeTruthy();
 
   await page.goto("/customers");
   await expect(page.getByText("Synthetic QA customer").first()).toBeVisible();
