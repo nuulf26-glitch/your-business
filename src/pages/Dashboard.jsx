@@ -51,9 +51,9 @@ const [userProfile, setUserProfile] = useState(null);
           return;
         }
 
-        const [storeResult, websiteResult, productResult, ordersResult, customersResult] = await Promise.allSettled([getStore(), loadWebsiteRecord(), getProducts(), getOrders(), getCustomers()]);
+        const [storeResult, websiteResult, productResult, ordersResult, customersResult, commerceResult] = await Promise.allSettled([getStore(), loadWebsiteRecord(), getProducts(), getOrders(), getCustomers(), customBackendRequest("/business/mine/commerce-analytics")]);
         if (!active) return;
-        const failedResult = [storeResult, websiteResult, productResult, ordersResult, customersResult].find((result) => result.status === "rejected");
+        const failedResult = [storeResult, websiteResult, productResult, ordersResult, customersResult, commerceResult].find((result) => result.status === "rejected");
         if (failedResult) throw failedResult.reason;
 
         if (storeResult.status === 'fulfilled') setStore(storeResult.value);
@@ -66,6 +66,7 @@ const [userProfile, setUserProfile] = useState(null);
         const customersData = customersResult.status === 'fulfilled' ? customersResult.value : [];
         setOrders(ordersData);
         setCustomers(customersData);
+        if (commerceResult.status === "fulfilled") setCommerceAnalytics(commerceResult.value);
         setDashboardLoadState("ready");
 
       } catch (error) {
@@ -318,6 +319,15 @@ const [userProfile, setUserProfile] = useState(null);
           </article>
         </section>
 
+        {commerceAnalytics && <section className="dashboard-stats-grid" aria-label="Store analytics">
+          <article className="dashboard-stat-card"><span>Collected revenue</span><strong>{formatCurrency(commerceAnalytics.revenue)}</strong><p>{commerceAnalytics.paidOrders || 0} collected orders · {commerceAnalytics.orders || 0} total orders</p></article>
+          <article className="dashboard-stat-card"><span>Average paid order</span><strong>{formatCurrency(commerceAnalytics.averageOrderValue)}</strong><p>Unpaid COD is excluded</p></article>
+          <article className="dashboard-stat-card"><span>Unpaid COD</span><strong>{commerceAnalytics.unpaidCodOrders || 0}</strong><p>Orders awaiting collection</p></article>
+          <article className="dashboard-stat-card"><span>Refunds</span><strong>{formatCurrency(commerceAnalytics.refunds)}</strong><p>Recorded refunded amount</p></article>
+          <article className="dashboard-stat-card"><span>Store conversion</span><strong>{commerceAnalytics.conversionRate == null ? "Not measurable" : `${(commerceAnalytics.conversionRate * 100).toFixed(1)}%`}</strong><p>{commerceAnalytics.uniqueVisits || 0} unique visits counted</p></article>
+          <article className="dashboard-stat-card"><span>Best sellers</span><strong>{commerceAnalytics.bestSellers?.[0]?.name || "No paid sales yet"}</strong><p>{commerceAnalytics.bestSellers?.[0]?.quantity || 0} units sold</p></article>
+          <article className="dashboard-stat-card"><span>Inventory alerts</span><strong>{commerceAnalytics.inventoryAlerts?.length || 0}</strong><p>{commerceAnalytics.inventoryAlerts?.slice(0, 3).map(item => `${item.name}: ${item.stock}`).join(" · ") || "All tracked stock is above threshold"}</p></article>
+        </section>}
         {/* Main Section Columns */}
         <section className="dashboard-main-grid">
           <article className="dashboard-card dashboard-sales-card">
