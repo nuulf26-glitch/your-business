@@ -11,6 +11,8 @@ describe('merchant storefront commerce settings', () => {
     expect(validateStoreCommerceSettings({taxRatePercent:101})).toContain('between 0 and 100');
     expect(validateStoreCommerceSettings({shippingZones:[{countryCodes:['UAE'],fee:10}]})).toContain('invalid country code');
     expect(validateStoreCommerceSettings({discounts:[{code:'SAVE',type:'percent',value:101}]})).toContain('invalid value');
+    expect(validateStoreCommerceSettings({discounts:[{code:'SAVE',type:'fixed',value:5,startsAt:'not-a-date'}]})).toContain('startsAt is invalid');
+    expect(validateStoreCommerceSettings({discounts:[{code:'SAVE',type:'fixed',value:5,startsAt:'2026-11-30T10:00:00Z',endsAt:'2026-11-29T10:00:00Z'}]})).toContain('end date must be after');
   });
 
   it('calculates shipping, tax, percentage discount, and pickup from merchant settings', () => {
