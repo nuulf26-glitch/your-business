@@ -27,6 +27,7 @@ async function mockAppApi(page, { cookieAuth = false } = {}) {
   const calls = [];
   let authenticated = !cookieAuth;
   let products = [product];
+  let draft = structuredClone(website);
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -52,8 +53,8 @@ async function mockAppApi(page, { cookieAuth = false } = {}) {
     else if (pathname.startsWith("/businesses/mine/records")) body = [];
     else if (pathname === "/businesses/mine/analytics") body = { days: [], pages: [], sources: [] };
     else if (pathname === "/businesses/mine/clients") body = [];
-    else if (pathname === "/websites/draft" && method === "GET") body = { draft: website, published: null, updatedAt: "2026-01-15T09:00:00.000Z" };
-    else if (pathname === "/websites/draft" && method === "PUT") body = { ok: true };
+    else if (pathname === "/websites/draft" && method === "GET") body = { draft, published: null, updatedAt: "2026-01-15T09:00:00.000Z" };
+    else if (pathname === "/websites/draft" && method === "PUT") { draft = request.postDataJSON()?.model || draft; body = { ok: true, draft }; }
     else if (pathname === "/websites/publication-diagnostic") body = { published: false, status: "draft" };
     else if (pathname === "/websites/versions") body = [];
     else if (pathname === "/websites/publish") body = { slug: "atelier-preview" };
@@ -155,7 +156,15 @@ test("editor page management, nested-safe actions, and responsive toolbar work w
   await page.getByRole("button", { name: "Add external link" }).click();
   await page.getByLabel("About label").fill("Our story");
   await page.getByRole("button", { name: "Save draft" }).click();
-  await expect.poll(() => calls.some(call => call.pathname === "/websites/draft" && call.method === "PUT" && call.body?.model?.navigation?.some(item => item.label === "Our story" && item.pageId === "about") && call.body?.model?.navigation?.some(item => item.label === "Instagram" && item.href === "https://instagram.com/atelier-preview"))).toBeTruthy();
+  await expect.poll(() => calls.some(call => {
+    const model = call.pathname === "/websites/draft" && call.method === "PUT" ? call.body?.model : null;
+    const aboutPageId = model?.pages?.find(item => item.title === "About")?.id;
+    return !!aboutPageId && model.navigation?.some(item => item.label === "Our story" && item.pageId === aboutPageId) && model.navigation?.some(item => item.label === "Instagram" && item.href === "https://instagram.com/atelier-preview");
+  })).toBeTruthy();
+  await page.reload();
+  const siteNavigation = page.getByRole("navigation", { name: "Website pages" });
+  await expect(siteNavigation.getByRole("link", { name: "Our story" })).toBeVisible();
+  await expect(siteNavigation.getByRole("link", { name: "Instagram" })).toHaveAttribute("href", "https://instagram.com/atelier-preview");
 });
 
 test("products, orders, and customers render fixture records and preserve update requests", async ({ page }) => {
