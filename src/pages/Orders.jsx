@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import "../styles/orders.css";
 import DashboardLayout from "../layouts/DashboardLayout";
-import { getOrders, updateOrderStatus as saveOrderStatus, deleteOrder as removeOrder } from "../services/orderService";
+import { getOrders, updateOrderStatus as saveOrderStatus, updatePaymentStatus as savePaymentStatus, deleteOrder as removeOrder } from "../services/orderService";
 import { InlineState } from "../components/ui/DesignPrimitives";
 const statuses = [
   "New",
-  "Paid",
   "Processing",
+  "Packed",
   "Shipped",
   "Delivered",
   "Cancelled",
+  "Returned",
 ];
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -129,6 +130,12 @@ function Orders() {
   }
 }
 
+  async function updatePaymentStatus(orderId, status) {
+    try {
+      await savePaymentStatus(orderId, status);
+      setOrders(current => current.map(item => item.id === orderId ? { ...item, paymentStatus: status === "paid" ? "Paid" : "Refunded" } : item));
+    } catch (error) { console.error("Could not update payment status:", error); }
+  }
   async function deleteOrder(orderId) {
   const confirmed = window.confirm(
     "Are you sure you want to delete this order?"
@@ -299,24 +306,14 @@ function Orders() {
                   <strong>{formatCurrency(order.total)}</strong>
                   <span>{getOrderDate(order)}</span>
 
-                  <select
-                    className={`order-status-select ${getStatusClass(
-                      order.status
-                    )}`}
-                    value={order.status || "New"}
-                    onChange={(event) =>
-                      updateStatus(
-                        order.id,
-                        event.target.value
-                      )
-                    }
-                  >
-                    {statuses.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="order-fulfillment-and-payment">
+                    <select className={`order-status-select ${getStatusClass(order.fulfillmentStatus || order.status)}`} value={String(order.fulfillmentStatus || order.status || "New").replace(/^./, letter => letter.toUpperCase())} onChange={event => updateStatus(order.id, event.target.value)}>
+                      {statuses.map(status => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                    <small>Payment: {order.paymentStatus || "Pending"}</small>
+                    {String(order.paymentStatus || "").toLowerCase() !== "paid" && String(order.paymentStatus || "").toLowerCase() !== "refunded" && <button type="button" onClick={() => updatePaymentStatus(order.id, "paid")}>Mark collected</button>}
+                    {String(order.paymentStatus || "").toLowerCase() === "paid" && <button type="button" onClick={() => updatePaymentStatus(order.id, "refunded")}>Record refund</button>}
+                  </div>
 
                   <button
                     type="button"
