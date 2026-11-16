@@ -52,7 +52,7 @@ const [userProfile, setUserProfile] = useState(null);
           return;
         }
 
-        const [storeResult, websiteResult, productResult, ordersResult, customersResult, commerceResult] = await Promise.allSettled([getStore(), loadWebsiteRecord(), getProducts(), getOrders(), getCustomers(), customBackendRequest("/business/mine/commerce-analytics")]);
+        const [storeResult, websiteResult, productResult, ordersResult, customersResult, commerceResult] = await Promise.allSettled([getStore(), loadWebsiteRecord(), getProducts(), getOrders(), getCustomers(), customBackendRequest("/businesses/mine/commerce-analytics")]);
         if (!active) return;
         const failedResult = [storeResult, websiteResult, productResult, ordersResult, customersResult, commerceResult].find((result) => result.status === "rejected");
         if (failedResult) throw failedResult.reason;
