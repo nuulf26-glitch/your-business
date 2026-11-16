@@ -427,10 +427,50 @@ export class PublicProductController {
 @UseGuards(SessionGuard)
 export class CustomerController {
   constructor(private db:DbService){}
-  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)return [];return this.db.customer.findMany({where:{businessId:b.id},orderBy:{id:'desc'}});}
-  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');return this.db.customer.create({data:{businessId:b.id,data:dto.data as any}});}
-  @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:CustomerStatusInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const customer=await this.db.customer.findFirst({where:{id,businessId:b.id}});if(!customer)throw new NotFoundException('Customer not found');const data={...(customer.data as Record<string,unknown>),status:dto.status};return this.db.customer.update({where:{id},data:{data:data as any}});}
-  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const result=await this.db.customer.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Customer not found');return {deleted:true};}
+  private async business(userId:string){const business=await this.db.business.findFirst({where:{ownerId:userId}});if(!business)throw new NotFoundException('Business not found');return business;}
+  @Get() async list(@Req() req:Request & {user:any}) {
+    const business=await this.business(req.user.id),rows=await this.db.customer.findMany({where:{businessId:business.id},orderBy:{id:'desc'},take:500});
+    const search=String(req.query.search||'').trim().toLowerCase(),status=String(req.query.status||'').toLowerCase();
+    return rows.filter(row=>{const data=row.data as any;return (!status||String(data.status||'').toLowerCase()===status)&&(!search||[data.name,data.email,data.phone].some(value=>String(value||'').toLowerCase().includes(search)));}).map(row=>({id:row.id,...(row.data as Record<string,unknown>)}));
+  }
+  @Get(':id') async one(@Req() req:Request & {user:any}) {
+    const business=await this.business(req.user.id),id=String(req.params['id']),customer=await this.db.customer.findFirst({where:{id,businessId:business.id}});
+    if(!customer)throw new NotFoundException('Customer not found');
+    const email=String((customer.data as any)?.email||'').trim().toLowerCase();
+    const orders=email?(await this.db.order.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:500})).filter(row=>String((row.data as any)?.email||'').trim().toLowerCase()===email):[];
+    return {id,...(customer.data as Record<string,unknown>),orders:orders.map(row=>({...publicOrderData(row.data),id:row.id,status:String((row.data as any)?.fulfillmentStatus||row.status),paymentStatus:(row.data as any)?.paymentStatus||'Pending',createdAt:row.createdAt}))};
+  }
+  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){
+    const business=await this.business(req.user.id);
+    const email=String(dto.data.email||'').trim().toLowerCase();
+    if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer email');
+    return this.db.customer.create({data:{businessId:business.id,data:{...dto.data,...(email?{email}:{}),status:dto.data.status||'Active',totalSpent:0,paidOrders:0,orders:0} as any}});
+  }
+  @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:CustomerStatusInput){
+    const status=String(dto.status||'').trim();
+    if(!['New','Active','Inactive','VIP','Blocked'].includes(status))throw new BadRequestException('Invalid customer status');
+    const business=await this.business(req.user.id),id=String(req.params['id']),customer=await this.db.customer.findFirst({where:{id,businessId:business.id}});
+    if(!customer)throw new NotFoundException('Customer not found');
+    const data={...(customer.data as Record<string,unknown>),status};
+    const result=await this.db.customer.updateMany({where:{id,businessId:business.id},data:{data:data as any}});
+    if(!result.count)throw new NotFoundException('Customer not found');
+    return {id,...data};
+  }
+  @Patch(':id/notes') async updateNotes(@Req() req:Request & {user:any},@Body() dto:JsonInput){
+    const note=String(dto.data.note||'').trim();
+    if(note.length>2000)throw new BadRequestException('Customer notes cannot exceed 2000 characters');
+    const business=await this.business(req.user.id),id=String(req.params['id']),customer=await this.db.customer.findFirst({where:{id,businessId:business.id}});
+    if(!customer)throw new NotFoundException('Customer not found');
+    const data={...(customer.data as Record<string,any>),notes:note,noteUpdatedAt:new Date().toISOString()};
+    const result=await this.db.customer.updateMany({where:{id,businessId:business.id},data:{data:data as any}});
+    if(!result.count)throw new NotFoundException('Customer not found');
+    return {id,notes:note,noteUpdatedAt:data.noteUpdatedAt};
+  }
+  @Delete(':id') async remove(@Req() req:Request & {user:any}){
+    const business=await this.business(req.user.id),result=await this.db.customer.deleteMany({where:{id:String(req.params['id']),businessId:business.id}});
+    if(!result.count)throw new NotFoundException('Customer not found');
+    return {deleted:true};
+  }
 }
 
 @Controller('orders')
