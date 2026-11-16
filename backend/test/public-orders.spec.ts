@@ -119,6 +119,10 @@ describe('PublicOrderController', () => {
   it('uses the selected server-side variant price and rejects insufficient stock', async () => {
     const tx:any={
       order:{create:jest.fn().mockResolvedValue({id:'order_variant',status:'new',createdAt:new Date(),data:{}})},
+      product:{
+        findFirst:jest.fn().mockResolvedValue({id:'prod_1',businessId:'biz_1',data:{sellingPrice:10,stock:4,variants:[{id:'large',name:'Large',sellingPrice:15,stock:2}]}}),
+        updateMany:jest.fn().mockResolvedValue({count:1}),
+      },
       customer:{findFirst:jest.fn().mockResolvedValue(null),create:jest.fn().mockResolvedValue({})},
     };
     const db:any={
@@ -130,10 +134,30 @@ describe('PublicOrderController', () => {
     const order=tx.order.create.mock.calls[0][0].data;
     expect(order.data.items[0]).toMatchObject({id:'prod_1',variantId:'large',variantName:'Large',price:15,quantity:1});
     expect(order.amountCents).toBe(4000);
+    expect(tx.product.updateMany.mock.calls[0][0].where).toEqual({id:'prod_1',businessId:'biz_1',data:{equals:{sellingPrice:10,stock:4,variants:[{id:'large',name:'Large',sellingPrice:15,stock:2}]}}});
+    expect(tx.product.updateMany.mock.calls[0][0].data.data.variants[0].stock).toBe(1);
 
     await expect(new PublicOrderController({
       business:db.business,
       product:{findMany:jest.fn().mockResolvedValue([{id:'prod_1',name:'Item',data:{sellingPrice:10,stock:0}}])},
     } as any).create({data:{storeUrl:'sample-shop',customerName:'A Customer',email:'a@example.com',items:[{productId:'prod_1',quantity:1}]}})).rejects.toThrow('out of stock');
+  });
+
+  it('rejects checkout when inventory changes to insufficient stock before reservation', async () => {
+    const tx:any={
+      product:{
+        findFirst:jest.fn().mockResolvedValue({id:'prod_1',businessId:'biz_1',data:{sellingPrice:10,stock:0}}),
+        updateMany:jest.fn(),
+      },
+      order:{create:jest.fn()},
+    };
+    const db:any={
+      business:{findUnique:jest.fn().mockResolvedValue({id:'biz_1',slug:'sample-shop',website:{published:{}}})},
+      product:{findMany:jest.fn().mockResolvedValue([{id:'prod_1',name:'Item',data:{sellingPrice:10,stock:2}}])},
+      $transaction:jest.fn(async(callback:any)=>callback(tx)),
+    };
+    await expect(new PublicOrderController(db).create({data:{storeUrl:'sample-shop',customerName:'A Customer',email:'a@example.com',items:[{productId:'prod_1',quantity:1}]}})).rejects.toThrow('out of stock');
+    expect(tx.product.updateMany).not.toHaveBeenCalled();
+    expect(tx.order.create).not.toHaveBeenCalled();
   });
 });
