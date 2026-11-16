@@ -48,7 +48,9 @@ jobs:
         run: npm run lint
 
       - name: Render functional routes at four viewport sizes
-        run: npm run test:functional-visual
+        run: |
+          npx playwright test tests/functional-visual/flows.spec.js --grep "editor page management"
+          npm run test:functional-visual
         env:
           CI: "true"
 

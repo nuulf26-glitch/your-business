@@ -13,6 +13,6 @@ export default function MediaDisplay({ value, title = '', className = '' }) {
 
 function MediaContent({item,title}) {
   const [failed,setFailed]=useState(false);
-  const style={width:'100%',height:'100%',objectFit:item.fit==='contain'?'contain':'cover'};
+  const style={width:'100%',height:'100%',objectFit:item.fit==='contain'?'contain':'cover',objectPosition:`${Math.max(0,Math.min(100,Number(item.focalX??50)))}% ${Math.max(0,Math.min(100,Number(item.focalY??50)))}%`,transform:`scale(${Math.max(1,Math.min(2.5,Number(item.cropScale)||1))})`,transformOrigin:`${Math.max(0,Math.min(100,Number(item.focalX??50)))}% ${Math.max(0,Math.min(100,Number(item.focalY??50)))}%`};
   return <>{item.type==='video'?<video src={item.url} controls playsInline preload="metadata" aria-label={item.alt||title||'Video'} style={style} onClick={event=>event.stopPropagation()} onError={()=>setFailed(true)}/>:<img src={item.url} alt={item.alt||title} loading="lazy" style={style} onError={()=>setFailed(true)}/>}{failed&&<p role="alert" className="cyb-media-error">{item.type==='video'?'This video could not play. Check your connection or use MP4 with H.264 video and AAC audio.':'This image could not load. Check your connection or replace it with a valid uploaded image.'}</p>}</>;
 }

@@ -10,7 +10,7 @@ const business = {
 };
 const website = {
   editorVersion: 2, brandName: "Atelier Preview", template: "minimal",
-  sections: [{ id: "hero", type: "hero", title: "Synthetic preview", body: "Preview fixture content", buttonText: "Explore", href: "#collection" }], pages: [],
+  sections: [{ id: "hero", type: "hero", title: "Synthetic preview", body: "Preview fixture content", buttonText: "Explore", href: "#collection", media: [{ id: 'synthetic-hero-image', type: 'image', url: 'https://images.example.test/synthetic.jpg', alt: 'Synthetic image', aspectRatio: '16 / 9', width: 100, unit: '%' }] }], pages: [],
 };
 const product = {
   id: "synthetic-product", data: { name: "Synthetic QA product", category: "Care", sellingPrice: 80, costPrice: 20, stock: 4, status: "active", description: "Test-only fixture" },
@@ -27,6 +27,7 @@ async function mockAppApi(page, { cookieAuth = false } = {}) {
   const calls = [];
   let authenticated = !cookieAuth;
   let products = [product];
+  let draft = structuredClone(website);
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -52,8 +53,8 @@ async function mockAppApi(page, { cookieAuth = false } = {}) {
     else if (pathname.startsWith("/businesses/mine/records")) body = [];
     else if (pathname === "/businesses/mine/analytics") body = { days: [], pages: [], sources: [] };
     else if (pathname === "/businesses/mine/clients") body = [];
-    else if (pathname === "/websites/draft" && method === "GET") body = { draft: website, published: null, updatedAt: "2026-01-15T09:00:00.000Z" };
-    else if (pathname === "/websites/draft" && method === "PUT") body = { ok: true };
+    else if (pathname === "/websites/draft" && method === "GET") body = { draft, published: null, updatedAt: "2026-01-15T09:00:00.000Z" };
+    else if (pathname === "/websites/draft" && method === "PUT") { draft = request.postDataJSON()?.model || draft; body = { ok: true, draft }; }
     else if (pathname === "/websites/publication-diagnostic") body = { published: false, status: "draft" };
     else if (pathname === "/websites/versions") body = [];
     else if (pathname === "/websites/publish") body = { slug: "atelier-preview" };
@@ -105,6 +106,65 @@ test("editor draft save and publish use the existing API contracts", async ({ pa
   await page.getByRole("button", { name: "Publish", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Your website is live." })).toBeVisible({ timeout: 15000 });
   expect(calls.some((call) => call.pathname === "/websites/publish" && call.method === "POST")).toBeTruthy();
+});
+
+test("image crop controls preview and save persistent crop metadata", async ({ page }) => {
+  await seedProtectedUser(page);
+  const calls = await mockAppApi(page);
+  await page.goto("/editor");
+  await page.getByLabel("Crop zoom 1").fill("1.8");
+  await page.getByLabel("Aspect ratio").first().selectOption("4 / 3");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect.poll(() => calls.some(call => call.pathname === "/websites/draft" && call.method === "PUT" && call.body?.model?.sections?.[0]?.media?.[0]?.cropScale === 1.8 && call.body?.model?.sections?.[0]?.media?.[0]?.aspectRatio === "4 / 3")).toBeTruthy();
+});
+
+test("editor page management, nested-safe actions, and responsive toolbar work with synthetic data", async ({ page }) => {
+  test.setTimeout(90_000);
+  await seedProtectedUser(page);
+  const calls = await mockAppApi(page);
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1024 }, { width: 390, height: 844 }, { width: 375, height: 812 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/editor");
+    await expect(page.getByRole("button", { name: "Save draft" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Current page" })).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    expect(overflow, `horizontal overflow at ${viewport.width}px`).toBeFalsy();
+    if (viewport.width <= 900) {
+      await page.getByRole("button", { name: "Add & pages" }).click();
+      await expect(page.getByRole("navigation", { name: "Editor navigation" })).toBeVisible();
+    }
+    await page.getByRole("navigation", { name: "Editor navigation" }).getByRole("button", { name: /Pages/ }).click();
+    await expect(page.getByText("Website pages")).toBeVisible();
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole("navigation", { name: "Editor navigation" }).getByRole("button", { name: /Pages/ }).click();
+  await page.getByLabel("New page name").fill("About");
+  await page.getByRole("button", { name: "Add page" }).click();
+  await expect(page.getByRole("combobox", { name: "Current page" })).toHaveValue(/page-/);
+  await page.getByRole("navigation", { name: "Editor navigation" }).getByRole("button", { name: /Add section/ }).click();
+  await page.getByRole("button", { name: /FAQ/ }).first().click();
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect.poll(() => calls.some(call => call.pathname === "/websites/draft" && call.method === "PUT" && call.body?.model?.pages?.some(item => item.title === "About" && item.sections.some(section => section.type === "faq")))).toBeTruthy();
+  await page.getByRole("navigation", { name: "Editor navigation" }).getByRole("button", { name: /Pages/ }).click();
+  await page.getByRole("combobox", { name: "Current page" }).selectOption({ label: "About" });
+  await page.locator(".page-actions").last().locator("summary").click();
+  await page.getByRole("button", { name: "Set as homepage" }).click();
+  await expect.poll(() => calls.some(call => call.pathname === "/websites/draft" && call.method === "PUT" && call.body?.model?.pages?.[0]?.title === "About")).toBeTruthy();
+  await page.getByRole("navigation", { name: "Editor navigation" }).getByRole("button", { name: /Pages/ }).click();
+  await page.getByLabel("External link label").fill("Instagram");
+  await page.getByLabel("External URL").fill("https://instagram.com/atelier-preview");
+  await page.getByRole("button", { name: "Add external link" }).click();
+  await page.getByLabel("About label").fill("Our story");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect.poll(() => calls.some(call => {
+    const model = call.pathname === "/websites/draft" && call.method === "PUT" ? call.body?.model : null;
+    const aboutPageId = model?.pages?.find(item => item.title === "About")?.id;
+    return !!aboutPageId && model.navigation?.some(item => item.label === "Our story" && item.pageId === aboutPageId) && model.navigation?.some(item => item.label === "Instagram" && item.href === "https://instagram.com/atelier-preview");
+  })).toBeTruthy();
+  await page.reload();
+  const siteNavigation = page.getByRole("navigation", { name: "Website pages" });
+  await expect(siteNavigation.getByRole("link", { name: "Our story" })).toBeVisible();
+  await expect(siteNavigation.getByRole("link", { name: "Instagram" })).toHaveAttribute("href", "https://instagram.com/atelier-preview");
 });
 
 test("products, orders, and customers render fixture records and preserve update requests", async ({ page }) => {

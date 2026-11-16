@@ -7,17 +7,17 @@ describe('website draft and publish persistence', () => {
     const website: any = withWebsite ? { id: 'website', businessId: 'business', draft: published, published, revision: 1, publishedAt: new Date('2026-01-01T00:00:00Z') } : {};
     const business = { id: 'business', ownerId: 'owner', slug: 'lune', name: 'LUNE', category: 'retail', website };
     const websiteVersion = { create: jest.fn().mockResolvedValue({ id: 'version-1' }) };
+    const websiteStore = () => ({
+      findUnique: jest.fn(async () => withWebsite || website.id ? website : null),
+      create: jest.fn(async ({ data }: any) => { Object.assign(website, { id: 'website', businessId: 'business', ...data }); return website; }),
+      updateMany: jest.fn(async ({ where, data }: any) => {
+        if (!website.id || website.revision !== where.revision) return { count: 0 };
+        Object.assign(website, { ...data, revision: website.revision + (data.revision?.increment || 0) });
+        return { count: 1 };
+      }),
+    });
     const tx = {
-      website: { upsert: jest.fn(async ({ create, update }: any) => {
-        if (!withWebsite && create) Object.assign(website, { id: 'website', businessId: 'business', revision: 1, ...create });
-        if (withWebsite && update) {
-          website.draft = update.draft;
-          website.published = update.published;
-          website.publishedAt = update.publishedAt;
-          if (update.revision?.increment) website.revision += update.revision.increment;
-        }
-        return website;
-      }) },
+      website: websiteStore(),
       websiteVersion,
     };
     const db: any = {
@@ -27,14 +27,9 @@ describe('website draft and publish persistence', () => {
         findUnique: jest.fn(async ({ where }: any) => where.slug === business.slug ? business : null),
       },
       website: {
-        upsert: jest.fn(async ({ create, update }: any) => {
-          if (create) website.draft = create.draft;
-          if (update) { website.draft = update.draft; website.revision += update.revision.increment; }
-          return website;
-        }),
-        findUnique: jest.fn(async () => website),
+        ...websiteStore(),
       },
-      $transaction: jest.fn(async (callback: (value: any) => Promise<unknown>) => callback(tx)),
+      $transaction: jest.fn(async (callback: (value: any) => Promise<unknown>) => callback({ ...tx, website: websiteStore() })),
     };
     return { controller: new WebsiteController(db), db, website, websiteVersion, business };
   }
@@ -83,7 +78,8 @@ describe('website draft and publish persistence', () => {
     const { controller, db } = createFixture();
     await expect(controller.saveDraft({ user: { id: 'another-owner' } } as any, { model: { brandName: 'Injected', sections: [] } } as any)).rejects.toThrow('Create a business first');
     await expect(controller.publish({ user: { id: 'another-owner' } } as any, { model: { brandName: 'Injected', sections: [{ id: 'hero', type: 'hero' }] } } as any)).rejects.toThrow('Create a business before publishing');
-    expect(db.website.upsert).not.toHaveBeenCalled();
+    expect(db.website.updateMany).not.toHaveBeenCalled();
+    expect(db.website.create).not.toHaveBeenCalled();
     expect(db.$transaction).not.toHaveBeenCalled();
   });
 

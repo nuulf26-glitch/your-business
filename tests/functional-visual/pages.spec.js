@@ -175,6 +175,11 @@ for (const viewport of viewports) {
         await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
         const layout = await inspectPage(page, viewport.width);
+        if (route === "/editor") {
+          await expect(page.getByRole("button", { name: "Ask CYB AI for help" })).toBeHidden();
+          const footerColor = await page.locator(".cyb-type-footer").first().evaluate(node => getComputedStyle(node).color);
+          expect(footerColor, "default footer text should remain legible on the light canvas").toBe("rgb(23, 21, 19)");
+        }
         await page.screenshot({ path: path.join(outputRoot, viewport.label, `${name}.png`) });
         expect(layout.primaryContentVisible, `${name}: expected settled page content; headings: ${layout.headings.join(" | ")}`).toBeTruthy();
         expect(layout.horizontalOverflow, `${name}: horizontal overflow ${layout.documentWidth}/${viewport.width}; ${layout.overflowNodes.join("; ")}`).toBeFalsy();

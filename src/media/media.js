@@ -14,10 +14,11 @@ export function mediaStyle(item) {
   const h = height > 0 ? `${Math.min(height,4000)}px` : 'auto';
   const ratio = ['1 / 1','4 / 3','3 / 4','16 / 9','9 / 16'].includes(item.aspectRatio) ? item.aspectRatio : 'auto';
   const focal = value => Number.isFinite(Number(value)) ? Math.max(0,Math.min(100,Number(value))) : 50;
+  const cropScale = Number.isFinite(Number(item.cropScale)) ? Math.max(1,Math.min(2.5,Number(item.cropScale))) : 1;
   return { width:w, maxWidth:'100%', height:h, objectFit:item.fit === 'contain' ? 'contain' : 'cover',
     '--media-width':w, '--media-height':h, '--media-ratio':ratio,
     '--media-mobile-width':`${Math.max(1,Math.min(100,Number(item.mobileWidth)||100))}%`,
     '--media-mobile-height':Number(item.mobileHeight)>0?`${Math.min(2000,Number(item.mobileHeight))}px`:'auto',
-    '--media-position':`${focal(item.focalX??50)}% ${focal(item.focalY??50)}%`,
+    '--media-position':`${focal(item.focalX??50)}% ${focal(item.focalY??50)}%`, '--media-crop-scale':cropScale,
     marginLeft: ['center','right'].includes(item.align)?'auto':0, marginRight:item.align==='center'?'auto':0 };
 }
