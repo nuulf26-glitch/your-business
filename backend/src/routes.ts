@@ -737,7 +737,18 @@ export class PublicOrderController {
     const data=row.data as Record<string,any>;
     return {id:row.id,status:data.fulfillmentStatus||row.status,fulfillmentStatus:data.fulfillmentStatus||row.status,paymentStatus:data.paymentStatus||'Pending',trackingNumber:data.trackingNumber||null,shippingCarrier:data.shippingCarrier||null,trackingUrl:data.trackingUrl||null,timeline:Array.isArray(data.timeline)?data.timeline:[],items:Array.isArray(data.items)?data.items.map((item:any)=>({name:item.name,quantity:item.quantity,variantName:item.variantName})):[],total:data.total,currency:data.currency,createdAt:row.createdAt};
   }
-  @Post(':id/cash-on-delivery') async setCashOnDelivery(@Req() req:Request,@Body() dto:TokenInput){const id=String(req.params['id']);const row=await this.db.order.findUnique({where:{id}});const storedHash=(row?.data as any)?.customerActionTokenHash;if(!row||row.status!=='new'||typeof storedHash!=='string'||!/^[a-f0-9]{64}$/i.test(storedHash)||!timingSafeEqual(Buffer.from(tokenHash(dto.token),'hex'),Buffer.from(storedHash,'hex')))throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),paymentMethod:'cash',paymentStatus:'Cash on delivery',completedAt:new Date().toISOString()};const result=await this.db.order.updateMany({where:{id,status:'new'},data:{data:data as any}});if(!result.count)throw new NotFoundException('Order not found');return {ok:true};}
+  @Post(':id/cash-on-delivery') async setCashOnDelivery(@Req() req:Request,@Body() dto:TokenInput){
+    const id=String(req.params['id']),row=await this.db.order.findUnique({where:{id}}),storedHash=(row?.data as any)?.customerActionTokenHash;
+    if(!row||row.status!=='new'||typeof storedHash!=='string'||!/^[a-f0-9]{64}$/i.test(storedHash)||!timingSafeEqual(Buffer.from(tokenHash(dto.token),'hex'),Buffer.from(storedHash,'hex')))throw new NotFoundException('Order not found');
+    const current=row.data as Record<string,any>,payment=String(current.paymentStatus||'Pending').toLowerCase();
+    if(payment==='cash on delivery')return {ok:true};
+    if(payment==='paid'||payment==='refunded')throw new NotFoundException('Order not found');
+    const now=new Date().toISOString(),timeline=Array.isArray(current.timeline)?current.timeline:[];
+    const data={...current,fulfillmentStatus:current.fulfillmentStatus||'new',paymentMethod:'cash',paymentStatus:'Cash on delivery',completedAt:now,timeline:[...timeline,{type:'payment-method',status:'Cash on delivery',recordedAt:now}]};
+    const result=await this.db.order.updateMany({where:{id,status:'new',data:{equals:row.data as any}},data:{data:data as any}});
+    if(!result.count){const latest=await this.db.order.findUnique({where:{id}});if(String((latest?.data as any)?.paymentStatus||'').toLowerCase()==='cash on delivery')return {ok:true};throw new NotFoundException('Order not found');}
+    return {ok:true};
+  }
 }
 
 function deterministicTrialWebsite(prompt:string){
