@@ -161,5 +161,50 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const customers = await requestFromPage(page, '/customers');
   expect(customers.some((item) => item.data?.email?.startsWith('checkout-'))).toBe(true);
 
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/store/${encodeURIComponent(slug)}`);
+  await expect(page.getByText("Synthetic E2E Product", { exact: false }).first()).toBeVisible();
+  await checkNoHorizontalOverflow(page, "storefront mobile");
+  await page.screenshot({ path: `${artifactsDir}/storefront-390x844.png`, fullPage: true });
+  await page.goto(`/product/${encodeURIComponent(product.id)}`);
+  await checkNoHorizontalOverflow(page, "product mobile");
+  await page.goto("/cart");
+  await page.getByRole("button", { name: "Continue to checkout" }).click();
+  await expect(page.getByRole("heading", { name: "Delivery details" })).toBeVisible();
+  await checkNoHorizontalOverflow(page, "checkout mobile");
+  await page.screenshot({ path: `${artifactsDir}/checkout-390x844.png`, fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
+
+  const completedOrder = await page.evaluate(() => JSON.parse(localStorage.getItem("completedOrder") || "null"));
+  expect(completedOrder?.cashOnDeliveryToken).toBeTruthy();
+  const customerOrderView = await requestFromPage(page, `/public/orders/${encodeURIComponent(checkoutOrder.id)}?token=${encodeURIComponent(completedOrder.cashOnDeliveryToken)}`);
+  expect(customerOrderView.fulfillmentStatus).toBe("new");
+  await expect(page.getByRole("heading", { name: "Order tracking" })).toBeVisible();
+
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
+  const paidCustomer = await requestFromPage(page, "/customers");
+  const checkoutCustomer = paidCustomer.find((item) => item.data?.email?.startsWith("checkout-"));
+  expect(checkoutCustomer.data).toMatchObject({ totalSpent: 18, paidOrders: 1 });
+  const revenue = await requestFromPage(page, "/business/mine/commerce-analytics");
+  expect(revenue.revenue).toBe(18);
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "processing" } });
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "packed" } });
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "shipped", trackingNumber: "SYNTHETIC-TRACK-001", carrier: "Synthetic Carrier", trackingUrl: "https://carrier.example/track/SYNTHETIC-TRACK-001" } });
+  const fulfilled = await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}`);
+  expect(fulfilled).toMatchObject({ fulfillmentStatus: "shipped", paymentStatus: "Paid", trackingNumber: "SYNTHETIC-TRACK-001" });
+  const customerTracking = await requestFromPage(page, `/public/orders/${encodeURIComponent(checkoutOrder.id)}?token=${encodeURIComponent(completedOrder.cashOnDeliveryToken)}`);
+  expect(customerTracking).toMatchObject({ fulfillmentStatus: "shipped", trackingNumber: "SYNTHETIC-TRACK-001" });
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/payment`, "PATCH", { data: { status: "refunded" } });
+  const refundedAnalytics = await requestFromPage(page, "/business/mine/commerce-analytics");
+  expect(refundedAnalytics.revenue).toBe(0);
+  expect(refundedAnalytics.refunds).toBe(18);
+
+  const cancelOrder = await requestFromPage(page, "/public/orders", "POST", { storeUrl: slug, customerName: "Synthetic Cancellation Customer", email: `cancel-${process.env.GITHUB_RUN_ID || "local"}@example.test`, items: [{ id: product.id, quantity: 1 }] });
+  await requestFromPage(page, `/public/orders/${encodeURIComponent(cancelOrder.id)}/cash-on-delivery`, "POST", { token: cancelOrder.cashOnDeliveryToken });
+  await requestFromPage(page, `/orders/${encodeURIComponent(cancelOrder.id)}/fulfillment`, "PATCH", { data: { status: "cancelled" } });
+  const storedProducts = await requestFromPage(page, "/products");
+  expect(storedProducts.find((item) => item.id === product.id).data.stock).toBe(3);
+
   await secondTab.close();
 });
