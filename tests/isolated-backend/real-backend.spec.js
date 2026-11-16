@@ -186,7 +186,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const paidCustomer = await requestFromPage(page, "/customers");
   const checkoutCustomer = paidCustomer.find((item) => item.email?.startsWith("checkout-"));
   expect(checkoutCustomer).toMatchObject({ totalSpent: expectedTotal, paidOrders: 1 });
-  const revenue = await requestFromPage(page, "/business/mine/commerce-analytics");
+  const revenue = await requestFromPage(page, "/businesses/mine/commerce-analytics");
   expect(revenue.revenue).toBe(expectedTotal);
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "processing" } });
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "packed" } });
@@ -196,7 +196,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const customerTracking = await requestFromPage(page, `/public/orders/${encodeURIComponent(checkoutOrder.id)}?token=${encodeURIComponent(completedOrder.cashOnDeliveryToken)}`);
   expect(customerTracking).toMatchObject({ fulfillmentStatus: "shipped", trackingNumber: "SYNTHETIC-TRACK-001" });
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/payment`, "PATCH", { data: { status: "refunded" } });
-  const refundedAnalytics = await requestFromPage(page, "/business/mine/commerce-analytics");
+  const refundedAnalytics = await requestFromPage(page, "/businesses/mine/commerce-analytics");
   expect(refundedAnalytics.revenue).toBe(0);
   expect(refundedAnalytics.refunds).toBe(expectedTotal);
 
