@@ -358,7 +358,7 @@ export class BusinessController {
     if(!/^[a-z0-9-]{1,100}$/.test(dto.slug)) throw new BadRequestException('Slug must use lowercase letters, numbers, and hyphens');
     const existing=await this.db.business.findUnique({where:{slug:dto.slug}}); if(existing&&existing.ownerId!==req.user.id) throw new ConflictException('Website address is already taken');
     const current=await this.db.business.findFirst({where:{ownerId:req.user.id}});
-    if(current) return this.db.business.update({where:{id:current.id},data:{name:dto.name,slug:dto.slug,category:dto.category,settings:dto.settings}});
+    if(current) return this.db.business.update({where:{id:current.id},data:{name:dto.name,slug:dto.slug,category:dto.category,settings:{...(current.settings as Record<string,unknown>),...dto.settings} as any}});
     return this.db.business.create({data:{ownerId:req.user.id,name:dto.name,slug:dto.slug,category:dto.category,settings:dto.settings,website:{create:{}}}});
   }
   @Get('public/:slug') async publicBusiness(@Req() req:Request) {
