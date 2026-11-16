@@ -54,11 +54,18 @@ describe('PublicOrderController', () => {
     )).resolves.toEqual({ ok: true });
 
     const update = db.order.updateMany.mock.calls[0][0];
-    expect(update.where).toEqual({ id: 'order_1', status: 'new' });
+    expect(update.where).toEqual({ id: 'order_1', status: 'new', data: { equals: row.data } });
     expect(update.data.data).toMatchObject({ total: 35, status: 'New', paymentStatus: 'Cash on delivery', paymentMethod: 'cash' });
     expect(update.data.data.customerActionTokenHash).toBe(tokenHash(token));
   });
 
+  it('does not allow a repeated COD confirmation to overwrite a later collected payment', async () => {
+    const token = 'authorized-order-action-token-1234567890';
+    const row = { id: 'order_1', status: 'new', data: { customerActionTokenHash: tokenHash(token), paymentStatus: 'Paid' } };
+    const db: any = { order: { findUnique: jest.fn().mockResolvedValue(row), updateMany: jest.fn() } };
+    await expect(new PublicOrderController(db).setCashOnDelivery({ params: { id: row.id } } as any, { token } as any)).rejects.toThrow('Order not found');
+    expect(db.order.updateMany).not.toHaveBeenCalled();
+  });
   it('rejects an invalid customer token without changing an order', async () => {
     const db: any = {
       order: {
