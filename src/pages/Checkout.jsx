@@ -45,7 +45,12 @@ function Checkout() {
     const storeUrl=cart[0]?.storeUrl;
     if(!storeUrl)return;
     customBackendRequest(`/businesses/public/${encodeURIComponent(storeUrl)}`)
-      .then(store=>setCommerceSettings(store?.settings?.commerceSettings||{}))
+      .then(store=>{
+        const settings=store?.settings?.commerceSettings||{};
+        setCommerceSettings(settings);
+        const countries=[...new Set((settings.shippingZones||[]).flatMap(zone=>zone.countryCodes||[]))];
+        if(countries.length)setForm(current=>({...current,countryCode:countries.includes(current.countryCode)?current.countryCode:countries[0]}));
+      })
       .catch(()=>setCommerceSettings({}));
   },[cart]);
 
