@@ -468,10 +468,13 @@
 
   .product-list-actions {
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .product-list-actions button {
-    flex: 1;
+    flex: 1 1 calc(50% - 7px);
+    min-width: 0;
+    white-space: normal;
   }
 
   .product-numbers-grid {
