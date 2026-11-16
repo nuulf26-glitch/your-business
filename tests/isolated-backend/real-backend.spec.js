@@ -172,7 +172,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(checkoutOrder.status).toBe('new');
   expect(checkoutOrder.data.paymentStatus).toBe('Cash on delivery');
   const customers = await requestFromPage(page, '/customers');
-  expect(customers.some((item) => item.data?.email?.startsWith('checkout-'))).toBe(true);
+  expect(customers.some((item) => item.email?.startsWith('checkout-'))).toBe(true);
 
   const completedOrder = await page.evaluate(() => JSON.parse(localStorage.getItem("completedOrder") || "null"));
   expect(completedOrder?.cashOnDeliveryToken).toBeTruthy();
@@ -183,7 +183,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
   const paidCustomer = await requestFromPage(page, "/customers");
-  const checkoutCustomer = paidCustomer.find((item) => item.data?.email?.startsWith("checkout-"));
+  const checkoutCustomer = paidCustomer.find((item) => item.email?.startsWith("checkout-"));
   expect(checkoutCustomer.data).toMatchObject({ totalSpent: 18, paidOrders: 1 });
   const revenue = await requestFromPage(page, "/business/mine/commerce-analytics");
   expect(revenue.revenue).toBe(18);
