@@ -351,7 +351,7 @@ export class BusinessController {
     const business=await this.db.business.findUnique({where:{slug},include:{website:true}});
     if(!business?.website?.published)throw new NotFoundException('Website not found');
     const settings=business.settings as Record<string,unknown>;
-    const safeKeys=['storeName','businessName','description','storeDescription','logoUrl','coverImageUrl','themeColor','primaryColor','backgroundColor','textColor','template','cardStyle','businessCategory','currency','language'];
+    const safeKeys=['storeName','businessName','description','storeDescription','logoUrl','coverImageUrl','contactEmail','contactPhone','themeColor','primaryColor','backgroundColor','textColor','template','cardStyle','businessCategory','currency','language'];
     const publicSettings=Object.fromEntries(safeKeys.filter(key=>typeof settings[key]==='string').map(key=>[key,settings[key]]));
     const catalog=settings.businessCatalog||settings.catalog;
     return {id:business.id,name:business.name,slug:business.slug,category:business.category,settings:{...publicSettings,...(catalog?{businessCatalog:catalog,catalog}: {})}};
