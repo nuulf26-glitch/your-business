@@ -56,7 +56,7 @@ class LegacySessionInput {
   @IsString() @MinLength(32) @MaxLength(200) sessionToken!: string;
 }
 class StoreInput { @IsString() @MaxLength(120) name!: string; @IsString() @MaxLength(100) slug!: string; @IsString() category!: string; @IsObject() settings!: object; }
-async function selectedBusiness(db:DbService,req:Request & {user:any},include?:Record<string,unknown>){const header=typeof req.get==='function'?req.get('x-cyb-business-id'):((req.headers as any)?.['x-cyb-business-id']);const id=String(header||'').trim();return db.business.findFirst({where:id?{ownerId:req.user.id,id}:{ownerId:req.user.id},...(include?{include}: {})});}
+async function selectedBusiness(db:DbService,req:Request & {user:any},include?:Record<string,unknown>):Promise<any>{const header=typeof req.get==='function'?req.get('x-cyb-business-id'):((req.headers as any)?.['x-cyb-business-id']);const id=String(header||'').trim();return db.business.findFirst({where:id?{ownerId:req.user.id,id}:{ownerId:req.user.id},...(include?{include}: {})});}
 class JsonInput { @IsObject() data!: Record<string, unknown>; }
 class WebsiteInput { @IsObject() model!: Record<string, unknown>; @IsOptional() @IsInt() @Min(0) expectedRevision?: number; }
 class AiPromptInput { @IsString() @MinLength(8) @MaxLength(1200) prompt!: string; @IsOptional() @IsIn(['create','modify']) mode?:'create'|'modify'; @IsOptional() @IsObject() model?:Record<string,unknown>; }
