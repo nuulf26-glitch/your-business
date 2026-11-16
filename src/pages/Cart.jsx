@@ -27,7 +27,8 @@ function Cart() {
   }, [cart]);
 
   function updateQuantity(itemKey, newQuantity) {
-    if (newQuantity < 1) {
+    const row=cart.find(item=>cartKey(item)===itemKey);
+    if (newQuantity < 1 || (row?.stock != null && Number(newQuantity) > Number(row.stock))) {
       return;
     }
 
@@ -165,6 +166,7 @@ function Cart() {
 
                           <button
                             type="button"
+                            disabled={item.stock != null && item.quantity >= Number(item.stock)}
                             onClick={() =>
                               updateQuantity(
                                 cartKey(item),
