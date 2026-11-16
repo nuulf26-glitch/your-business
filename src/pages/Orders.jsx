@@ -81,7 +81,7 @@ function Orders() {
   const totals = useMemo(() => {
     return orders.reduce(
       (result, order) => {
-        result.revenue += Number(order.total) || 0;
+        if (String(order.paymentStatus || '').toLowerCase() === 'paid') result.revenue += Number(order.total) || 0;
 
         if (order.status === "New") {
           result.newOrders += 1;
