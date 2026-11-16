@@ -35,6 +35,10 @@ export function validateStoreCommerceSettings(value: Record<string, any>): strin
       if(!['percent','fixed'].includes(discount.type))return `Discount ${index+1} type must be percent or fixed`;
       if(!nonNegative(discount.value)||(discount.type==='percent'&&Number(discount.value)>100))return `Discount ${index+1} has an invalid value`;
       if(discount.usageLimit!==undefined&&discount.usageLimit!==null&&(!Number.isInteger(Number(discount.usageLimit))||Number(discount.usageLimit)<1))return `Discount ${index+1} usage limit must be a positive whole number`;
+      for(const field of ['startsAt','endsAt']){
+        if(discount[field]!==undefined&&discount[field]!==null&&discount[field]!==''&&!Number.isFinite(Date.parse(String(discount[field]))))return `Discount ${index+1} ${field} is invalid`;
+      }
+      if(discount.startsAt&&discount.endsAt&&Date.parse(discount.endsAt)<Date.parse(discount.startsAt))return `Discount ${index+1} end date must be after its start date`;
     }
   }
   return null;
