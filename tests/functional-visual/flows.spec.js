@@ -27,13 +27,14 @@ async function mockAppApi(page, { cookieAuth = false } = {}) {
   const calls = [];
   let authenticated = !cookieAuth;
   let products = [product];
+  let stores = [{ id: business.id, name: business.name, slug: business.slug, category: business.category, published: true }];
   let draft = structuredClone(website);
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const pathname = url.pathname.replace(/^\/api\/v1/, "");
     const method = request.method();
-    calls.push({ method, pathname, body: request.postDataJSON?.() });
+    calls.push({ method, pathname, body: request.postDataJSON?.(), businessId: request.headers()["x-cyb-business-id"] || "" });
 
     if (pathname === "/auth/login" && method === "POST") {
       authenticated = true;
@@ -49,6 +50,13 @@ async function mockAppApi(page, { cookieAuth = false } = {}) {
     let body = {};
     if (pathname === "/auth/logout") body = { ok: true };
     else if (pathname === "/businesses/mine") body = business;
+    else if (pathname === "/businesses/mine/stores" && method === "GET") body = stores;
+    else if (pathname === "/businesses/mine/stores" && method === "POST") {
+      const input = request.postDataJSON() || {};
+      const created = { id: "synthetic-second-store", name: input.name, slug: input.slug, category: input.category, published: false };
+      stores = [...stores, created];
+      body = created;
+    }
     else if (pathname === "/businesses/mine/catalog") body = {};
     else if (pathname.startsWith("/businesses/mine/records")) body = [];
     else if (pathname === "/businesses/mine/analytics") body = { days: [], pages: [], sources: [] };
@@ -217,3 +225,18 @@ test("storefront product cart and cash-on-delivery checkout stay on synthetic ro
   expect(calls.some((call) => call.pathname === "/public/orders/synthetic-created-order/cash-on-delivery" && call.method === "POST")).toBeTruthy();
 });
 
+
+test("store management creates and switches between owner stores", async ({ page }) => {
+  const calls = await mockAppApi(page);
+  await seedProtectedUser(page);
+  await page.goto("/dashboard");
+  await expect(page.getByLabel("Active store")).toHaveValue("synthetic-business");
+  await page.getByRole("button", { name: "+ Add store" }).click();
+  await page.getByLabel("Store name").fill("Second Store");
+  await expect(page.getByLabel("Store URL")).toHaveValue("second-store");
+  await page.getByRole("button", { name: "Create store" }).click();
+  await expect(page.getByLabel("Active store")).toHaveValue("synthetic-second-store");
+  await expect.poll(() => calls.some(call => call.pathname === "/businesses/mine/stores" && call.method === "POST" && call.body?.slug === "second-store")).toBeTruthy();
+  expect(calls.some(call => call.pathname === "/businesses/mine" && call.businessId === "synthetic-second-store")).toBe(true);
+  expect(await page.evaluate(() => localStorage.getItem("cyb_active_business_id"))).toBe("synthetic-second-store");
+});
