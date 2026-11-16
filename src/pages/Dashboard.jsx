@@ -26,6 +26,7 @@ function Dashboard() {
  const [orders, setOrders] = useState([]);
 const [customers, setCustomers] = useState([]);
 const [products, setProducts] = useState([]);
+const [commerceAnalytics, setCommerceAnalytics] = useState(null);
 const [userProfile, setUserProfile] = useState(null);
   const [refundLoading, setRefundLoading] = useState(false);
   const [refundMessage, setRefundMessage] = useState("");
