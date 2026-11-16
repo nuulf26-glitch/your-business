@@ -477,6 +477,10 @@ export class PublicOrderController {
   const byProduct=new Map<string,any[]>();
   for(const item of items){const list=byProduct.get(item.id)||[];list.push(item);byProduct.set(item.id,list);}
   for(const [productId,lines] of byProduct){
+    const snapshot=products.find(product=>product.id===productId);
+    const snapshotData=(snapshot?.data||{}) as Record<string,any>;
+    const variantsTracked=Array.isArray(snapshotData.variants)&&snapshotData.variants.some((value:any)=>value?.stock!==undefined&&value?.stock!==null&&String(value.stock).trim()!=='');
+    if((snapshotData.stock===undefined||snapshotData.stock===null||String(snapshotData.stock).trim()==='')&&!variantsTracked)continue;
     const current=await tx.product.findFirst({where:{id:productId,businessId:business.id}});
     if(!current)throw new ConflictException('A product changed while checkout was being completed. Refresh your cart and try again.');
     const original=current.data as Record<string,any>,next:any={...original};
