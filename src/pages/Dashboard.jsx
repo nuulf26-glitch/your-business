@@ -106,8 +106,9 @@ const [userProfile, setUserProfile] = useState(null);
 
   const lowStockProducts = useMemo(() => {
     return products.filter((product) => {
-      const stock = Number(product.stock) || 0;
-      return stock > 0 && stock <= 5;
+      if (product.stock === undefined || product.stock === null || String(product.stock).trim() === "") return false;
+      const stock = Number(product.stock);
+      return Number.isFinite(stock) && stock >= 0 && stock <= 5;
     }).length;
   }, [products]);
 
