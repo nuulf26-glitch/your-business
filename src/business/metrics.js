@@ -1,5 +1,7 @@
 export function orderMetrics(orders) {
-  const completed=orders.filter(order=>['paid','completed','delivered'].includes(String(order.paymentStatus||order.status||'').toLowerCase()));
+  // Revenue includes only payments confirmed as collected by the merchant.
+  // Fulfilled or delivered COD orders remain unpaid until explicitly marked paid.
+  const completed=orders.filter(order=>String(order.paymentStatus||'').toLowerCase()==='paid');
   const revenue=completed.reduce((sum,order)=>sum+(Number(order.total)||0),0);
   const hasCosts=completed.every(order=>order.costOfGoods!=null&&order.expenses!=null&&Number.isFinite(Number(order.costOfGoods))&&Number.isFinite(Number(order.expenses)));
   const profit=hasCosts&&completed.length?completed.reduce((sum,order)=>sum+(Number(order.total)||0)-Number(order.costOfGoods)-Number(order.expenses),0):null;
