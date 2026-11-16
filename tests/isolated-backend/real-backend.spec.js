@@ -209,7 +209,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const returned = await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}`);
   expect(returned).toMatchObject({ fulfillmentStatus: "returned", paymentStatus: "Refunded" });
 
-  const cancelOrder = await requestFromPage(page, "/public/orders", "POST", { data: { storeUrl: slug, customerName: "Synthetic Cancellation Customer", email: `cancel-${process.env.GITHUB_RUN_ID || "local"}@example.test`, items: [{ id: product.id, quantity: 1 }] } });
+  const cancelOrder = await requestFromPage(page, "/public/orders", "POST", { data: { storeUrl: slug, customerName: "Synthetic Cancellation Customer", email: `cancel-${process.env.GITHUB_RUN_ID || "local"}@example.test`, items: [{ id: product.id, variantId: "synthetic-small", quantity: 1 }] } });
   await requestFromPage(page, `/public/orders/${encodeURIComponent(cancelOrder.id)}/cash-on-delivery`, "POST", { token: cancelOrder.cashOnDeliveryToken });
   await requestFromPage(page, `/orders/${encodeURIComponent(cancelOrder.id)}/fulfillment`, "PATCH", { data: { status: "cancelled" } });
   await requestFromPage(page, `/orders/${encodeURIComponent(cancelOrder.id)}/fulfillment`, "PATCH", { data: { status: "cancelled" } });
