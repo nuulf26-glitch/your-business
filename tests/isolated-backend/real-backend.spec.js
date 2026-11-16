@@ -204,7 +204,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   await requestFromPage(page, `/public/orders/${encodeURIComponent(cancelOrder.id)}/cash-on-delivery`, "POST", { token: cancelOrder.cashOnDeliveryToken });
   await requestFromPage(page, `/orders/${encodeURIComponent(cancelOrder.id)}/fulfillment`, "PATCH", { data: { status: "cancelled" } });
   const storedProducts = await requestFromPage(page, "/products");
-  expect(storedProducts.find((item) => item.id === product.id).data.stock).toBe(3);
+  expect(storedProducts.find((item) => item.id === product.id).data.variants[0].stock).toBe(3);
 
   await secondTab.close();
 });
