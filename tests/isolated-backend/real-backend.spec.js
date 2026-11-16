@@ -133,7 +133,11 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
 
   await page.goto(`/product/${encodeURIComponent(product.id)}`);
   await expect(page.getByRole('heading', { name: 'Synthetic E2E Product' })).toBeVisible();
+  await page.locator('.product-variant-select select').selectOption('synthetic-small');
+  await expect(page.getByText('18.00', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Add to cart' }).click();
+  const selectedCart = await page.evaluate(() => JSON.parse(localStorage.getItem('businessCart') || '[]'));
+  expect(selectedCart).toContainEqual(expect.objectContaining({ productId: product.id, variantId: 'synthetic-small', variantName: 'Small', price: 18 }));
   await page.goto('/cart');
   await expect(page.getByRole('heading', { name: 'Shopping cart' })).toBeVisible();
   await page.getByRole('button', { name: 'Continue to checkout' }).click();
