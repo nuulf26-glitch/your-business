@@ -49,7 +49,7 @@ function Checkout() {
       .catch(()=>setCommerceSettings({}));
   },[cart]);
 
-  const currency=commerceSettings.currency||'USD';
+  const currency=commerceSettings.currency||cart[0]?.currency||'USD';
   const zones=Array.isArray(commerceSettings.shippingZones)?commerceSettings.shippingZones:[];
   const availableCountries=[...new Set(zones.flatMap(zone=>zone.countryCodes||[]))];
   const shipping=useMemo(()=>{
