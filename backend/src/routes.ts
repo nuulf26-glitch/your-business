@@ -16,6 +16,7 @@ import { allocate, localParts } from './availability';
 import { expectedStripeMode, stripeKeyMode, stripeModeMatchesApplication } from './stripe-mode';
 import { productDataValidationError } from './product-policy';
 import { calculateStoreOrderTotals, validateStoreCommerceSettings } from './store-commerce-policy';
+import { hasStagingTestPublishingEntitlement } from './staging-test-entitlement';
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 function stagingDiagnosticsEnabled(){
@@ -826,7 +827,15 @@ export class TrialPreviewController {
 export class WebsiteController {
   constructor(private db:DbService){}
   private async businessFor(req:Request & {user:any}){const business=await selectedBusiness(this.db,req);if(!business)throw new NotFoundException('Create a business first');return business;}
-  private async requirePaidPublishing(userId:string){const access=await this.db.subscription.findUnique({where:{userId}});if(access?.status!=='ACTIVE'||access.billingType!=='ONE_TIME')throw new ForbiddenException('Activate CYB Lifetime Access before publishing your website. Your draft is saved.');}
+  private async requirePaidPublishing(user:{id:string;email:string}){
+    const access=await this.db.subscription.findUnique({where:{userId:user.id}});
+    if(access?.status==='ACTIVE'&&access.billingType==='ONE_TIME')return;
+    if(hasStagingTestPublishingEntitlement(user,process.env)){
+      Logger.warn(JSON.stringify({event:'staging_test_publishing_entitlement_used',userId:user.id,expiresAt:process.env.CYB_STAGING_TEST_PUBLISH_EXPIRES_AT}),'StagingTestEntitlement');
+      return;
+    }
+    throw new ForbiddenException('Activate CYB Lifetime Access before publishing your website. Your draft is saved.');
+  }
   @UseGuards(SessionGuard) @Get('ai/status') async aiStatus(){return {available:Boolean(process.env.OPENAI_API_KEY?.trim()),usageLimited:false};}
   @UseGuards(SessionGuard) @Throttle({default:{limit:8,ttl:60_000}}) @Post('ai/design') async aiDesign(@Req() req:Request & {user:any},@Body() dto:AiPromptInput){
     const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('AI design is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');
@@ -887,7 +896,7 @@ export class WebsiteController {
     return this.db.website.findUnique({where:{businessId:b.id}});
   }
   @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){
-    const b=await selectedBusiness(this.db,req);if(!b)throw new NotFoundException('Create a business before publishing');await this.requirePaidPublishing(req.user.id);
+    const b=await selectedBusiness(this.db,req);if(!b)throw new NotFoundException('Create a business before publishing');await this.requirePaidPublishing(req.user);
     const model=validateWebsite(dto.model,true);await assertOwnedMedia(this.db,req.user.id,model);
     return this.db.$transaction(async tx=>{
       const current=await tx.website.findUnique({where:{businessId:b.id}});
