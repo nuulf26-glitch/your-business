@@ -244,16 +244,17 @@ test("storefront variant cards open option selection and persist the chosen vari
   const calls = await mockAppApi(page);
   const variant = { id: "variant-small", name: "Small", sku: "QA-SMALL", price: 20, stock: 2 };
   const model = { ...website, brandName: "Atelier Preview", sections: [{ id: "collection", type: "collection", title: "Shop", limit: 4 }] };
-  await page.route("**/api/v1/websites/public/atelier-preview", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ published: true, website: model, business: { slug: "atelier-preview" } }) }));
-  await page.route("**/api/v1/public/products/atelier-preview", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ ...product.data, id: product.id, variants: [variant], storeUrl: "atelier-preview", stock: 0 }]) }));
-  await page.route("**/api/v1/public/products/item/synthetic-product", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...product.data, id: product.id, variants: [variant], storeUrl: "atelier-preview", stock: 0 }) }));
+  const variantRequests = [];
+  await page.route("**/api/v1/websites/public/atelier-preview", async route => { variantRequests.push(new URL(route.request().url()).pathname); await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ published: true, website: model, business: { slug: "atelier-preview" } }) }); });
+  await page.route("**/api/v1/public/products/atelier-preview", async route => { variantRequests.push(new URL(route.request().url()).pathname); await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ ...product.data, id: product.id, variants: [variant], storeUrl: "atelier-preview", stock: 0 }]) }); });
+  await page.route("**/api/v1/public/products/item/synthetic-product", async route => { variantRequests.push(new URL(route.request().url()).pathname); await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...product.data, id: product.id, variants: [variant], storeUrl: "atelier-preview", stock: 0 }) }); });
   await page.goto("/store/atelier-preview");
   await page.getByRole("button", { name: "Choose options" }).click();
   await expect(page).toHaveURL(/\/product\/synthetic-product$/);
   await page.getByLabel("Options").selectOption("variant-small");
   await page.getByRole("button", { name: "Add to cart" }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("businessCart") || "[]"))).toContainEqual(expect.objectContaining({ productId: "synthetic-product", variantId: "variant-small", variantName: "Small", sku: "QA-SMALL", price: 20 }));
-  expect(calls.some(call => call.pathname === "/public/products/atelier-preview")).toBe(true);
+  expect(variantRequests).toContain("/api/v1/public/products/atelier-preview");
 });
 
 
