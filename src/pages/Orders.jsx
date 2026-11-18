@@ -28,6 +28,8 @@ function Orders() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [listState, setListState] = useState("loading");
   const [loadVersion, setLoadVersion] = useState(0);
+  const [paymentUpdates, setPaymentUpdates] = useState({});
+  const [actionError, setActionError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -69,7 +71,8 @@ function Orders() {
         orderId.includes(normalizedSearch) ||
         customerName.includes(normalizedSearch) ||
         email.includes(normalizedSearch) ||
-        productName.includes(normalizedSearch);
+        productName.includes(normalizedSearch) ||
+        String(order.orderNumber || "").toLowerCase().includes(normalizedSearch);
 
       const matchesStatus =
         statusFilter === "All" ||
@@ -131,10 +134,17 @@ function Orders() {
 }
 
   async function updatePaymentStatus(orderId, status) {
+    if (paymentUpdates[orderId]) return;
+    setPaymentUpdates(current => ({ ...current, [orderId]: true }));
+    setActionError("");
     try {
-      await savePaymentStatus(orderId, status);
-      setOrders(current => current.map(item => item.id === orderId ? { ...item, paymentStatus: status === "paid" ? "Paid" : "Refunded" } : item));
-    } catch (error) { console.error("Could not update payment status:", error); }
+      const savedOrder = await savePaymentStatus(orderId, status);
+      setOrders(current => current.map(item => item.id === orderId ? { ...item, ...savedOrder } : item));
+    } catch (error) {
+      setActionError(error.message || "Could not update order payment status. Please retry.");
+    } finally {
+      setPaymentUpdates(current => ({ ...current, [orderId]: false }));
+    }
   }
   async function deleteOrder(orderId) {
   const confirmed = window.confirm(
@@ -293,7 +303,7 @@ function Orders() {
 
               {filteredOrders.map((order) => (
                 <div className="orders-row" key={order.id}>
-                  <strong>#{order.id}</strong>
+                  <strong>#{order.orderNumber || order.id}</strong>
 
                   <div className="orders-customer">
                     <strong>{getCustomerName(order)}</strong>
@@ -311,8 +321,8 @@ function Orders() {
                       {statuses.map(status => <option key={status} value={status}>{status}</option>)}
                     </select>
                     <small>Payment: {order.paymentStatus || "Pending"}</small>
-                    {String(order.paymentStatus || "").toLowerCase() !== "paid" && String(order.paymentStatus || "").toLowerCase() !== "refunded" && <button type="button" onClick={() => updatePaymentStatus(order.id, "paid")}>Mark collected</button>}
-                    {String(order.paymentStatus || "").toLowerCase() === "paid" && <button type="button" onClick={() => updatePaymentStatus(order.id, "refunded")}>Record refund</button>}
+                    {String(order.paymentStatus || "").toLowerCase() !== "paid" && String(order.paymentStatus || "").toLowerCase() !== "refunded" && <button type="button" disabled={!!paymentUpdates[order.id]} onClick={() => updatePaymentStatus(order.id, "paid")}>{paymentUpdates[order.id] ? "Saving…" : "Mark collected"}</button>}
+                    {String(order.paymentStatus || "").toLowerCase() === "paid" && <button type="button" disabled={!!paymentUpdates[order.id]} onClick={() => updatePaymentStatus(order.id, "refunded")}>{paymentUpdates[order.id] ? "Saving…" : "Record refund"}</button>}
                   </div>
 
                   <button
