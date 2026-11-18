@@ -174,6 +174,20 @@ for (const viewport of viewports) {
         await expect.poll(async () => (await page.locator("#root").innerText()).trim().length, { timeout: 15_000 }).toBeGreaterThan(20);
         await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
+        if (route === "/checkout") {
+          const countryOptions = await page.locator("#countryCode option").evaluateAll((options) =>
+            options.map((option) => ({ code: option.value, label: option.textContent.trim() })),
+          );
+          expect(countryOptions).toHaveLength(249);
+          expect(countryOptions.map(({ code }) => code)).toEqual(
+            expect.arrayContaining(["AE", "US", "GB", "IN", "JP"]),
+          );
+          expect(countryOptions.find(({ code }) => code === "AE").label).toContain("🇦🇪");
+          await page.locator("#countryCode").selectOption("US");
+          await expect(page.locator("#countryCode")).toHaveValue("US");
+          await page.locator("#countryCode").selectOption("AE");
+        }
+
         const layout = await inspectPage(page, viewport.width);
         if (route === "/editor") {
           await expect(page.getByRole("button", { name: "Ask CYB AI for help" })).toBeHidden();
