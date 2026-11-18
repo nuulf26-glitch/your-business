@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/checkout.css";
+import { COUNTRY_OPTIONS } from "../utils/countryOptions.js";
 import { customBackendRequest } from "../services/customBackendSession";
 
 const initialForm = {
@@ -56,7 +57,6 @@ function Checkout() {
 
   const currency=commerceSettings.currency||cart[0]?.currency||'USD';
   const zones=Array.isArray(commerceSettings.shippingZones)?commerceSettings.shippingZones:[];
-  const availableCountries=[...new Set(zones.flatMap(zone=>zone.countryCodes||[]))];
   const hasDeliveryZone=zones.length===0||form.deliveryMethod==='pickup'||zones.some(zone=>(zone.countryCodes||[]).includes(String(form.countryCode||'').toUpperCase()));
   const shipping=useMemo(()=>{
     if(form.deliveryMethod==='pickup')return 0;
@@ -278,7 +278,11 @@ Object.assign(newOrder, saved, { id: saved.id, backendId: saved.id });
               <div className="checkout-field">
                 <label htmlFor="countryCode">Delivery country</label>
                 <select id="countryCode" name="countryCode" value={form.countryCode} onChange={handleChange}>
-                  {(availableCountries.length?availableCountries:['AE']).map(code=><option key={code} value={code}>{code}</option>)}
+                  {COUNTRY_OPTIONS.map(({ code, flag, name }) => (
+                    <option key={code} value={code}>
+                      {flag} {name} ({code})
+                    </option>
+                  ))}
                 </select>
               </div>
 
