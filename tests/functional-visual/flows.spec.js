@@ -241,7 +241,7 @@ test("merchant payment actions use the database order ID and update from the sav
 });
 
 test("storefront variant cards open option selection and persist the chosen variant in cart", async ({ page }) => {
-  const calls = await mockAppApi(page);
+  await mockAppApi(page);
   const variant = { id: "variant-small", name: "Small", sku: "QA-SMALL", price: 20, stock: 2 };
   const model = { ...website, brandName: "Atelier Preview", sections: [{ id: "collection", type: "collection", title: "Shop", limit: 4 }] };
   const variantRequests = [];
