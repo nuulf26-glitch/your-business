@@ -200,6 +200,7 @@ function Orders() {
   return (
     <DashboardLayout>
     <div className="orders-page">
+      {actionError && <p role="alert" className="orders-action-error">{actionError}</p>}
       <header className="orders-header">
         <div>
           <span>Order management</span>
