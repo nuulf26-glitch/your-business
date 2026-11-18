@@ -46,7 +46,10 @@ function ProductPage() {
   const variantKey = variant => String(variant?.id || variant?.sku || variant?.name || "");
   const chosenVariantId = selectedVariantId || (variants.length ? variantKey(variants[0]) : "");
   const selectedVariant = variants.find(variant => variantKey(variant) === chosenVariantId);
-  const purchaseProduct = selectedVariant ? { ...product, ...selectedVariant } : product;
+  const selectedVariantPrice = selectedVariant?.sellingPrice ?? selectedVariant?.price;
+  const purchaseProduct = selectedVariant
+    ? { ...product, ...selectedVariant, ...(selectedVariantPrice !== undefined && selectedVariantPrice !== null && selectedVariantPrice !== '' ? { sellingPrice: selectedVariantPrice } : {}) }
+    : product;
   const availableStock = selectedVariant?.stock ?? product?.stock;
   const hasTrackedStock = availableStock !== undefined && availableStock !== null && String(availableStock).trim() !== "";
 
