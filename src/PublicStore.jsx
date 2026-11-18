@@ -113,6 +113,10 @@ function PublicStore() {
     return websiteSetup.storeUrl === storeUrl;
   }, [websiteSetup, storeUrl]);
 function addToCart(product) {
+  if (Array.isArray(product?.variants) && product.variants.length > 0) {
+    openProduct(product.id);
+    return;
+  }
   try { localStorage.setItem('businessCart',JSON.stringify(appendCart(readCart(localStorage),{...product,price:productPrice(product)}))); alert('Added to cart'); }
   catch(error) { alert(error.message); }
 }
