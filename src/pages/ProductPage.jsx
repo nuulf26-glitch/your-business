@@ -14,10 +14,12 @@ function ProductPage() {
   const [quantity, setQuantity] = useState(1);
   const [selectedVariantId, setSelectedVariantId] = useState("");
   const [added, setAdded] = useState(false);
+  const [loading, setLoading] = useState(true);
 
 
   useEffect(() => {
     async function loadProduct() {
+      setLoading(true);
       try {
         const data = await getProductById(productId);
 
@@ -30,6 +32,8 @@ function ProductPage() {
           "Could not load product:",
           error
         );
+      } finally {
+        setLoading(false);
       }
     }
 
@@ -73,6 +77,10 @@ function ProductPage() {
     } catch (error) {
       alert(error.message);
     }
+  }
+
+  if (loading) {
+    return <main role="status" className="product-page-loading">Loading product…</main>;
   }
 
   if (!product) {
