@@ -104,6 +104,7 @@ function OrderSuccess() {
                 <div>
                   <strong>{item.name}</strong>
 
+                  {item.variantName && <span>Option: {item.variantName}</span>}
                   <span>
                     Quantity: {item.quantity}
                   </span>
