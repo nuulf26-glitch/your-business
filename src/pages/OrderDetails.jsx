@@ -466,7 +466,7 @@ function OrderDetails() {
 
                   <p style={styles.savedTrackingText}>
                     <strong>Company:</strong>{" "}
-                    {order.shippingCompany || "Not available"}
+                    {order.shippingCarrier || order.carrier || order.shippingCompany || "Not available"}
                   </p>
 
                   <p style={styles.savedTrackingText}>
