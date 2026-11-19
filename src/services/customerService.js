@@ -1,6 +1,6 @@
 import { customBackendRequest } from './customBackendSession';
 
-const fromCustomer = (row) => ({ id: row.id, ...(row.data && typeof row.data === 'object' ? row.data : {}) });
+const fromCustomer = (row) => ({ ...(row.data && typeof row.data === 'object' ? row.data : row), id: row.id });
 
 export async function addCustomer(customer) {
   return fromCustomer(await customBackendRequest('/customers', { method: 'POST', body: JSON.stringify({ data: customer }) }));
