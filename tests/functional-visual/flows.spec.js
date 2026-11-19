@@ -240,8 +240,8 @@ test("merchant payment actions use the database order ID and update from the sav
   expect(calls.some(call => call.pathname === "/orders/ORD-legacy-display/payment")).toBe(false);
 });
 
-test("storefront variant cards open option selection and persist the chosen variant in cart", async ({ page }) => {
-  await mockAppApi(page);
+test("storefront variant cards open option selection and persist the chosen variant in cart and COD order", async ({ page }) => {
+  const calls = await mockAppApi(page);
   const variant = { id: "variant-small", name: "Small", sku: "QA-SMALL", price: 20, stock: 2 };
   const model = { ...website, brandName: "Atelier Preview", sections: [{ id: "collection", type: "collection", title: "Shop", limit: 4 }] };
   const variantRequests = [];
@@ -255,6 +255,18 @@ test("storefront variant cards open option selection and persist the chosen vari
   await page.getByRole("button", { name: "Add to cart" }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("businessCart") || "[]"))).toContainEqual(expect.objectContaining({ productId: "synthetic-product", variantId: "variant-small", variantName: "Small", sku: "QA-SMALL", price: 20 }));
   expect(variantRequests).toContain("/api/v1/public/products/atelier-preview");
+  await page.goto("/cart");
+  await page.getByRole("button", { name: "Continue to checkout" }).click();
+  await page.locator("#fullName").fill("Synthetic variant buyer");
+  await page.locator("#email").fill(user.email);
+  await page.locator("#phone").fill("+971500000000");
+  await page.locator("#address").fill("Synthetic test address");
+  await page.locator("#city").fill("Test City");
+  await page.getByRole("button", { name: /continue to payment/i }).click();
+  await page.getByRole("button", { name: "Confirm cash on delivery" }).click();
+  await expect(page).toHaveURL(/\\/order-success$/);
+  const orderRequest = calls.find(call => call.pathname === "/public/orders" && call.method === "POST");
+  expect(orderRequest.body.data.items[0]).toMatchObject({ id: "synthetic-product", variantId: "variant-small", variantName: "Small", price: 20 });
 });
 
 
