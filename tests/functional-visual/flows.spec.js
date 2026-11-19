@@ -264,7 +264,7 @@ test("storefront variant cards open option selection and persist the chosen vari
   await page.locator("#city").fill("Test City");
   await page.getByRole("button", { name: /continue to payment/i }).click();
   await page.getByRole("button", { name: "Confirm cash on delivery" }).click();
-  await expect(page).toHaveURL(/\\/order-success$/);
+  await expect(page).toHaveURL(/\/order-success$/);
   const orderRequest = calls.find(call => call.pathname === "/public/orders" && call.method === "POST");
   expect(orderRequest.body.data.items[0]).toMatchObject({ id: "synthetic-product", variantId: "variant-small", variantName: "Small", price: 20 });
 });
