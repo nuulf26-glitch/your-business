@@ -78,7 +78,7 @@ async function mockAppApi(page, { cookieAuth = false } = {}) {
       body = { ...order, data: { ...order.data, paymentStatus: input.status === "paid" ? "Paid" : "Refunded" } };
     }
     else if (pathname === "/orders/synthetic-order") body = { id: order.id, ...order.data, status: order.status, createdAt: order.createdAt };
-    else if (pathname === "/customers" && method === "GET") body = [customer];
+    else if (pathname === "/customers" && method === "GET") body = [{ id: customer.id, ...customer.data }];
     else if (pathname.startsWith("/customers/") && pathname.endsWith("/status")) body = { id: "synthetic-customer", data: { ...customer.data, status: request.postDataJSON()?.status || "Active" } };
     else if (pathname.startsWith("/orders/") && pathname.endsWith("/status")) body = { ok: true };
     else if (pathname === "/public/products/item/synthetic-product") body = { ...product.data, id: product.id, storeUrl: "atelier-preview" };
@@ -204,6 +204,7 @@ test("products, orders, and customers render fixture records and preserve update
 
   await page.goto("/customers");
   await expect(page.getByText("Synthetic QA customer").first()).toBeVisible();
+  await expect(page.locator(".customer-card").filter({ hasText: "Synthetic QA customer" })).toContainText("$80.00");
   await page.locator(".customer-status-select").selectOption("Active");
   await expect.poll(() => calls.some((call) => call.pathname === "/customers/synthetic-customer/status" && call.method === "PATCH")).toBeTruthy();
 });
