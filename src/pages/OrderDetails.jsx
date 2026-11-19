@@ -342,6 +342,7 @@ function OrderDetails() {
                         {item.description ||
                           "No description available."}
                       </p>
+                      {(item.variantName || item.variant?.name || item.sku) && <p className="order-variant-option">Option: {item.variantName || item.variant?.name || item.sku}</p>}
 
                       <p style={styles.quantityText}>
                         Quantity: {Number(item.quantity || 1)}
