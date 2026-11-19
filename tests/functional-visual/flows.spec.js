@@ -201,6 +201,12 @@ test("products, orders, and customers render fixture records and preserve update
   await page.goto("/orders/synthetic-order");
   await page.locator("#status").selectOption("processing");
   await expect.poll(() => calls.some((call) => call.pathname === "/orders/synthetic-order/fulfillment" && call.method === "PATCH")).toBeTruthy();
+  await page.locator("#shippingCompany").fill("Synthetic Carrier");
+  await page.locator("#trackingNumber").fill("QA-TRACK-0001");
+  await page.locator("#trackingUrl").fill("https://example.test/track/QA-TRACK-0001");
+  await page.getByRole("button", { name: "Save Tracking Information" }).click();
+  await expect(page.getByText("Company: Synthetic Carrier")).toBeVisible();
+  await expect(page.getByText("Tracking Number: QA-TRACK-0001")).toBeVisible();
 
   await page.goto("/customers");
   await expect(page.getByText("Synthetic QA customer").first()).toBeVisible();
