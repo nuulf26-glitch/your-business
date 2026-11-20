@@ -1,0 +1,11 @@
+import { customBackendRequest } from './customBackendSession';
+const send=(path,method='GET',data)=>customBackendRequest(path,{method,...(data?{body:JSON.stringify({data})}:{})});
+export const getLeads=(search='')=>send(`/crm/leads?search=${encodeURIComponent(search)}`);
+export const createLead=data=>send('/crm/leads','POST',data);
+export const updateLead=(id,data)=>send(`/crm/leads/${encodeURIComponent(id)}`,'PATCH',data);
+export const getDeals=()=>send('/crm/deals');
+export const createDeal=data=>send('/crm/deals','POST',data);
+export const updateDeal=(id,data)=>send(`/crm/deals/${encodeURIComponent(id)}`,'PATCH',data);
+export const getTasks=()=>send('/crm/tasks');
+export const createTask=data=>send('/crm/tasks','POST',data);
+export const getCrmAnalytics=()=>send('/crm/analytics');
