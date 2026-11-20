@@ -1,5 +1,4 @@
 const { spawnSync } = require("node:child_process");
-const { setTimeout: delay } = require("node:timers/promises");
 const { directMigrationDatabaseUrl } = require("./migration-url.cjs");
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -37,7 +36,7 @@ for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
   if (!lockTimeout || attempt === maxAttempts) process.exit(migration.status ?? 1);
 
   console.warn(`Prisma advisory lock is busy; retrying migration deploy (${attempt + 1}/${maxAttempts}).`);
-  await delay(attempt * 10_000);
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, attempt * 10_000);
 }
 
 const api = spawnSync(process.execPath, ["dist/main.js"], {
