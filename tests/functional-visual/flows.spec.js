@@ -81,6 +81,8 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
     else if (pathname === "/crm/leads" && method === "GET") body = [{ id: "lead-1", name: "Lead One", email: "lead@example.test", status: "new" }];
     else if (pathname === "/crm/deals" && method === "GET") body = [{ id: "deal-1", title: "Deal One", amount: 25, currency: "AED", stage: "Qualification", status: "open" }];
     else if (pathname === "/crm/tasks" && method === "GET") body = [{ id: "task-1", title: "Follow up", dueAt: "2026-11-19T10:00:00.000Z", priority: "high", status: "open" }];
+    else if (pathname === "/crm/reminders") body = [];
+    else if (pathname.startsWith("/crm/activity/")) body = [{ id: "event-1", kind: "note", summary: "Synthetic timeline note", at: "2026-11-20T10:00:00.000Z" }];
     else if (pathname === "/crm/analytics") body = { customers: 1, leads: 1, conversionRate: 0, repeatCustomers: 0, netCustomerValueCents: 0 };
     else if (pathname === "/crm/customers") body = { items: [{ id: customer.id, ...customer.data, orders: 1, totalSpent: 80 }], page: 1, total: 1, totalPages: 1 };
     else if (pathname === "/crm/segments") body = [{ id: "segment-1", name: "VIPs", filters: { search: "vip" } }];
@@ -324,9 +326,36 @@ test("CRM pipeline controls move deal stages and task completion persists", asyn
   await page.goto("/crm");
   await page.getByRole("button", { name: "Pipeline" }).click();
   await expect(page.getByText("Deal One")).toBeVisible();
+  await page.getByPlaceholder("New pipeline stage").fill("Review");
+  await page.getByRole("button", { name: "Add stage" }).click();
+  await expect.poll(() => calls.some(call => call.pathname === "/crm/pipeline/stages" && call.method === "PATCH" && call.body?.data?.stages?.includes("Review"))).toBeTruthy();
   await page.getByLabel("Deal stage Deal One").selectOption("Proposal");
   await expect.poll(() => calls.some(call => call.pathname === "/crm/deals/deal-1" && call.method === "PATCH" && call.body?.data?.stage === "Proposal")).toBeTruthy();
   await page.getByRole("button", { name: "Tasks" }).click();
   await page.getByRole("button", { name: "Complete" }).click();
   await expect.poll(() => calls.some(call => call.pathname === "/crm/tasks/task-1" && call.method === "PATCH" && call.body?.data?.status === "completed")).toBeTruthy();
+});
+
+
+test('CRM filters, saved lists, activity timeline, and responsive customer views work', async ({ page }) => {
+  await seedProtectedUser(page);
+  const calls = await mockAppApi(page);
+  await page.goto('/crm');
+  await page.getByRole('button', { name: 'Customers' }).click();
+  await page.getByPlaceholder('Search name, email, phone').fill('Synthetic');
+  await page.getByLabel('Minimum net spend').fill('25');
+  await page.getByLabel('Customer tag filter').fill('vip');
+  await page.getByLabel('Sort customers').selectOption('name');
+  await page.getByRole('button', { name: 'Apply filters' }).click();
+  await page.getByPlaceholder('Saved list name').fill('VIP filtered customers');
+  await page.getByRole('button', { name: 'Save list' }).click();
+  await page.getByRole('button', { name: 'Update filters' }).click();
+  await expect.poll(() => calls.some(call => call.pathname === '/crm/segments/segment-1' && call.method === 'PATCH' && call.body?.data?.filters?.tag === 'vip')).toBeTruthy();
+  await expect.poll(() => calls.some(call => call.pathname === '/crm/segments' && call.method === 'POST' && call.body?.data?.filters?.tag === 'vip' && call.body?.data?.filters?.minSpent === '25')).toBeTruthy();
+  await page.getByRole('button', { name: 'Activity' }).click();
+  await expect(page.getByText('Synthetic timeline note')).toBeVisible();
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1024 }, { width: 390, height: 844 }, { width: 375, height: 812 }]) {
+    await page.setViewportSize(viewport);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `CRM overflow at ${viewport.width}px`).toBeTruthy();
+  }
 });

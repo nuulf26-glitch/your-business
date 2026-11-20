@@ -1,4 +1,4 @@
-import { customBackendRequest } from './customBackendSession';
+import { customBackendRequest, getActiveBusinessId } from './customBackendSession';
 const send=(path,method='GET',data)=>customBackendRequest(path,{method,...(data?{body:JSON.stringify({data})}:{})});
 export const getLeads=(search='')=>send(`/crm/leads?search=${encodeURIComponent(search)}`);
 export const createLead=data=>send('/crm/leads','POST',data);
@@ -23,3 +23,6 @@ export const renameSegment=(id,name)=>send(`/crm/segments/${encodeURIComponent(i
 export const applySegment=id=>send(`/crm/segments/${encodeURIComponent(id)}/apply`,'POST',{});
 export const deleteSegment=id=>customBackendRequest(`/crm/segments/${encodeURIComponent(id)}`,{method:'DELETE'});
 export const editSegment=(id,data)=>send(`/crm/segments/${encodeURIComponent(id)}`,'PATCH',data);
+export const getCrmReminders=()=>send('/crm/reminders');
+export const updateCrmReminder=(id,status)=>send(`/crm/reminders/${encodeURIComponent(id)}`,'PATCH',{status});
+export const exportCrmCustomers=async(query={})=>{const base=(import.meta.env?.VITE_CUSTOM_BACKEND_URL||'').replace(/\/$/,'');const response=await fetch(`${base}/api/v1/crm/export/customers?${new URLSearchParams(query)}`,{credentials:'include',headers:getActiveBusinessId()?{'x-cyb-business-id':getActiveBusinessId()}: {}});if(!response.ok){const body=await response.json().catch(()=>({}));throw new Error(body.message||'CSV export failed.');}return response.blob();};

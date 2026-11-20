@@ -136,6 +136,29 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const firstStoreProducts = await requestFromPage(page, "/products");
   expect(firstStoreProducts.some((item) => item.id === product.id)).toBe(true);
 
+  const crmLead = await requestFromPage(page, '/crm/leads', 'POST', { data: { name: 'Synthetic CRM Lead', email: `crm-${process.env.GITHUB_RUN_ID || 'local'}@example.test`, source: 'e2e' } });
+  const sameEmailLead = await requestFromPage(page, '/crm/leads', 'POST', { data: { name: 'Duplicate CRM Lead', email: crmLead.email } });
+  const concurrentConversions = await Promise.all([crmLead, sameEmailLead].map((lead) => requestFromPage(page, `/crm/leads/${encodeURIComponent(lead.id)}/convert`, 'POST', { data: {} })));
+  expect(concurrentConversions[0].customerId).toBe(concurrentConversions[1].customerId);
+  expect(concurrentConversions.filter((item) => item.created)).toHaveLength(1);
+  const converted = concurrentConversions[0];
+  const convertedAgain = await requestFromPage(page, `/crm/leads/${encodeURIComponent(crmLead.id)}/convert`, 'POST', { data: {} });
+  expect(convertedAgain).toMatchObject({ customerId: converted.customerId, created: false });
+  await requestFromPage(page, `/crm/activity/${encodeURIComponent(converted.customerId)}`, 'POST', { data: { kind: 'note', summary: 'Synthetic CRM timeline note' } });
+  const timeline = await requestFromPage(page, `/crm/activity/${encodeURIComponent(converted.customerId)}`);
+  expect(timeline.some((event) => event.kind === 'lead_converted')).toBe(true);
+  expect(timeline.some((event) => event.summary === 'Synthetic CRM timeline note')).toBe(true);
+  const crmDeal = await requestFromPage(page, '/crm/deals', 'POST', { data: { title: 'Synthetic CRM deal', amount: 125, stage: 'Qualification', customerId: converted.customerId } });
+  await requestFromPage(page, `/crm/deals/${encodeURIComponent(crmDeal.id)}`, 'PATCH', { data: { stage: 'Proposal', amount: 175 } });
+  const dealTimeline = await requestFromPage(page, `/crm/activity/${encodeURIComponent(converted.customerId)}`);
+  expect(dealTimeline.some((event) => event.kind === 'deal_stage_changed')).toBe(true);
+  const crmTask = await requestFromPage(page, '/crm/tasks', 'POST', { data: { title: 'Synthetic due follow-up', customerId: converted.customerId, dueAt: '2026-01-01T00:00:00.000Z', reminderAt: '2026-01-01T00:00:00.000Z', priority: 'urgent' } });
+  const reminders = await requestFromPage(page, '/crm/reminders');
+  expect(reminders.filter((item) => item.taskId === crmTask.id)).toHaveLength(1);
+  await requestFromPage(page, `/crm/reminders/${encodeURIComponent(reminders.find((item) => item.taskId === crmTask.id).id)}`, 'PATCH', { data: { status: 'read' } });
+  const foreignLeadResponse = await page.evaluate(async ({ id, businessId }) => { const response = await fetch(`/api/v1/crm/leads/${encodeURIComponent(id)}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json', 'x-cyb-business-id': businessId }, body: JSON.stringify({ data: { status: 'lost' } }) }); return response.status; }, { id: crmLead.id, businessId: secondStore.id });
+  expect(foreignLeadResponse).toBe(404);
+
   await page.goto(`/store/${encodeURIComponent(slug)}`);
   await expect(page.getByText('Synthetic E2E Product', { exact: false }).first()).toBeVisible();
   await checkNoHorizontalOverflow(page, 'storefront desktop');
