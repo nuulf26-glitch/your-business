@@ -355,7 +355,7 @@ test('CRM filters, saved lists, activity timeline, and responsive customer views
   await page.getByPlaceholder('Saved list name').fill('VIP filtered customers');
   await page.getByRole('button', { name: 'Save list' }).click();
   await expect(page.getByRole('button', { name: 'VIP filtered customers', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Update filters' }).last().click();
+  await page.getByRole('button', { name: 'Update VIP filtered customers filters' }).click();
   await expect.poll(() => calls.some(call => call.pathname === '/crm/segments/segment-2' && call.method === 'PATCH' && call.body?.data?.filters?.tag === 'vip')).toBeTruthy();
   page.once('dialog', dialog => dialog.accept('VIP Refined'));
   await page.getByRole('button', { name: 'Rename VIP filtered customers' }).click();
