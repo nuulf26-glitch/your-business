@@ -29,6 +29,7 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
   let products = [product];
   let stores = [{ id: business.id, name: business.name, slug: business.slug, category: business.category, published: true }];
   let draft = structuredClone(website);
+  let crmSegments = [{ id: "segment-1", name: "VIPs", filters: { search: "vip" } }];
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -85,7 +86,11 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
     else if (pathname.startsWith("/crm/activity/")) body = [{ id: "event-1", kind: "note", summary: "Synthetic timeline note", at: "2026-11-20T10:00:00.000Z" }];
     else if (pathname === "/crm/analytics") body = { customers: 1, leads: 1, conversionRate: 0, repeatCustomers: 0, netCustomerValueCents: 0 };
     else if (pathname === "/crm/customers") body = { items: [{ id: customer.id, ...customer.data, orders: 1, totalSpent: 80 }], page: 1, total: 1, totalPages: 1 };
-    else if (pathname === "/crm/segments") body = [{ id: "segment-1", name: "VIPs", filters: { search: "vip" } }];
+    else if (pathname === "/crm/segments" && method === "GET") body = crmSegments;
+    else if (pathname === "/crm/segments" && method === "POST") { const input = request.postDataJSON()?.data || {}; const created = { id: `segment-${crmSegments.length + 1}`, ...input }; crmSegments = [...crmSegments, created]; body = created; }
+    else if (pathname.startsWith("/crm/segments/") && method === "PATCH") { const id = pathname.split("/").pop(); const patch = request.postDataJSON()?.data || {}; crmSegments = crmSegments.map(item => item.id === id ? { ...item, ...patch } : item); body = crmSegments.find(item => item.id === id) || {}; }
+    else if (pathname.startsWith("/crm/segments/") && method === "DELETE") { const id = pathname.split("/").pop(); crmSegments = crmSegments.filter(item => item.id !== id); body = { deleted: true }; }
+    else if (pathname.startsWith("/crm/segments/") && pathname.endsWith("/apply")) { const id = pathname.split("/").at(-2); body = crmSegments.find(item => item.id === id) || {}; }
     else if (pathname === "/crm/pipeline/stages") body = ["Qualification", "Proposal", "Negotiation", "Won"];
     else if (pathname === "/customers" && method === "GET") body = [{ id: customer.id, ...customer.data }];
     else if (pathname.startsWith("/customers/") && pathname.endsWith("/status")) body = { id: "synthetic-customer", data: { ...customer.data, status: request.postDataJSON()?.status || "Active" } };
@@ -349,7 +354,8 @@ test('CRM filters, saved lists, activity timeline, and responsive customer views
   await page.getByRole('button', { name: 'Apply filters' }).click();
   await page.getByPlaceholder('Saved list name').fill('VIP filtered customers');
   await page.getByRole('button', { name: 'Save list' }).click();
-  await page.getByRole('button', { name: 'Update filters' }).click();
+  await expect(page.getByRole('button', { name: 'VIP filtered customers' })).toBeVisible();
+  await page.getByRole('button', { name: 'Update filters' }).last().click();
   await expect.poll(() => calls.some(call => call.pathname === '/crm/segments/segment-1' && call.method === 'PATCH' && call.body?.data?.filters?.tag === 'vip')).toBeTruthy();
   await expect.poll(() => calls.some(call => call.pathname === '/crm/segments' && call.method === 'POST' && call.body?.data?.filters?.tag === 'vip' && call.body?.data?.filters?.minSpent === '25')).toBeTruthy();
   await page.getByRole('button', { name: 'Activity' }).click();
