@@ -169,7 +169,6 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   await requestFromPage(page, `/crm/deals/${encodeURIComponent(crmDeal.id)}`, 'PATCH', { data: { stage: 'Proposal', amount: 175 } });
   const dealTimeline = await requestFromPage(page, `/crm/activity/${encodeURIComponent(converted.customerId)}`);
   expect(dealTimeline.some((event) => event.kind === 'deal_stage_changed')).toBe(true);
-  const pipelineBeforeDelete = await requestFromPage(page, '/crm/pipeline/stages');
   const unsafeDelete = await page.evaluate(async () => { const response = await fetch('/api/v1/crm/pipeline/stages', { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: { stages: ['Qualification', 'Negotiation', 'Won'] } }) }); return response.status; });
   expect(unsafeDelete).toBe(400);
   await requestFromPage(page, `/crm/pipeline/stages`, 'PATCH', { data: { stages: ['Qualification', 'Review', 'Negotiation', 'Won'], renames: { Proposal: 'Review' } } });
