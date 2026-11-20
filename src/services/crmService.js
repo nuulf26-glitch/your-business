@@ -9,3 +9,12 @@ export const updateDeal=(id,data)=>send(`/crm/deals/${encodeURIComponent(id)}`,'
 export const getTasks=()=>send('/crm/tasks');
 export const createTask=data=>send('/crm/tasks','POST',data);
 export const getCrmAnalytics=()=>send('/crm/analytics');
+export const getCrmCustomers=(query={})=>send(`/crm/customers?${new URLSearchParams(query)}`);
+export const getSegments=()=>send('/crm/segments');
+export const saveSegment=data=>send('/crm/segments','POST',data);
+export const getPipelineStages=()=>send('/crm/pipeline/stages');
+export const savePipelineStages=stages=>send('/crm/pipeline/stages','PATCH',{stages});
+export const convertLead=id=>send(`/crm/leads/${encodeURIComponent(id)}/convert`,'POST',{});
+export const addCustomerActivity=(id,data)=>send(`/crm/activity/${encodeURIComponent(id)}`,'POST',data);
+export const getCustomerActivity=id=>send(`/crm/activity/${encodeURIComponent(id)}`);
+export const updateTask=(id,data)=>send(`/crm/tasks/${encodeURIComponent(id)}`,'PATCH',data);
