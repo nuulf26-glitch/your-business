@@ -78,6 +78,13 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
       body = { ...order, data: { ...order.data, paymentStatus: input.status === "paid" ? "Paid" : "Refunded" } };
     }
     else if (pathname === "/orders/synthetic-order") body = { id: order.id, ...order.data, status: order.status, createdAt: order.createdAt };
+    else if (pathname === "/crm/leads" && method === "GET") body = [{ id: "lead-1", name: "Lead One", email: "lead@example.test", status: "new" }];
+    else if (pathname === "/crm/deals" && method === "GET") body = [{ id: "deal-1", title: "Deal One", amount: 25, currency: "AED", stage: "Qualification", status: "open" }];
+    else if (pathname === "/crm/tasks" && method === "GET") body = [{ id: "task-1", title: "Follow up", dueAt: "2026-11-19T10:00:00.000Z", priority: "high", status: "open" }];
+    else if (pathname === "/crm/analytics") body = { customers: 1, leads: 1, conversionRate: 0, repeatCustomers: 0, netCustomerValueCents: 0 };
+    else if (pathname === "/crm/customers") body = { items: [{ id: customer.id, ...customer.data, orders: 1, totalSpent: 80 }], page: 1, total: 1, totalPages: 1 };
+    else if (pathname === "/crm/segments") body = [{ id: "segment-1", name: "VIPs", filters: { search: "vip" } }];
+    else if (pathname === "/crm/pipeline/stages") body = ["Qualification", "Proposal", "Negotiation", "Won"];
     else if (pathname === "/customers" && method === "GET") body = [{ id: customer.id, ...customer.data }];
     else if (pathname.startsWith("/customers/") && pathname.endsWith("/status")) body = { id: "synthetic-customer", data: { ...customer.data, status: request.postDataJSON()?.status || "Active" } };
     else if (pathname.startsWith("/orders/") && pathname.endsWith("/status")) body = { ok: true };
@@ -308,4 +315,18 @@ test("store management creates and switches between owner stores", async ({ page
   await expect.poll(() => calls.some(call => call.pathname === "/businesses/mine/stores" && call.method === "POST" && call.body?.slug === "second-store")).toBeTruthy();
   expect(calls.some(call => call.pathname === "/businesses/mine" && call.businessId === "synthetic-second-store")).toBe(true);
   expect(await page.evaluate(() => localStorage.getItem("cyb_active_business_id"))).toBe("synthetic-second-store");
+});
+
+
+test("CRM pipeline controls move deal stages and task completion persists", async ({ page }) => {
+  await seedProtectedUser(page);
+  const calls = await mockAppApi(page);
+  await page.goto("/crm");
+  await page.getByRole("button", { name: "Pipeline" }).click();
+  await expect(page.getByText("Deal One")).toBeVisible();
+  await page.getByLabel("Deal stage Deal One").selectOption("Proposal");
+  await expect.poll(() => calls.some(call => call.pathname === "/crm/deals/deal-1" && call.method === "PATCH" && call.body?.data?.stage === "Proposal")).toBeTruthy();
+  await page.getByRole("button", { name: "Tasks" }).click();
+  await page.getByRole("button", { name: "Complete" }).click();
+  await expect.poll(() => calls.some(call => call.pathname === "/crm/tasks/task-1" && call.method === "PATCH" && call.body?.data?.status === "completed")).toBeTruthy();
 });

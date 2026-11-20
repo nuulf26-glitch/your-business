@@ -18,3 +18,8 @@ export const convertLead=id=>send(`/crm/leads/${encodeURIComponent(id)}/convert`
 export const addCustomerActivity=(id,data)=>send(`/crm/activity/${encodeURIComponent(id)}`,'POST',data);
 export const getCustomerActivity=id=>send(`/crm/activity/${encodeURIComponent(id)}`);
 export const updateTask=(id,data)=>send(`/crm/tasks/${encodeURIComponent(id)}`,'PATCH',data);
+export const updateCustomerTags=(id,tags)=>send(`/crm/customers/${encodeURIComponent(id)}/tags`,'POST',{tags});
+export const renameSegment=(id,name)=>send(`/crm/segments/${encodeURIComponent(id)}`,'PATCH',{name});
+export const applySegment=id=>send(`/crm/segments/${encodeURIComponent(id)}/apply`,'POST',{});
+export const deleteSegment=id=>customBackendRequest(`/crm/segments/${encodeURIComponent(id)}`,{method:'DELETE'});
+export const editSegment=(id,data)=>send(`/crm/segments/${encodeURIComponent(id)}`,'PATCH',data);
