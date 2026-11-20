@@ -590,14 +590,30 @@ export class OrderController {
         const variantId=String(line.variantId||'');
         if(variantId&&Array.isArray(next.variants)){
           const variants=[...next.variants],index=variants.findIndex((value:any)=>String(value?.id||value?.sku||value?.name||'')===variantId);
-          if(index>=0){
-            const variant={...variants[index]};
-            if(variant.stock!==undefined&&variant.stock!==null&&String(variant.stock).trim()!==''){variant.stock=Math.max(0,Number(variant.stock)||0)+quantity;variants[index]=variant;next.variants=variants;changed=true;}
-            else if(next.stock!==undefined&&next.stock!==null&&String(next.stock).trim()!==''){next.stock=Math.max(0,Number(next.stock)||0)+quantity;changed=true;}
+          if(index<0)throw new ConflictException('The ordered product variant no longer exists. Inventory was not released.');
+          const variant={...variants[index]};
+          if(variant.stock!==undefined&&variant.stock!==null&&String(variant.stock).trim()!==''){
+            const stock=Number(variant.stock);
+            if(!Number.isInteger(stock)||stock<0)throw new ConflictException('The ordered product variant has invalid stock. Inventory was not released.');
+            variant.stock=stock+quantity;variants[index]=variant;next.variants=variants;changed=true;
+          }else if(next.stock!==undefined&&next.stock!==null&&String(next.stock).trim()!==''){
+            const stock=Number(next.stock);
+            if(!Number.isInteger(stock)||stock<0)throw new ConflictException('The product has invalid stock. Inventory was not released.');
+            next.stock=stock+quantity;changed=true;
           }
-        }else if(next.stock!==undefined&&next.stock!==null&&String(next.stock).trim()!==''){next.stock=Math.max(0,Number(next.stock)||0)+quantity;changed=true;}
+        }else if(next.stock!==undefined&&next.stock!==null&&String(next.stock).trim()!==''){
+          const stock=Number(next.stock);
+          if(!Number.isInteger(stock)||stock<0)throw new ConflictException('The product has invalid stock. Inventory was not released.');
+          next.stock=stock+quantity;changed=true;
+        }
       }
       if(changed){
+        // Keep the parent quantity aligned when each product option has its own
+        // tracked inventory. Blank option stock uses the parent as a shared
+        // fallback and must not be included in this total.
+        if(Array.isArray(next.variants)&&next.variants.length&&next.variants.every((variant:any)=>variant?.stock!==undefined&&variant?.stock!==null&&String(variant.stock).trim()!==''&&Number.isInteger(Number(variant.stock))&&Number(variant.stock)>=0)){
+          next.stock=next.variants.reduce((total:number,variant:any)=>total+Number(variant.stock),0);
+        }
         const restored=await tx.product.updateMany({where:{id:productId,businessId,data:{equals:original as any}},data:{data:next as any}});
         if(restored.count!==1)throw new ConflictException('Inventory changed while the order was being cancelled. Retry the update.');
       }
@@ -751,6 +767,11 @@ export class PublicOrderController {
         next.stock=available-line.quantity;tracked=true;
       }
     }
+    // Variant stock is the source of truth when every option tracks stock.
+    // Persist the aggregate parent quantity in the same compare-and-swap write.
+    if(tracked&&Array.isArray(next.variants)&&next.variants.length&&next.variants.every((variant:any)=>variant?.stock!==undefined&&variant?.stock!==null&&String(variant.stock).trim()!=='')){
+      next.stock=next.variants.reduce((total:number,variant:any)=>total+Number(variant.stock),0);
+    }
     if(tracked){
       const reserved=await tx.product.updateMany({where:{id:productId,businessId:business.id,data:{equals:original as any}},data:{data:next as any}});
       if(reserved.count!==1)throw new ConflictException('Inventory changed during checkout. Refresh your cart and try again.');
@@ -765,7 +786,21 @@ export class PublicOrderController {
   let totals:any;
   try{totals=calculateStoreOrderTotals(commerce,subtotal,{countryCode:String(data.countryCode||''),deliveryMethod:String(data.deliveryMethod||'delivery'),discountCode:requestedCode,discountUses});}
   catch(error){throw new BadRequestException(error instanceof Error?error.message:'Checkout settings are invalid');}
-  const normalized={...data,items,subtotal:totals.subtotal,shipping:totals.shipping,discount:totals.discount,tax:totals.tax,taxLabel:totals.taxLabel,total:totals.total,currency:totals.currency,discountCode:totals.discountCode,status:'New',paymentStatus:'Pending',createdAt:new Date().toISOString(),customerActionTokenHash:tokenHash(customerActionToken)};
+  // Never accept lifecycle or accounting fields from the public checkout.
+  // In particular, a client supplied restoration marker could otherwise make
+  // a later cancellation skip the inventory release step.
+  const {
+    inventoryRestoredAt: _clientInventoryRestoredAt,
+    inventoryHistory: _clientInventoryHistory,
+    paymentHistory: _clientPaymentHistory,
+    refundHistory: _clientRefundHistory,
+    collectedAmountCents: _clientCollectedAmountCents,
+    paidAt: _clientPaidAt,
+    refundedAt: _clientRefundedAt,
+    fulfillmentStatus: _clientFulfillmentStatus,
+    ...checkoutData
+  }=data;
+  const normalized={...checkoutData,items,subtotal:totals.subtotal,shipping:totals.shipping,discount:totals.discount,tax:totals.tax,taxLabel:totals.taxLabel,total:totals.total,currency:totals.currency,discountCode:totals.discountCode,status:'New',fulfillmentStatus:'new',paymentStatus:'Pending',createdAt:new Date().toISOString(),customerActionTokenHash:tokenHash(customerActionToken)};
   const amount=totals.total;
   const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:totals.currency,data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0),paidOrders:Number((prior?.data as any)?.paidOrders||0)};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;},{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});return {...publicOrderData(order.data),id:order.id,status:order.status,createdAt:order.createdAt,cashOnDeliveryToken:customerActionToken};}
   @Get(':id') async customerTracking(@Req() req:Request){

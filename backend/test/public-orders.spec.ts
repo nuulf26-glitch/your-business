@@ -19,6 +19,9 @@ describe('PublicOrderController', () => {
     const result = await controller.create({ data: {
       storeUrl: 'sample-shop', customerName: 'A Customer', email: 'a@example.com',
       items: [{ productId: 'prod_1', quantity: 1, price: 0.01 }], total: 0.01,
+      inventoryRestoredAt: 'forged', inventoryHistory: [{ type: 'released' }],
+      paymentHistory: [{ type: 'collected', amountCents: 1 }], refundHistory: [{ amountCents: 1 }],
+      collectedAmountCents: 1, paidAt: 'forged', refundedAt: 'forged', fulfillmentStatus: 'cancelled',
     } });
 
     expect(tx.order.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -30,6 +33,14 @@ describe('PublicOrderController', () => {
     expect(stored.shipping).toBe(25);
     expect(stored.total).toBe(35);
     expect(stored.customerActionTokenHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(stored).toMatchObject({ status: 'New', fulfillmentStatus: 'new', paymentStatus: 'Pending' });
+    expect(stored).not.toHaveProperty('inventoryRestoredAt');
+    expect(stored).not.toHaveProperty('inventoryHistory');
+    expect(stored).not.toHaveProperty('paymentHistory');
+    expect(stored).not.toHaveProperty('refundHistory');
+    expect(stored).not.toHaveProperty('collectedAmountCents');
+    expect(stored).not.toHaveProperty('paidAt');
+    expect(stored).not.toHaveProperty('refundedAt');
     expect(result).toHaveProperty('cashOnDeliveryToken');
     expect(result).not.toHaveProperty('customerActionTokenHash');
   });
@@ -127,22 +138,23 @@ describe('PublicOrderController', () => {
     const tx:any={
       order:{create:jest.fn().mockResolvedValue({id:'order_variant',status:'new',createdAt:new Date(),data:{}})},
       product:{
-        findFirst:jest.fn().mockResolvedValue({id:'prod_1',businessId:'biz_1',data:{sellingPrice:10,stock:4,variants:[{id:'large',name:'Large',sellingPrice:15,stock:2}]}}),
+        findFirst:jest.fn().mockResolvedValue({id:'prod_1',businessId:'biz_1',data:{sellingPrice:10,stock:5,variants:[{id:'large',name:'Large',sellingPrice:15,stock:2},{id:'small',name:'Small',sellingPrice:9,stock:3}]}}),
         updateMany:jest.fn().mockResolvedValue({count:1}),
       },
       customer:{findFirst:jest.fn().mockResolvedValue(null),create:jest.fn().mockResolvedValue({})},
     };
     const db:any={
       business:{findUnique:jest.fn().mockResolvedValue({id:'biz_1',slug:'sample-shop',settings:{},website:{published:{}}})},
-      product:{findMany:jest.fn().mockResolvedValue([{id:'prod_1',name:'Item',data:{sellingPrice:10,stock:4,variants:[{id:'large',name:'Large',sellingPrice:15,stock:2}]}}])},
+      product:{findMany:jest.fn().mockResolvedValue([{id:'prod_1',name:'Item',data:{sellingPrice:10,stock:5,variants:[{id:'large',name:'Large',sellingPrice:15,stock:2},{id:'small',name:'Small',sellingPrice:9,stock:3}]}}])},
       $transaction:jest.fn(async(callback:any)=>callback(tx)),
     };
     await new PublicOrderController(db).create({data:{storeUrl:'sample-shop',customerName:'A Customer',email:'a@example.com',items:[{productId:'prod_1',variantId:'large',quantity:1} ]}});
     const order=tx.order.create.mock.calls[0][0].data;
     expect(order.data.items[0]).toMatchObject({id:'prod_1',variantId:'large',variantName:'Large',price:15,quantity:1});
     expect(order.amountCents).toBe(4000);
-    expect(tx.product.updateMany.mock.calls[0][0].where).toEqual({id:'prod_1',businessId:'biz_1',data:{equals:{sellingPrice:10,stock:4,variants:[{id:'large',name:'Large',sellingPrice:15,stock:2}]}}});
+    expect(tx.product.updateMany.mock.calls[0][0].where).toEqual({id:'prod_1',businessId:'biz_1',data:{equals:{sellingPrice:10,stock:5,variants:[{id:'large',name:'Large',sellingPrice:15,stock:2},{id:'small',name:'Small',sellingPrice:9,stock:3}]}}});
     expect(tx.product.updateMany.mock.calls[0][0].data.data.variants[0].stock).toBe(1);
+    expect(tx.product.updateMany.mock.calls[0][0].data.data.stock).toBe(4);
 
     await expect(new PublicOrderController({
       business:db.business,
