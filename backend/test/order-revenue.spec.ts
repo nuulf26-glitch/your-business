@@ -1,4 +1,4 @@
-import { OrderController } from '../src/routes';
+import { BusinessController, OrderController } from '../src/routes';
 
 describe('OrderController collected revenue', () => {
   function fixture() {
@@ -85,7 +85,7 @@ describe('OrderController collected revenue', () => {
       product: { findMany: jest.fn().mockResolvedValue([]) },
       businessRecord: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    const controller = new OrderController(db);
+    const controller = new BusinessController(db);
 
     const analytics = await controller.commerceAnalytics({ user: { id: 'merchant_1' }, get: () => '' } as any);
 
