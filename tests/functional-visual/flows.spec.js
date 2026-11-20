@@ -354,9 +354,14 @@ test('CRM filters, saved lists, activity timeline, and responsive customer views
   await page.getByRole('button', { name: 'Apply filters' }).click();
   await page.getByPlaceholder('Saved list name').fill('VIP filtered customers');
   await page.getByRole('button', { name: 'Save list' }).click();
-  await expect(page.getByRole('button', { name: 'VIP filtered customers' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'VIP filtered customers', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Update filters' }).last().click();
-  await expect.poll(() => calls.some(call => call.pathname === '/crm/segments/segment-1' && call.method === 'PATCH' && call.body?.data?.filters?.tag === 'vip')).toBeTruthy();
+  await expect.poll(() => calls.some(call => call.pathname === '/crm/segments/segment-2' && call.method === 'PATCH' && call.body?.data?.filters?.tag === 'vip')).toBeTruthy();
+  page.once('dialog', dialog => dialog.accept('VIP Refined'));
+  await page.getByRole('button', { name: 'Rename VIP filtered customers' }).click();
+  await expect.poll(() => calls.some(call => call.pathname === '/crm/segments/segment-2' && call.method === 'PATCH' && call.body?.data?.name === 'VIP Refined')).toBeTruthy();
+  await page.getByRole('button', { name: 'Delete VIP Refined' }).click();
+  await expect.poll(() => calls.some(call => call.pathname === '/crm/segments/segment-2' && call.method === 'DELETE')).toBeTruthy();
   await expect.poll(() => calls.some(call => call.pathname === '/crm/segments' && call.method === 'POST' && call.body?.data?.filters?.tag === 'vip' && call.body?.data?.filters?.minSpent === '25')).toBeTruthy();
   await page.getByRole('button', { name: 'Activity' }).click();
   await expect(page.getByText('Synthetic timeline note')).toBeVisible();
