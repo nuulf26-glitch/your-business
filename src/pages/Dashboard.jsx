@@ -285,10 +285,10 @@ const [userProfile, setUserProfile] = useState(null);
         <section className="dashboard-stats-grid">
           <article className="dashboard-stat-card">
             <div>
-              <span>Total revenue</span>
+              <span>Net revenue</span>
               <strong>{formatCurrency(totalRevenue)}</strong>
             </div>
-            <p>Paid, completed or delivered orders</p>
+            <p>Gross collected minus recorded refunds</p>
           </article>
 
           <article className="dashboard-stat-card">
@@ -321,7 +321,8 @@ const [userProfile, setUserProfile] = useState(null);
         </section>
 
         {commerceAnalytics && <section className="dashboard-stats-grid" aria-label="Store analytics">
-          <article className="dashboard-stat-card"><span>Collected revenue</span><strong>{formatCurrency(commerceAnalytics.revenue)}</strong><p>{commerceAnalytics.paidOrders || 0} collected orders · {commerceAnalytics.orders || 0} total orders</p></article>
+          <article className="dashboard-stat-card"><span>Gross collected</span><strong>{formatCurrency(commerceAnalytics.grossCollected)}</strong><p>{commerceAnalytics.collectedOrders || 0} orders with confirmed collections</p></article>
+          <article className="dashboard-stat-card"><span>Net revenue</span><strong>{formatCurrency(commerceAnalytics.netRevenue)}</strong><p>Gross collected after refunds</p></article>
           <article className="dashboard-stat-card"><span>Average paid order</span><strong>{formatCurrency(commerceAnalytics.averageOrderValue)}</strong><p>Unpaid COD is excluded</p></article>
           <article className="dashboard-stat-card"><span>Unpaid COD</span><strong>{commerceAnalytics.unpaidCodOrders || 0}</strong><p>Orders awaiting collection</p></article>
           <article className="dashboard-stat-card"><span>Refunds</span><strong>{formatCurrency(commerceAnalytics.refunds)}</strong><p>Recorded refunded amount</p></article>

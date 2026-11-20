@@ -3,6 +3,7 @@ import "../styles/orders.css";
 import DashboardLayout from "../layouts/DashboardLayout";
 import { getOrders, updateOrderStatus as saveOrderStatus, updatePaymentStatus as savePaymentStatus, deleteOrder as removeOrder } from "../services/orderService";
 import { InlineState } from "../components/ui/DesignPrimitives";
+import { orderMetrics } from "../business/metrics";
 const statuses = [
   "New",
   "Processing",
@@ -85,7 +86,10 @@ function Orders() {
   const totals = useMemo(() => {
     return orders.reduce(
       (result, order) => {
-        if (String(order.paymentStatus || '').toLowerCase() === 'paid') result.revenue += Number(order.total) || 0;
+        const payment = orderMetrics([order]);
+        result.revenue += payment.netRevenue;
+        result.grossCollected += payment.grossCollected;
+        result.refunds += payment.refunds;
 
         if (order.status === "New") {
           result.newOrders += 1;
@@ -103,6 +107,8 @@ function Orders() {
       },
       {
         revenue: 0,
+        grossCollected: 0,
+        refunds: 0,
         newOrders: 0,
         processing: 0,
         delivered: 0,
@@ -215,9 +221,9 @@ function Orders() {
 
       <section className="orders-summary-grid">
         <article>
-          <span>Total revenue</span>
+          <span>Net revenue</span>
           <strong>{formatCurrency(totals.revenue)}</strong>
-          <p>Revenue from all orders</p>
+          <p>Gross collected {formatCurrency(totals.grossCollected)} · refunds {formatCurrency(totals.refunds)}</p>
         </article>
 
         <article>

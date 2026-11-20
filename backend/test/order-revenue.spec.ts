@@ -60,4 +60,42 @@ describe('OrderController collected revenue', () => {
     expect(customer.data.totalSpent).toBe(0);
     expect(customer.data.paidOrders).toBe(0);
   });
+  it('reports gross collections, refunds, and net revenue separately', async () => {
+    const collected = (id: string, amountCents: number, paymentStatus: string, refund = false) => ({
+      id, businessId: 'biz_1', status: 'new', amountCents, currency: 'USD',
+      createdAt: new Date('2026-11-19T10:00:00.000Z'),
+      data: {
+        total: amountCents / 100,
+        paymentStatus,
+        collectedAmountCents: amountCents,
+        paymentHistory: [
+          { type: 'collected', amountCents, recordedAt: '2026-11-19T10:00:00.000Z' },
+          ...(refund ? [{ type: 'refund', amountCents, recordedAt: '2026-11-19T11:00:00.000Z' }] : []),
+        ],
+        refundHistory: refund ? [{ amountCents, recordedAt: '2026-11-19T11:00:00.000Z', status: 'recorded' }] : [],
+        items: [],
+      },
+    });
+    const db: any = {
+      business: { findFirst: jest.fn().mockResolvedValue({ id: 'biz_1' }) },
+      order: { findMany: jest.fn().mockResolvedValue([
+        collected('paid_37', 3700, 'Paid'),
+        collected('refunded_3250', 3250, 'Refunded', true),
+      ]) },
+      product: { findMany: jest.fn().mockResolvedValue([]) },
+      businessRecord: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    const controller = new OrderController(db);
+
+    const analytics = await controller.commerceAnalytics({ user: { id: 'merchant_1' }, get: () => '' } as any);
+
+    expect(analytics).toMatchObject({
+      grossCollected: 69.5,
+      refunds: 32.5,
+      netRevenue: 37,
+      revenue: 37,
+      averageOrderValue: 34.75,
+    });
+  });
+
 });

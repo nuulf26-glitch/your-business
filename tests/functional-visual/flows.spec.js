@@ -23,7 +23,7 @@ const customer = {
   id: "synthetic-customer", data: { name: "Synthetic QA customer", email: "visual-review@example.test", phone: "+971500000000", orders: 1, totalSpent: 80, status: "New", createdAt: "2026-01-15T09:00:00.000Z" },
 };
 
-async function mockAppApi(page, { cookieAuth = false } = {}) {
+async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [order] } = {}) {
   const calls = [];
   let authenticated = !cookieAuth;
   let products = [product];
@@ -72,7 +72,7 @@ async function mockAppApi(page, { cookieAuth = false } = {}) {
       const created = { id: "synthetic-created-product", data: input };
       products = [...products, created];
       body = created;
-    } else if (pathname === "/orders" && method === "GET") body = [order];
+    } else if (pathname === "/orders" && method === "GET") body = orderFixtures;
     else if (pathname === "/orders/synthetic-order/payment" && method === "PATCH") {
       const input = request.postDataJSON()?.data || {};
       body = { ...order, data: { ...order.data, paymentStatus: input.status === "paid" ? "Paid" : "Refunded" } };
@@ -234,6 +234,24 @@ test("storefront product cart and cash-on-delivery checkout stay on synthetic ro
   await expect(page).toHaveURL(/\/order-success$/);
   expect(calls.some((call) => call.pathname === "/public/orders" && call.method === "POST")).toBeTruthy();
   expect(calls.some((call) => call.pathname === "/public/orders/synthetic-created-order/cash-on-delivery" && call.method === "POST")).toBeTruthy();
+});
+
+
+test("orders distinguish gross collections, refunds, and net revenue", async ({ page }) => {
+  await seedProtectedUser(page);
+  const paid = {
+    id: "paid-order", status: "new", createdAt: "2026-11-19T10:00:00.000Z",
+    data: { customerName: "Paid buyer", total: 37, paymentStatus: "Paid", collectedAmountCents: 3700, paymentHistory: [{ type: "collected", amountCents: 3700 }], items: [] },
+  };
+  const refunded = {
+    id: "refunded-order", status: "new", createdAt: "2026-11-19T11:00:00.000Z",
+    data: { customerName: "Refunded buyer", total: 32.5, paymentStatus: "Refunded", collectedAmountCents: 3250, paymentHistory: [{ type: "collected", amountCents: 3250 }, { type: "refund", amountCents: 3250 }], refundHistory: [{ amountCents: 3250, status: "recorded" }], items: [] },
+  };
+  await mockAppApi(page, { orders: [paid, refunded] });
+  await page.goto("/orders");
+  await expect(page.getByText("Net revenue", { exact: true })).toBeVisible();
+  await expect(page.locator(".orders-summary-grid").getByText("$37.00", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Gross collected \$69.50 · refunds \$32.50/)).toBeVisible();
 });
 
 test("merchant payment actions use the database order ID and update from the saved response", async ({ page }) => {
