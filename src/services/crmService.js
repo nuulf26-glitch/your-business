@@ -13,7 +13,7 @@ export const getCrmCustomers=(query={})=>send(`/crm/customers?${new URLSearchPar
 export const getSegments=()=>send('/crm/segments');
 export const saveSegment=data=>send('/crm/segments','POST',data);
 export const getPipelineStages=()=>send('/crm/pipeline/stages');
-export const savePipelineStages=stages=>send('/crm/pipeline/stages','PATCH',{stages});
+export const savePipelineStages=(stages,renames={})=>send('/crm/pipeline/stages','PATCH',{stages,renames});
 export const convertLead=id=>send(`/crm/leads/${encodeURIComponent(id)}/convert`,'POST',{});
 export const addCustomerActivity=(id,data)=>send(`/crm/activity/${encodeURIComponent(id)}`,'POST',data);
 export const getCustomerActivity=id=>send(`/crm/activity/${encodeURIComponent(id)}`);
