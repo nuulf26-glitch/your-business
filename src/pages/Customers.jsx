@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import "../styles/customers.css";
 import DashboardLayout from "../layouts/DashboardLayout";
-import { getCustomers, deleteCustomer as removeCustomer, updateCustomerStatus } from "../services/customerService";
+import { getCustomers, deleteCustomer as removeCustomer, updateCustomerStatus, getCustomerDetails, updateCustomerNotes } from "../services/customerService";
 import { InlineState } from "../components/ui/DesignPrimitives";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -33,6 +33,9 @@ function Customers() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [listState, setListState] = useState("loading");
   const [loadVersion, setLoadVersion] = useState(0);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [noteSaving, setNoteSaving] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -160,6 +163,18 @@ function Customers() {
 }
 
 
+  async function openProfile(customerId) {
+    try { setProfileLoading(true); setSelectedCustomer(null); setSelectedCustomer(await getCustomerDetails(customerId)); }
+    catch (error) { console.error("Could not load customer profile:", error); window.alert("Customer profile could not load."); }
+    finally { setProfileLoading(false); }
+  }
+
+  async function saveNotes() {
+    if (!selectedCustomer) return;
+    try { setNoteSaving(true); await updateCustomerNotes(selectedCustomer.id, selectedCustomer.notes || ""); }
+    catch (error) { console.error("Could not save customer notes:", error); window.alert("Customer notes could not be saved."); }
+    finally { setNoteSaving(false); }
+  }
   function getCustomerInitials(name) {
     return String(name || "Customer")
       .split(" ")
@@ -320,6 +335,7 @@ function Customers() {
                   </div>
                 </div>
 
+                <button type="button" className="customer-profile-button" onClick={() => openProfile(customer.id)}>Profile &amp; order history</button>
                 <button
                   type="button"
                   className="customer-delete-button"
@@ -334,6 +350,19 @@ function Customers() {
           </div>
         )}
       </section>
+      {(selectedCustomer || profileLoading) && <div role="dialog" aria-modal="true" aria-label="Customer profile" style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(12,12,12,.55)", display: "grid", placeItems: "center", padding: 16 }}>
+        <section style={{ background: "#fff", color: "#222", borderRadius: 16, width: "min(720px, 100%)", maxHeight: "90vh", overflow: "auto", padding: 24 }}>
+          <button type="button" onClick={() => setSelectedCustomer(null)} aria-label="Close customer profile" style={{ float: "right" }}>Close</button>
+          {profileLoading ? <p>Loading customer profile…</p> : selectedCustomer && <>
+            <h2>{selectedCustomer.name || "Customer"}</h2><p>{selectedCustomer.email} · {selectedCustomer.phone || "No phone"}</p>
+            <p>Paid spending: {formatCurrency(selectedCustomer.totalSpent)} · {Number(selectedCustomer.paidOrders || 0)} paid orders · {Number(selectedCustomer.orders || 0)} total orders</p>
+            <label style={{ display: "grid", gap: 8 }}>Merchant notes<textarea rows={4} maxLength={2000} value={selectedCustomer.notes || ""} onChange={event => setSelectedCustomer({ ...selectedCustomer, notes: event.target.value })} /></label>
+            <button type="button" disabled={noteSaving} onClick={saveNotes}>{noteSaving ? "Saving…" : "Save notes"}</button>
+            <h3>Order history</h3>
+            {Array.isArray(selectedCustomer.orders) && selectedCustomer.orders.length ? <ul>{selectedCustomer.orders.map(row => <li key={row.id}>#{row.id} · {row.status} · {row.paymentStatus} · {formatCurrency(row.total)} · {formatDate(row.createdAt)}</li>)}</ul> : <p>No orders for this customer.</p>}
+          </>}
+        </section>
+      </div>}
     </div>
     </DashboardLayout>
   );

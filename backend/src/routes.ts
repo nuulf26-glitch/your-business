@@ -14,11 +14,27 @@ import { publicWebsite, publicationDifferencePaths, validateWebsite } from './we
 import { applyAiWebsiteOperations, normalizeGeneratedWebsite } from './ai-website';
 import { allocate, localParts } from './availability';
 import { expectedStripeMode, stripeKeyMode, stripeModeMatchesApplication } from './stripe-mode';
+import { productDataValidationError } from './product-policy';
+import { calculateStoreOrderTotals, validateStoreCommerceSettings } from './store-commerce-policy';
+import { hasStagingTestPublishingEntitlement } from './staging-test-entitlement';
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 function stagingDiagnosticsEnabled(){
   try { const app=new URL(process.env.PUBLIC_APP_URL||''); return app.protocol==='https:'&&app.hostname==='getcyb-staging-web.onrender.com'; }
   catch { return false; }
+}
+
+function collectedAmountCents(order:any):number {
+  const data=(order?.data&&typeof order.data==='object'?order.data:order)||{};
+  const history=Array.isArray(data.paymentHistory)?data.paymentHistory.filter((entry:any)=>entry?.type==='collected'):[];
+  if(history.length)return history.reduce((sum:number,entry:any)=>sum+(Number(entry.amountCents)||0),0);
+  const paymentStatus=String(data.paymentStatus||'').toLowerCase();
+  if(!['paid','refunded'].includes(paymentStatus))return 0;
+  return Number(data.collectedAmountCents??order?.amountCents??Math.round(Number(data.total||0)*100))||0;
+}
+function refundAmountCents(order:any):number {
+  const data=(order?.data&&typeof order.data==='object'?order.data:order)||{};
+  return Array.isArray(data.refundHistory)?data.refundHistory.reduce((sum:number,entry:any)=>sum+(Number(entry?.amountCents)||0),0):0;
 }
 
 @Controller('health')
@@ -54,6 +70,7 @@ class LegacySessionInput {
   @IsString() @MinLength(32) @MaxLength(200) sessionToken!: string;
 }
 class StoreInput { @IsString() @MaxLength(120) name!: string; @IsString() @MaxLength(100) slug!: string; @IsString() category!: string; @IsObject() settings!: object; }
+async function selectedBusiness(db:DbService,req:Request & {user:any},include?:Record<string,unknown>):Promise<any>{const header=typeof req.get==='function'?req.get('x-cyb-business-id'):((req.headers as any)?.['x-cyb-business-id']);const id=String(header||'').trim();return db.business.findFirst({where:id?{ownerId:req.user.id,id}:{ownerId:req.user.id},...(include?{include}: {})});}
 class JsonInput { @IsObject() data!: Record<string, unknown>; }
 class WebsiteInput { @IsObject() model!: Record<string, unknown>; @IsOptional() @IsInt() @Min(0) expectedRevision?: number; }
 class AiPromptInput { @IsString() @MinLength(8) @MaxLength(1200) prompt!: string; @IsOptional() @IsIn(['create','modify']) mode?:'create'|'modify'; @IsOptional() @IsObject() model?:Record<string,unknown>; }
@@ -275,14 +292,46 @@ export class AuthController {
 @Controller('businesses')
 export class BusinessController {
   constructor(private db:DbService){}
-  @UseGuards(SessionGuard) @Get('mine') async mine(@Req() req:Request & {user:any}) { return this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}}); }
+  @UseGuards(SessionGuard) @Get('mine') async mine(@Req() req:Request & {user:any}) { return selectedBusiness(this.db,req,{website:true}); }
+  @UseGuards(SessionGuard) @Get('mine/stores') async stores(@Req() req:Request & {user:any}) {
+    const rows=await this.db.business.findMany({where:{ownerId:req.user.id},include:{website:true},orderBy:{createdAt:'asc'}});
+    return rows.map(row=>({id:row.id,name:row.name,slug:row.slug,category:row.category,createdAt:row.createdAt,published:!!row.website?.published}));
+  }
+  @UseGuards(SessionGuard) @Post('mine/stores') async createStore(@Req() req:Request & {user:any},@Body() dto:StoreInput) {
+    const name=String(dto.name||'').trim(),slug=String(dto.slug||'').trim().toLowerCase();
+    if(!name)throw new BadRequestException('Store name required');
+    if(!/^[a-z0-9-]{1,100}$/.test(slug))throw new BadRequestException('Slug must use lowercase letters, numbers, and hyphens');
+    const [count,existing]=await Promise.all([
+      this.db.business.count({where:{ownerId:req.user.id}}),
+      this.db.business.findUnique({where:{slug}}),
+    ]);
+    if(count>=20)throw new BadRequestException('An account can have up to 20 stores');
+    if(existing)throw new ConflictException('Website address is already taken');
+    const settings={...(dto.settings as Record<string,unknown>),storeName:name,businessName:name,storeUrl:slug};
+    try{return await this.db.business.create({data:{ownerId:req.user.id,name,slug,category:dto.category||'general',settings:settings as any,website:{create:{}}}});}
+    catch(error){if(error instanceof Prisma.PrismaClientKnownRequestError&&error.code==='P2002')throw new ConflictException('Website address is already taken');throw error;}
+  }
+  @UseGuards(SessionGuard) @Get('mine/commerce-settings') async commerceSettings(@Req() req:Request & {user:any}) {
+    const business=await selectedBusiness(this.db,req);
+    if(!business)throw new NotFoundException('Business not found');
+    const storeSettings=business.settings as Record<string,any>;return storeSettings?.commerceSettings||{currency:storeSettings?.currency||'USD',shippingZones:[],pickupEnabled:false,taxEnabled:false,taxRatePercent:0,discounts:[]};
+  }
+  @UseGuards(SessionGuard) @Put('mine/commerce-settings') async saveCommerceSettings(@Req() req:Request & {user:any},@Body() dto:JsonInput) {
+    const business=await selectedBusiness(this.db,req);
+    if(!business)throw new NotFoundException('Business not found');
+    const error=validateStoreCommerceSettings(dto.data);
+    if(error)throw new BadRequestException(error);
+    const settings={...(business.settings as Record<string,unknown>),commerceSettings:dto.data};
+    const saved=await this.db.business.update({where:{id:business.id},data:{settings:settings as any}});
+    return (saved.settings as Record<string,any>).commerceSettings;
+  }
   @UseGuards(SessionGuard) @Get('mine/catalog') async catalog(@Req() req:Request & {user:any}) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const business=await selectedBusiness(this.db,req);
     const settings=(business?.settings||{}) as Record<string,unknown>;
     return settings.businessCatalog||settings.catalog||null;
   }
   @UseGuards(SessionGuard) @Put('mine/catalog') async saveCatalog(@Req() req:Request & {user:any},@Body() dto:JsonInput) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const business=await selectedBusiness(this.db,req);
     if(!business)throw new NotFoundException('Business not found');
     const catalog=dto.data as Record<string,any>;
     if(!['salon','restaurant','store','services','portfolio','general'].includes(String(catalog.businessCategory)))throw new BadRequestException('Choose a business category');
@@ -293,28 +342,61 @@ export class BusinessController {
   @UseGuards(SessionGuard) @Get('mine/records') async records(@Req() req:Request & {user:any}) {
     const type=String(req.query.type||'');
     if(!['bookings','inquiries','notifications','pickupOrders'].includes(type))throw new BadRequestException('Invalid business record type');
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const business=await selectedBusiness(this.db,req);
     if(!business)return [];
     const rows=await this.db.businessRecord.findMany({where:{businessId:business.id,type},orderBy:{createdAt:'desc'},take:300});
     return rows.map(row=>({...(row.data as Record<string,unknown>),id:row.id,type:row.type,status:row.status,read:row.read,createdAt:row.createdAt.toISOString()}));
   }
   @UseGuards(SessionGuard) @Get('mine/analytics') async analytics(@Req() req:Request & {user:any}) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)return {days:[],pages:[],sources:[]};
+    const business=await selectedBusiness(this.db,req);if(!business)return {days:[],pages:[],sources:[]};
     const rows=await this.db.businessRecord.findMany({where:{businessId:business.id,type:{in:['bookings','inquiries','pickupOrders','pageViews']}},orderBy:{createdAt:'desc'},take:2000});
     const days=new Map<string,any>(),pages=new Map<string,number>(),sources=new Map<string,number>();for(const row of rows){const data=row.data as any,key=row.createdAt.toISOString().slice(0,10);const day=days.get(key)||{date:key,bookings:0,inquiries:0,orders:0,visits:0,pageViews:0};if(row.type==='bookings')day.bookings++;if(row.type==='inquiries')day.inquiries++;if(row.type==='pickupOrders')day.orders++;if(row.type==='pageViews'){day.pageViews++;if(data.uniqueVisit)day.visits++;pages.set(data.page,(pages.get(data.page)||0)+1);if(data.uniqueVisit)sources.set(data.source,(sources.get(data.source)||0)+1);}days.set(key,day);}
     return {days:[...days.values()].slice(0,30).sort((a,b)=>b.date.localeCompare(a.date)),pages:[...pages].map(([page,views])=>({page,views})).sort((a,b)=>b.views-a.views).slice(0,10),sources:[...sources].map(([source,visits])=>({source,visits})).sort((a,b)=>b.visits-a.visits).slice(0,10)};
   }
+  @UseGuards(SessionGuard) @Get('mine/commerce-analytics') async commerceAnalytics(@Req() req:Request & {user:any}) {
+    const business=await selectedBusiness(this.db,req);
+    if(!business)return {revenue:0,netRevenue:0,grossCollected:0,orders:0,averageOrderValue:0,refunds:0,unpaidCodOrders:0,conversionRate:null,uniqueVisits:0,days:[],bestSellers:[],inventoryAlerts:[]};
+    const [orders,products,views]=await Promise.all([
+      this.db.order.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:3000}),
+      this.db.product.findMany({where:{businessId:business.id},take:3000}),
+      this.db.businessRecord.findMany({where:{businessId:business.id,type:'pageViews'},orderBy:{createdAt:'desc'},take:5000}),
+    ]);
+    const paid=orders.filter(row=>String((row.data as any)?.paymentStatus||'').toLowerCase()==='paid');
+    const grossCollectedCents=orders.reduce((sum,row)=>sum+collectedAmountCents(row),0);
+    const refundedCents=orders.reduce((sum,row)=>sum+refundAmountCents(row),0);
+    const netRevenueCents=grossCollectedCents-refundedCents;
+    const collectedOrders=orders.filter(row=>collectedAmountCents(row)>0).length;
+    const days=new Map<string,{date:string,revenue:number,orders:number,refunds:number}>();
+    const productsById=new Map(products.map(product=>[product.id,product.name]));
+    const sold=new Map<string,{productId:string,name:string,quantity:number,revenue:number}>();
+    for(const row of orders){
+      const data=row.data as any,key=new Date(row.createdAt).toISOString().slice(0,10),day=days.get(key)||{date:key,revenue:0,orders:0,refunds:0};
+      day.orders++;
+      const collected=collectedAmountCents(row);
+      const refunded=refundAmountCents(row);
+      day.revenue+=(collected-refunded)/100;
+      day.refunds+=refunded/100;
+      if(String(data.paymentStatus||'').toLowerCase()==='paid'){
+        for(const line of Array.isArray(data.items)?data.items:[]){const id=String(line.id||line.productId||''),quantity=Number(line.quantity)||0,current=sold.get(id)||{productId:id,name:String(line.name||productsById.get(id)||'Product'),quantity:0,revenue:0};current.quantity+=quantity;current.revenue+=(Number(line.price)||0)*quantity;sold.set(id,current);}
+      }
+      days.set(key,day);
+    }
+    const uniqueVisits=new Set(views.filter(row=>(row.data as any)?.uniqueVisit).map(row=>String((row.data as any)?.visitId||(row.data as any)?.sessionId||row.id))).size;
+    const unpaidCodOrders=orders.filter(row=>['cash on delivery','pending'].includes(String((row.data as any)?.paymentStatus||'').toLowerCase())&&!['cancelled','returned'].includes(String((row.data as any)?.fulfillmentStatus||row.status).toLowerCase())).length;
+    const inventoryAlerts=products.map(product=>({id:product.id,name:product.name,stock:Number((product.data as any)?.stock),threshold:Number((product.data as any)?.lowStockThreshold??5)})).filter(product=>Number.isFinite(product.stock)&&product.stock<=product.threshold).sort((a,b)=>a.stock-b.stock);
+    return {revenue:netRevenueCents/100,netRevenue:netRevenueCents/100,grossCollected:grossCollectedCents/100,orders:orders.length,paidOrders:paid.length,collectedOrders,averageOrderValue:collectedOrders?grossCollectedCents/100/collectedOrders:0,refunds:refundedCents/100,unpaidCodOrders,uniqueVisits,conversionRate:uniqueVisits?paid.length/uniqueVisits: null,days:[...days.values()].slice(0,30).sort((a,b)=>a.date.localeCompare(b.date)),bestSellers:[...sold.values()].sort((a,b)=>b.quantity-a.quantity).slice(0,10),inventoryAlerts};
+  }
   @UseGuards(SessionGuard) @Get('mine/clients') async clients(@Req() req:Request & {user:any}) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)return [];
+    const business=await selectedBusiness(this.db,req);if(!business)return [];
     const [bookings,notes]=await Promise.all([this.db.businessRecord.findMany({where:{businessId:business.id,type:'bookings'},orderBy:{createdAt:'desc'},take:300}),this.db.businessRecord.findMany({where:{businessId:business.id,type:'clientNotes'},take:500})]);
     const crypto=require('node:crypto'),noteMap=new Map(notes.map(note=>[(note.data as any).clientId,(note.data as any).note||''])),map=new Map<string,any>();
     for(const row of bookings){const data=row.data as any,email=String(data.email||'').toLowerCase();if(!email)continue;const id=crypto.createHash('sha256').update(email).digest('hex');const client=map.get(id)||{id,name:data.name||'',email,phone:data.phone||'',bookings:[],note:noteMap.get(id)||''};client.bookings.push({id:row.id,start:data.start,serviceName:data.serviceName||'Table reservation',status:row.status});map.set(id,client);}
     return [...map.values()];
   }
-  @UseGuards(SessionGuard) @Put('mine/client-notes/:id') async saveClientNote(@Req() req:Request & {user:any},@Body() dto:JsonInput){const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)throw new NotFoundException('Business not found');const id=String(req.params['id']);if(!/^[a-f0-9]{64}$/.test(id))throw new BadRequestException('Invalid client');const note=String(dto.data.note||'').slice(0,5000);const prior=await this.db.businessRecord.findFirst({where:{businessId:business.id,type:'clientNotes',data:{path:['clientId'],equals:id}}});if(prior)return this.db.businessRecord.update({where:{id:prior.id},data:{data:{clientId:id,note} as any}});return this.db.businessRecord.create({data:{businessId:business.id,type:'clientNotes',data:{clientId:id,note} as any}});}
-  @UseGuards(SessionGuard) @Patch('mine/records/:id/reschedule') async rescheduleBooking(@Req() req:Request & {user:any},@Body() dto:JsonInput){const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)throw new NotFoundException('Business not found');const row=await this.db.businessRecord.findFirst({where:{id:String(req.params['id']),businessId:business.id,type:'bookings',status:'confirmed'}});if(!row)throw new NotFoundException('Confirmed booking not found');const start=String(dto.data.start||''),startMs=Date.parse(start),catalog=(business.settings as any).businessCatalog;if(!Number.isFinite(startMs)||startMs<Date.now())throw new BadRequestException('Choose a future time');if(!catalog)throw new BadRequestException('Booking availability is not configured');return this.db.$transaction(async tx=>{const date=localParts(startMs,catalog.timeZone||'UTC').date;await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${business.id}), hashtext(${date}))`;const rows=await tx.businessRecord.findMany({where:{businessId:business.id,type:'bookings'},take:1000});const current=row.data as any;let slot:any;try{slot=allocate(catalog,{kind:current.kind,start,serviceId:current.serviceId,staffId:current.staffId,guests:current.guests},rows.filter(item=>item.id!==row.id).map(item=>item.data));}catch(error){throw new BadRequestException(error instanceof Error?error.message:'This time is unavailable');}const data={...current,...slot,date:localParts(slot.start,catalog.timeZone||'UTC').date,start:new Date(slot.start).toISOString(),end:new Date(slot.end).toISOString(),rescheduledAt:new Date().toISOString()};return tx.businessRecord.update({where:{id:row.id},data:{data:data as any}});});}
+  @UseGuards(SessionGuard) @Put('mine/client-notes/:id') async saveClientNote(@Req() req:Request & {user:any},@Body() dto:JsonInput){const business=await selectedBusiness(this.db,req);if(!business)throw new NotFoundException('Business not found');const id=String(req.params['id']);if(!/^[a-f0-9]{64}$/.test(id))throw new BadRequestException('Invalid client');const note=String(dto.data.note||'').slice(0,5000);const prior=await this.db.businessRecord.findFirst({where:{businessId:business.id,type:'clientNotes',data:{path:['clientId'],equals:id}}});if(prior)return this.db.businessRecord.update({where:{id:prior.id},data:{data:{clientId:id,note} as any}});return this.db.businessRecord.create({data:{businessId:business.id,type:'clientNotes',data:{clientId:id,note} as any}});}
+  @UseGuards(SessionGuard) @Patch('mine/records/:id/reschedule') async rescheduleBooking(@Req() req:Request & {user:any},@Body() dto:JsonInput){const business=await selectedBusiness(this.db,req);if(!business)throw new NotFoundException('Business not found');const row=await this.db.businessRecord.findFirst({where:{id:String(req.params['id']),businessId:business.id,type:'bookings',status:'confirmed'}});if(!row)throw new NotFoundException('Confirmed booking not found');const start=String(dto.data.start||''),startMs=Date.parse(start),catalog=(business.settings as any).businessCatalog;if(!Number.isFinite(startMs)||startMs<Date.now())throw new BadRequestException('Choose a future time');if(!catalog)throw new BadRequestException('Booking availability is not configured');return this.db.$transaction(async tx=>{const date=localParts(startMs,catalog.timeZone||'UTC').date;await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${business.id}), hashtext(${date}))`;const rows=await tx.businessRecord.findMany({where:{businessId:business.id,type:'bookings'},take:1000});const current=row.data as any;let slot:any;try{slot=allocate(catalog,{kind:current.kind,start,serviceId:current.serviceId,staffId:current.staffId,guests:current.guests},rows.filter(item=>item.id!==row.id).map(item=>item.data));}catch(error){throw new BadRequestException(error instanceof Error?error.message:'This time is unavailable');}const data={...current,...slot,date:localParts(slot.start,catalog.timeZone||'UTC').date,start:new Date(slot.start).toISOString(),end:new Date(slot.end).toISOString(),rescheduledAt:new Date().toISOString()};return tx.businessRecord.update({where:{id:row.id},data:{data:data as any}});});}
   @UseGuards(SessionGuard) @Post('mine/records/bookings') async createOwnerBooking(@Req() req:Request & {user:any},@Body() dto:JsonInput) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const business=await selectedBusiness(this.db,req);
     if(!business)throw new NotFoundException('Business not found');
     const data=dto.data as Record<string,unknown>;
     if(data.storeUrl&&data.storeUrl!==business.slug)throw new NotFoundException('Business not found');
@@ -324,7 +406,7 @@ export class BusinessController {
     return {id:record.id,start,status:record.status};
   }
   @UseGuards(SessionGuard) @Patch('mine/records/:id') async updateRecord(@Req() req:Request & {user:any},@Body() dto:OrderStatusInput) {
-    const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});
+    const business=await selectedBusiness(this.db,req);
     if(!business)throw new NotFoundException('Business not found');
     const type=String(req.query.type||'');
     if(type==='notifications'){
@@ -340,9 +422,10 @@ export class BusinessController {
   }
   @UseGuards(SessionGuard) @Put('mine') async save(@Req() req:Request & {user:any},@Body() dto:StoreInput) {
     if(!/^[a-z0-9-]{1,100}$/.test(dto.slug)) throw new BadRequestException('Slug must use lowercase letters, numbers, and hyphens');
-    const existing=await this.db.business.findUnique({where:{slug:dto.slug}}); if(existing&&existing.ownerId!==req.user.id) throw new ConflictException('Website address is already taken');
-    const current=await this.db.business.findFirst({where:{ownerId:req.user.id}});
-    if(current) return this.db.business.update({where:{id:current.id},data:{name:dto.name,slug:dto.slug,category:dto.category,settings:dto.settings}});
+    const current=await selectedBusiness(this.db,req);
+    const existing=await this.db.business.findUnique({where:{slug:dto.slug}});
+    if(existing&&existing.id!==current?.id)throw new ConflictException('Website address is already taken');
+    if(current)return this.db.business.update({where:{id:current.id},data:{name:dto.name,slug:dto.slug,category:dto.category,settings:{...(current.settings as Record<string,unknown>),...dto.settings} as any}});
     return this.db.business.create({data:{ownerId:req.user.id,name:dto.name,slug:dto.slug,category:dto.category,settings:dto.settings,website:{create:{}}}});
   }
   @Get('public/:slug') async publicBusiness(@Req() req:Request) {
@@ -350,10 +433,21 @@ export class BusinessController {
     const business=await this.db.business.findUnique({where:{slug},include:{website:true}});
     if(!business?.website?.published)throw new NotFoundException('Website not found');
     const settings=business.settings as Record<string,unknown>;
-    const safeKeys=['storeName','businessName','description','storeDescription','logoUrl','coverImageUrl','themeColor','primaryColor','backgroundColor','textColor','template','cardStyle','businessCategory','currency','language'];
+    const safeKeys=['storeName','businessName','description','storeDescription','logoUrl','coverImageUrl','contactEmail','contactPhone','themeColor','primaryColor','backgroundColor','textColor','template','cardStyle','businessCategory','currency','language'];
     const publicSettings=Object.fromEntries(safeKeys.filter(key=>typeof settings[key]==='string').map(key=>[key,settings[key]]));
     const catalog=settings.businessCatalog||settings.catalog;
-    return {id:business.id,name:business.name,slug:business.slug,category:business.category,settings:{...publicSettings,...(catalog?{businessCatalog:catalog,catalog}: {})}};
+    const commerce=settings.commerceSettings as Record<string,any>|undefined;
+    const publicCommerce=commerce?{
+      currency:commerce.currency,
+      shippingZones:Array.isArray(commerce.shippingZones)?commerce.shippingZones.filter((zone:any)=>zone.enabled!==false).map((zone:any)=>({name:zone.name,countryCodes:zone.countryCodes,fee:zone.fee,freeShippingThreshold:zone.freeShippingThreshold})):[],
+      pickupEnabled:commerce.pickupEnabled===true,
+      taxEnabled:commerce.taxEnabled===true,
+      taxRatePercent:commerce.taxRatePercent,
+      taxShipping:commerce.taxShipping===true,
+      taxLabel:commerce.taxLabel,
+      discounts:Array.isArray(commerce.discounts)?commerce.discounts.filter((discount:any)=>discount.enabled!==false).map((discount:any)=>({code:discount.code,type:discount.type,value:discount.value,startsAt:discount.startsAt,endsAt:discount.endsAt})):[],
+    }:undefined;
+    return {id:business.id,name:business.name,slug:business.slug,category:business.category,settings:{...publicSettings,...(catalog?{businessCatalog:catalog,catalog}: {}),...(publicCommerce?{commerceSettings:publicCommerce}:{})}};
   }
 }
 
@@ -373,11 +467,13 @@ export class PublicBusinessController {
 @UseGuards(SessionGuard)
 export class ProductController {
   constructor(private db:DbService){}
-  private async business(userId:string){const b=await this.db.business.findFirst({where:{ownerId:userId}});if(!b)throw new NotFoundException('Create a business first');return b;}
-  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.business(req.user.id);return this.db.product.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'}});}
-  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const name=String(dto.data.name||'').trim();if(!name)throw new BadRequestException('Product name required');await assertOwnedMedia(this.db,req.user.id,dto.data);return this.db.product.create({data:{businessId:b.id,name,data:dto.data as any}});}
-  @Put(':id') async update(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req.user.id);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');await assertOwnedMedia(this.db,req.user.id,dto.data);const merged={...(prior.data as Record<string,unknown>),...dto.data};const name=String(merged.name||prior.name).trim();if(!name)throw new BadRequestException('Product name required');const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{name,data:merged as any}});if(!result.count)throw new NotFoundException('Product not found');return this.db.product.findUnique({where:{id}});}
-  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.business(req.user.id);const result=await this.db.product.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Product not found');return {deleted:true};}
+  private async business(req:Request & {user:any}){const b=await selectedBusiness(this.db,req);if(!b)throw new NotFoundException('Create a business first');return b;}
+  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.business(req);return this.db.product.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'}});}
+  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req);const error=productDataValidationError(dto.data);if(error)throw new BadRequestException(error);const name=String(dto.data.name||'').trim();await assertOwnedMedia(this.db,req.user.id,dto.data);return this.db.product.create({data:{businessId:b.id,name,data:dto.data as any}});}
+  @Put(':id') async update(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.business(req);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');await assertOwnedMedia(this.db,req.user.id,dto.data);const merged={...(prior.data as Record<string,unknown>),...dto.data};const error=productDataValidationError({...merged,name:dto.data.name??prior.name});if(error)throw new BadRequestException(error);const name=String(merged.name||prior.name).trim();const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{name,data:merged as any}});if(!result.count)throw new NotFoundException('Product not found');return this.db.product.findUnique({where:{id}});}
+  @Post(':id/duplicate') async duplicate(@Req() req:Request & {user:any}){const b=await this.business(req);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');const data={...(prior.data as Record<string,any>),name:`${prior.name} (copy)`,status:'hidden',sku:''};await assertOwnedMedia(this.db,req.user.id,data);return this.db.product.create({data:{businessId:b.id,name:data.name,data:data as any}});}
+  @Patch(':id/archive') async archive(@Req() req:Request & {user:any}){const b=await this.business(req);const id=String(req.params['id']);const prior=await this.db.product.findFirst({where:{id,businessId:b.id}});if(!prior)throw new NotFoundException('Product not found');const data={...(prior.data as Record<string,unknown>),status:'archived',archivedAt:new Date().toISOString()};const result=await this.db.product.updateMany({where:{id,businessId:b.id},data:{data:data as any}});if(!result.count)throw new NotFoundException('Product not found');return {archived:true,id};}
+  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.business(req);const result=await this.db.product.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Product not found');return {deleted:true};}
 }
 
 @Controller('public/products')
@@ -386,39 +482,237 @@ export class PublicProductController {
   @Get(':slug') async list(@Req() req:Request){
     const slug=String(req.params['slug']||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Website not found');
     const rows=await this.db.product.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:300});
-    return rows.filter(row=>(row.data as any)?.status!=='hidden').map(row=>{
+    return rows.filter(row=>!['hidden','archived'].includes(String((row.data as any)?.status||''))).map(row=>{
       const data=row.data as Record<string,unknown>;
-      return {id:row.id,storeUrl:business.slug,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,images:data.images,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};
+      return {id:row.id,storeUrl:business.slug,currency:String(((business.settings as any)?.commerceSettings?.currency)||(business.settings as any)?.currency||'USD'),name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,images:data.images,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,variants:data.variants,sizes:data.sizes,colors:data.colors,sku:data.sku,legacyId:data.id};
     });
   }
-  @Get('item/:id') async one(@Req() req:Request){const id=String(req.params['id']||'');const row=await this.db.product.findUnique({where:{id},include:{business:{include:{website:true}}}});if(!row||!row.business.website?.published||(row.data as any)?.status==='hidden')throw new NotFoundException('Product not found');const data=row.data as Record<string,unknown>;return {id:row.id,storeUrl:row.business.slug,name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,images:data.images,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,legacyId:data.id};}
+  @Get('item/:id') async one(@Req() req:Request){const id=String(req.params['id']||'');const row=await this.db.product.findUnique({where:{id},include:{business:{include:{website:true}}}});if(!row||!row.business.website?.published||['hidden','archived'].includes(String((row.data as any)?.status||'')))throw new NotFoundException('Product not found');const data=row.data as Record<string,unknown>;return {id:row.id,storeUrl:row.business.slug,currency:String(((row.business.settings as any)?.commerceSettings?.currency)||(row.business.settings as any)?.currency||'USD'),name:row.name,description:data.description,imageUrl:data.imageUrl,image:data.image,images:data.images,sellingPrice:data.sellingPrice,salePrice:data.salePrice,salePercent:data.salePercent,status:data.status,category:data.category,stock:data.stock,media:data.media,variants:data.variants,sizes:data.sizes,colors:data.colors,sku:data.sku,legacyId:data.id};}
 }
 
 @Controller('customers')
 @UseGuards(SessionGuard)
 export class CustomerController {
   constructor(private db:DbService){}
-  @Get() async list(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)return [];return this.db.customer.findMany({where:{businessId:b.id},orderBy:{id:'desc'}});}
-  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');return this.db.customer.create({data:{businessId:b.id,data:dto.data as any}});}
-  @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:CustomerStatusInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const customer=await this.db.customer.findFirst({where:{id,businessId:b.id}});if(!customer)throw new NotFoundException('Customer not found');const data={...(customer.data as Record<string,unknown>),status:dto.status};return this.db.customer.update({where:{id},data:{data:data as any}});}
-  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const result=await this.db.customer.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Customer not found');return {deleted:true};}
+  private async business(req:Request & {user:any}){const business=await selectedBusiness(this.db,req);if(!business)throw new NotFoundException('Business not found');return business;}
+  @Get() async list(@Req() req:Request & {user:any}) {
+    const business=await this.business(req),rows=await this.db.customer.findMany({where:{businessId:business.id},orderBy:{id:'desc'},take:500});
+    const search=String(req.query.search||'').trim().toLowerCase(),status=String(req.query.status||'').toLowerCase();
+    return rows.filter(row=>{const data=row.data as any;return (!status||String(data.status||'').toLowerCase()===status)&&(!search||[data.name,data.email,data.phone].some(value=>String(value||'').toLowerCase().includes(search)));}).map(row=>({id:row.id,...(row.data as Record<string,unknown>)}));
+  }
+  @Get(':id') async one(@Req() req:Request & {user:any}) {
+    const business=await this.business(req),id=String(req.params['id']),customer=await this.db.customer.findFirst({where:{id,businessId:business.id}});
+    if(!customer)throw new NotFoundException('Customer not found');
+    const email=String((customer.data as any)?.email||'').trim().toLowerCase();
+    const orders=email?(await this.db.order.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:500})).filter(row=>String((row.data as any)?.email||'').trim().toLowerCase()===email):[];
+    return {id,...(customer.data as Record<string,unknown>),orders:orders.map(row=>({...publicOrderData(row.data),id:row.id,status:String((row.data as any)?.fulfillmentStatus||row.status),paymentStatus:(row.data as any)?.paymentStatus||'Pending',createdAt:row.createdAt}))};
+  }
+  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){
+    const business=await this.business(req);
+    const email=String(dto.data.email||'').trim().toLowerCase();
+    if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer email');
+    return this.db.customer.create({data:{businessId:business.id,data:{...dto.data,...(email?{email}:{}),status:dto.data.status||'Active',totalSpent:0,paidOrders:0,orders:0} as any}});
+  }
+  @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:CustomerStatusInput){
+    const status=String(dto.status||'').trim();
+    if(!['New','Active','Inactive','VIP','Blocked'].includes(status))throw new BadRequestException('Invalid customer status');
+    const business=await this.business(req),id=String(req.params['id']),customer=await this.db.customer.findFirst({where:{id,businessId:business.id}});
+    if(!customer)throw new NotFoundException('Customer not found');
+    const data={...(customer.data as Record<string,unknown>),status};
+    const result=await this.db.customer.updateMany({where:{id,businessId:business.id},data:{data:data as any}});
+    if(!result.count)throw new NotFoundException('Customer not found');
+    return {id,...data};
+  }
+  @Patch(':id/notes') async updateNotes(@Req() req:Request & {user:any},@Body() dto:JsonInput){
+    const note=String(dto.data.note||'').trim();
+    if(note.length>2000)throw new BadRequestException('Customer notes cannot exceed 2000 characters');
+    const business=await this.business(req),id=String(req.params['id']),customer=await this.db.customer.findFirst({where:{id,businessId:business.id}});
+    if(!customer)throw new NotFoundException('Customer not found');
+    const data={...(customer.data as Record<string,any>),notes:note,noteUpdatedAt:new Date().toISOString()};
+    const result=await this.db.customer.updateMany({where:{id,businessId:business.id},data:{data:data as any}});
+    if(!result.count)throw new NotFoundException('Customer not found');
+    return {id,notes:note,noteUpdatedAt:data.noteUpdatedAt};
+  }
+  @Delete(':id') async remove(@Req() req:Request & {user:any}){
+    const business=await this.business(req),result=await this.db.customer.deleteMany({where:{id:String(req.params['id']),businessId:business.id}});
+    if(!result.count)throw new NotFoundException('Customer not found');
+    return {deleted:true};
+  }
 }
 
 @Controller('orders')
 @UseGuards(SessionGuard)
 export class OrderController {
   constructor(private db:DbService){}
-  @Get() async list(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)return [];return (await this.db.order.findMany({where:{businessId:b.id},orderBy:{createdAt:'desc'},take:300})).map(row=>({...row,data:publicOrderData(row.data)}));}
-  @Get(':id') async one(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const row=await this.db.order.findFirst({where:{id:String(req.params['id']),businessId:b.id}});if(!row)throw new NotFoundException('Order not found');return {...publicOrderData(row.data),id:row.id,status:row.status,createdAt:row.createdAt};}
-  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const data=dto.data as Record<string,any>;const amount=Number(data.total??data.amount);return this.db.order.create({data:{businessId:b.id,status:String(data.status||'pending'),amountCents:Number.isFinite(amount)?Math.round(amount*100):null,currency:String(data.currency||'USD'),data:data as any}});}
-  @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:OrderStatusInput){
-    const valid=['new','pending','paid','processing','shipped','delivered','cancelled','refunded'];if(!valid.includes(dto.status.toLowerCase()))throw new BadRequestException('Invalid order status');
-    const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');
-    const id=String(req.params['id']);const result=await this.db.order.updateMany({where:{id,businessId:b.id},data:{status:dto.status.toLowerCase()}});if(!result.count)throw new NotFoundException('Order not found');
-    return this.db.order.findUnique({where:{id}});
+  private async business(req:Request & {user:any}){const business=await selectedBusiness(this.db,req);if(!business)throw new NotFoundException('Business not found');return business;}
+  @Get() async list(@Req() req:Request & {user:any}) {
+    const business=await this.business(req),rows=await this.db.order.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:500});
+    const search=String(req.query.search||'').trim().toLowerCase(),status=String(req.query.status||'').toLowerCase(),payment=String(req.query.paymentStatus||'').toLowerCase();
+    return rows.filter(row=>{
+      const data=publicOrderData(row.data),fulfillment=String((row.data as any)?.fulfillmentStatus||row.status).toLowerCase(),paid=String((row.data as any)?.paymentStatus||'').toLowerCase();
+      const matchesSearch=!search||[row.id,data.customerName,data.email,data.phone,...(Array.isArray(data.items)?data.items.map((item:any)=>item.name):[])].some(value=>String(value||'').toLowerCase().includes(search));
+      return matchesSearch&&(!status||fulfillment===status)&&(!payment||paid===payment);
+    }).map(row=>({...row,data:publicOrderData(row.data)}));
   }
-  @Patch(':id') async updateDetails(@Req() req:Request & {user:any},@Body() dto:JsonInput){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const id=String(req.params['id']);const row=await this.db.order.findFirst({where:{id,businessId:b.id}});if(!row)throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),...dto.data};const result=await this.db.order.update({where:{id},data:{data:data as any}});return {...publicOrderData(result.data),id:result.id,status:result.status,createdAt:result.createdAt};}
-  @Delete(':id') async remove(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');const result=await this.db.order.deleteMany({where:{id:String(req.params['id']),businessId:b.id}});if(!result.count)throw new NotFoundException('Order not found');return {deleted:true};}
+  @Get(':id') async one(@Req() req:Request & {user:any}) {
+    const business=await this.business(req),row=await this.db.order.findFirst({where:{id:String(req.params['id']),businessId:business.id}});
+    if(!row)throw new NotFoundException('Order not found');
+    const data=publicOrderData(row.data);
+    return {...data,id:row.id,status:String(data.fulfillmentStatus||row.status),paymentStatus:data.paymentStatus||'Pending',createdAt:row.createdAt};
+  }
+  @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput) {
+    const business=await this.business(req),data=dto.data as Record<string,any>,amount=Number(data.total??data.amount);
+    const fulfillmentStatus=String(data.fulfillmentStatus||data.status||'new').toLowerCase();
+    return this.db.order.create({data:{businessId:business.id,status:fulfillmentStatus,amountCents:Number.isFinite(amount)?Math.round(amount*100):null,currency:String(data.currency||'USD'),data:{...data,fulfillmentStatus} as any}});
+  }
+  private async refreshCustomerTotals(tx:any,businessId:string,email:string) {
+    if(!email)return;
+    const customer=await tx.customer.findFirst({where:{businessId,data:{path:['email'],equals:email}}});
+    if(!customer)return;
+    const orders=await tx.order.findMany({where:{businessId}});
+    const matching=orders.filter((row:any)=>String((row.data as any)?.email||'').trim().toLowerCase()===email);
+    const paid=matching.filter((row:any)=>String((row.data as any)?.paymentStatus||'').toLowerCase()==='paid');
+    const spentCents=paid.reduce((sum:number,row:any)=>sum+(Number((row.data as any)?.collectedAmountCents??row.amountCents??Math.round(Number((row.data as any)?.total||0)*100))||0),0);
+    const refundedCents=paid.reduce((sum:number,row:any)=>sum+(Array.isArray((row.data as any)?.refundHistory)?(row.data as any).refundHistory.reduce((total:number,item:any)=>total+(Number(item.amountCents)||0),0):0),0);
+    const customerData={...(customer.data as Record<string,any>),totalSpent:Math.max(0,spentCents-refundedCents)/100,paidOrders:paid.length,orders:matching.length,lastOrder:matching[0]?.createdAt?.toISOString?.()||(customer.data as any)?.lastOrder};
+    await tx.customer.update({where:{id:customer.id},data:{data:customerData as any}});
+  }
+  private async restoreInventory(tx:any,businessId:string,orderData:Record<string,any>) {
+    const items=Array.isArray(orderData.items)?orderData.items:[];
+    const groups=new Map<string,any[]>();
+    for(const item of items){const id=String(item.id||item.productId||'');if(!id)continue;groups.set(id,[...(groups.get(id)||[]),item]);}
+    for(const [productId,lines] of groups){
+      const current=await tx.product.findFirst({where:{id:productId,businessId}});
+      if(!current)continue;
+      const original=current.data as Record<string,any>,next:any={...original};let changed=false;
+      for(const line of lines){
+        const quantity=Number(line.quantity);if(!Number.isInteger(quantity)||quantity<1)continue;
+        const variantId=String(line.variantId||'');
+        if(variantId&&Array.isArray(next.variants)){
+          const variants=[...next.variants],index=variants.findIndex((value:any)=>String(value?.id||value?.sku||value?.name||'')===variantId);
+          if(index<0)throw new ConflictException('The ordered product variant no longer exists. Inventory was not released.');
+          const variant={...variants[index]};
+          if(variant.stock!==undefined&&variant.stock!==null&&String(variant.stock).trim()!==''){
+            const stock=Number(variant.stock);
+            if(!Number.isInteger(stock)||stock<0)throw new ConflictException('The ordered product variant has invalid stock. Inventory was not released.');
+            variant.stock=stock+quantity;variants[index]=variant;next.variants=variants;changed=true;
+          }else if(next.stock!==undefined&&next.stock!==null&&String(next.stock).trim()!==''){
+            const stock=Number(next.stock);
+            if(!Number.isInteger(stock)||stock<0)throw new ConflictException('The product has invalid stock. Inventory was not released.');
+            next.stock=stock+quantity;changed=true;
+          }
+        }else if(next.stock!==undefined&&next.stock!==null&&String(next.stock).trim()!==''){
+          const stock=Number(next.stock);
+          if(!Number.isInteger(stock)||stock<0)throw new ConflictException('The product has invalid stock. Inventory was not released.');
+          next.stock=stock+quantity;changed=true;
+        }
+      }
+      if(changed){
+        // Keep the parent quantity aligned when each product option has its own
+        // tracked inventory. Blank option stock uses the parent as a shared
+        // fallback and must not be included in this total.
+        if(Array.isArray(next.variants)&&next.variants.length&&next.variants.every((variant:any)=>variant?.stock!==undefined&&variant?.stock!==null&&String(variant.stock).trim()!==''&&Number.isInteger(Number(variant.stock))&&Number(variant.stock)>=0)){
+          next.stock=next.variants.reduce((total:number,variant:any)=>total+Number(variant.stock),0);
+        }
+        const restored=await tx.product.updateMany({where:{id:productId,businessId,data:{equals:original as any}},data:{data:next as any}});
+        if(restored.count!==1)throw new ConflictException('Inventory changed while the order was being cancelled. Retry the update.');
+      }
+    }
+  }
+  private async setPaymentStatus(req:Request & {user:any},id:string,status:'paid'|'refunded') {
+    const business=await this.business(req);
+    return this.db.$transaction(async tx=>{
+      const current=await tx.order.findFirst({where:{id,businessId:business.id}});
+      if(!current)throw new NotFoundException('Order not found');
+      const data={...(current.data as Record<string,any>)},prior=String(data.paymentStatus||'Pending').toLowerCase();
+      if(status==='paid'&&prior==='paid')return current;
+      if(status==='refunded'&&prior==='refunded')return current;
+      if(status==='paid'&&prior==='refunded')throw new ConflictException('A refunded order cannot be marked paid again without a new collection record.');
+      if(status==='refunded'&&prior!=='paid')throw new BadRequestException('Only a collected payment can be refunded.');
+      const now=new Date().toISOString(),history=Array.isArray(data.paymentHistory)?data.paymentHistory:[];
+      if(status==='paid'){
+        data.paymentStatus='Paid';data.paidAt=now;
+        data.collectedAmountCents=current.amountCents??Math.round(Number(data.total||0)*100);
+        data.paymentHistory=[...history,{type:'collected',amountCents:data.collectedAmountCents,recordedAt:now,method:data.paymentMethod||'cash'}];
+      }else{
+        data.paymentStatus='Refunded';
+        const refunds=Array.isArray(data.refundHistory)?data.refundHistory:[];
+        data.refundHistory=[...refunds,{amountCents:Number(data.collectedAmountCents||current.amountCents||0),recordedAt:now,status:'recorded'}];
+        data.paymentHistory=[...history,{type:'refund',amountCents:Number(data.collectedAmountCents||current.amountCents||0),recordedAt:now}];
+      }
+      const updated=await tx.order.updateMany({where:{id,businessId:business.id,status:current.status,data:{equals:current.data as any}},data:{data:data as any}});
+      if(updated.count!==1)throw new ConflictException('Order changed while the payment update was being saved. Reload and try again.');
+      await this.refreshCustomerTotals(tx,business.id,String(data.email||'').trim().toLowerCase());
+      return tx.order.findUnique({where:{id}});
+    });
+  }
+  private async setFulfillment(req:Request & {user:any},id:string,input:Record<string,any>) {
+    const status=String(input.status||'').toLowerCase();
+    const valid=['new','processing','packed','shipped','delivered','cancelled','returned'];
+    if(!valid.includes(status))throw new BadRequestException('Invalid fulfillment status');
+    const business=await this.business(req);
+    const trackingNumber=input.trackingNumber===undefined?undefined:String(input.trackingNumber||'').trim();
+    const carrier=input.carrier===undefined?undefined:String(input.carrier||'').trim();
+    let trackingUrl=input.trackingUrl===undefined?undefined:String(input.trackingUrl||'').trim();
+    if(trackingNumber&&trackingNumber.length>120)throw new BadRequestException('Tracking number is too long');
+    if(carrier&&carrier.length>80)throw new BadRequestException('Carrier name is too long');
+    if(trackingUrl){try{const url=new URL(trackingUrl);if(url.protocol!=='https:')throw new Error();}catch{throw new BadRequestException('Tracking URL must be a valid HTTPS URL');}}
+    return this.db.$transaction(async tx=>{
+      const current=await tx.order.findFirst({where:{id,businessId:business.id}});
+      if(!current)throw new NotFoundException('Order not found');
+      const data={...(current.data as Record<string,any>)},prior=String(data.fulfillmentStatus||current.status||'new').toLowerCase();
+      if(prior===status&&trackingNumber===undefined&&carrier===undefined&&trackingUrl===undefined)return current;
+      const transitions:Record<string,string[]>={new:['processing','cancelled'],pending:['processing','cancelled'],processing:['packed','cancelled'],packed:['shipped','cancelled'],shipped:['delivered','returned'],delivered:['returned'],cancelled:[],returned:[]};
+      if(prior!==status&&!(transitions[prior]||[]).includes(status))throw new ConflictException(`Cannot move fulfillment from ${prior} to ${status}.`);
+      const now=new Date().toISOString(),timeline=Array.isArray(data.timeline)?data.timeline:[];
+      if(prior!==status){
+        if(status==='cancelled'||status==='returned'){
+          if(!data.inventoryRestoredAt){await this.restoreInventory(tx,business.id,data);data.inventoryRestoredAt=now;data.inventoryHistory=[...(Array.isArray(data.inventoryHistory)?data.inventoryHistory:[]),{type:'released',recordedAt:now,reason:status}];}
+        }
+        data.fulfillmentStatus=status;
+        data.timeline=[...timeline,{type:'fulfillment',status,recordedAt:now}];
+      }
+      if(trackingNumber!==undefined)data.trackingNumber=trackingNumber||null;
+      if(carrier!==undefined)data.shippingCarrier=carrier||null;
+      if(trackingUrl!==undefined)data.trackingUrl=trackingUrl||null;
+      const updated=await tx.order.updateMany({where:{id,businessId:business.id,status:current.status,data:{equals:current.data as any}},data:{status,data:data as any}});
+      if(updated.count!==1)throw new ConflictException('Order changed while fulfillment was being updated. Reload and try again.');
+      return tx.order.findUnique({where:{id}});
+    });
+  }
+  @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:OrderStatusInput){
+    const status=dto.status.toLowerCase(),id=String(req.params['id']);
+    if(status==='paid'||status==='refunded')return this.setPaymentStatus(req,id,status);
+    return this.setFulfillment(req,id,{status});
+  }
+  @Patch(':id/payment') async updatePayment(@Req() req:Request & {user:any},@Body() dto:JsonInput){
+    const status=String(dto.data.status||'').toLowerCase();
+    if(status!=='paid'&&status!=='refunded')throw new BadRequestException('Invalid payment status');
+    return this.setPaymentStatus(req,String(req.params['id']),status);
+  }
+  @Patch(':id/fulfillment') async updateFulfillment(@Req() req:Request & {user:any},@Body() dto:JsonInput){
+    return this.setFulfillment(req,String(req.params['id']),dto.data);
+  }
+  @Patch(':id') async updateDetails(@Req() req:Request & {user:any},@Body() dto:JsonInput){
+    const business=await this.business(req),id=String(req.params['id']);
+    const row=await this.db.order.findFirst({where:{id,businessId:business.id}});
+    if(!row)throw new NotFoundException('Order not found');
+    const allowed=['notes','shippingAddress','customerPhone'];
+    const patch=Object.fromEntries(Object.entries(dto.data).filter(([key])=>allowed.includes(key)));
+    const data={...(row.data as Record<string,unknown>),...patch};
+    const updated=await this.db.order.updateMany({where:{id,businessId:business.id,status:row.status,data:{equals:row.data as any}},data:{data:data as any}});
+    if(!updated.count)throw new ConflictException('Order changed. Reload and try again.');
+    return this.one(req);
+  }
+  @Delete(':id') async remove(@Req() req:Request & {user:any}){
+    const business=await this.business(req),id=String(req.params['id']);
+    const row=await this.db.order.findFirst({where:{id,businessId:business.id}});
+    if(!row)throw new NotFoundException('Order not found');
+    if(['paid','refunded'].includes(String((row.data as any)?.paymentStatus||'').toLowerCase()))throw new ConflictException('Orders with financial history cannot be deleted.');
+    const result=await this.db.order.deleteMany({where:{id,businessId:business.id,status:row.status}});
+    if(!result.count)throw new ConflictException('Order changed. Reload and try again.');
+    return {deleted:true};
+  }
 }
 
 // Customer checkout is intentionally public. The order is attached to a published
@@ -440,8 +734,94 @@ function authoritativeProductPrice(productData: Record<string, unknown>) {
 @Controller('public/orders')
 export class PublicOrderController {
   constructor(private db:DbService){}
-  @Post() async create(@Body() dto:JsonInput){const data=dto.data as Record<string,any>;const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===String(item.id||item.productId||'')),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||(product.data as any)?.status==='hidden')throw new BadRequestException('A product in this order is unavailable');const price=authoritativeProductPrice(product.data as Record<string,unknown>);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');return {...item,id:product.id,name:product.name,price,quantity};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),shipping=subtotal>=300?0:25,amount=subtotal+shipping,customerActionToken=randomBytes(32).toString('base64url');const normalized={...data,items,subtotal,shipping,total:amount,currency:'USD',status:'New',paymentStatus:'Pending',createdAt:new Date().toISOString(),customerActionTokenHash:tokenHash(customerActionToken)};const order=await this.db.$transaction(async tx=>{const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:'USD',data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0)+amount};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;});return {...publicOrderData(order.data),id:order.id,status:order.status,createdAt:order.createdAt,cashOnDeliveryToken:customerActionToken};}
-  @Post(':id/cash-on-delivery') async setCashOnDelivery(@Req() req:Request,@Body() dto:TokenInput){const id=String(req.params['id']);const row=await this.db.order.findUnique({where:{id}});const storedHash=(row?.data as any)?.customerActionTokenHash;if(!row||row.status!=='new'||typeof storedHash!=='string'||!/^[a-f0-9]{64}$/i.test(storedHash)||!timingSafeEqual(Buffer.from(tokenHash(dto.token),'hex'),Buffer.from(storedHash,'hex')))throw new NotFoundException('Order not found');const data={...(row.data as Record<string,unknown>),paymentMethod:'cash',paymentStatus:'Cash on delivery',completedAt:new Date().toISOString()};const result=await this.db.order.updateMany({where:{id,status:'new'},data:{data:data as any}});if(!result.count)throw new NotFoundException('Order not found');return {ok:true};}
+  @Post() async create(@Body() dto:JsonInput){const data=dto.data as Record<string,any>;const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===String(item.id||item.productId||'')),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||['hidden','archived'].includes(String((product.data as any)?.status||'')))throw new BadRequestException('A product in this order is unavailable');const productData=product.data as Record<string,any>,variants=Array.isArray(productData.variants)?productData.variants:[];const requestedVariant=String(item.variantId||item.variant?.id||'');let variant:any=null;if(variants.length){variant=variants.find(value=>String(value?.id||value?.sku||value?.name||'')===requestedVariant);if(!variant)throw new BadRequestException('Choose an available product variant');}const pricingData=variant?{...productData,...variant}:productData;const price=authoritativeProductPrice(pricingData);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');const stock=variant?.stock??productData.stock;if(stock!==undefined&&stock!==null&&String(stock).trim()!==''&&(!Number.isInteger(Number(stock))||Number(stock)<quantity))throw new BadRequestException('A product in this order is out of stock');return {...item,id:product.id,name:product.name,price,quantity,...(variant?{variantId:String(variant.id||variant.sku||variant.name),variantName:String(variant.name||variant.label||variant.sku||'Variant'),sku:variant.sku||productData.sku}:{} )};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),customerActionToken=randomBytes(32).toString('base64url'),storeSettings=(business.settings||{}) as Record<string,any>,commerce={...(storeSettings.commerceSettings||{}),currency:storeSettings.commerceSettings?.currency||storeSettings.currency||'USD'};const order=await this.db.$transaction(async tx=>{
+  const byProduct=new Map<string,any[]>();
+  for(const item of items){const list=byProduct.get(item.id)||[];list.push(item);byProduct.set(item.id,list);}
+  for(const [productId,lines] of byProduct){
+    const snapshot=products.find(product=>product.id===productId);
+    const snapshotData=(snapshot?.data||{}) as Record<string,any>;
+    const variantsTracked=Array.isArray(snapshotData.variants)&&snapshotData.variants.some((value:any)=>value?.stock!==undefined&&value?.stock!==null&&String(value.stock).trim()!=='');
+    if((snapshotData.stock===undefined||snapshotData.stock===null||String(snapshotData.stock).trim()==='')&&!variantsTracked)continue;
+    const current=await tx.product.findFirst({where:{id:productId,businessId:business.id}});
+    if(!current)throw new ConflictException('A product changed while checkout was being completed. Refresh your cart and try again.');
+    const original=current.data as Record<string,any>,next:any={...original};
+    let tracked=false;
+    for(const line of lines){
+      const selectedId=String(line.variantId||'');
+      if(selectedId){
+        const variants=Array.isArray(next.variants)?[...next.variants]:[];
+        const index=variants.findIndex((value:any)=>String(value?.id||value?.sku||value?.name||'')===selectedId);
+        if(index<0)throw new ConflictException('A selected product variant is no longer available.');
+        const variant={...variants[index]},stock=variant.stock??next.stock;
+        if(stock!==undefined&&stock!==null&&String(stock).trim()!==''){
+          const available=Number(stock);
+          if(!Number.isInteger(available)||available<line.quantity)throw new ConflictException('A product in this order is out of stock.');
+          if(variant.stock!==undefined&&variant.stock!==null&&String(variant.stock).trim()!=='')variant.stock=available-line.quantity;
+          else next.stock=available-line.quantity;
+          variants[index]=variant;tracked=true;
+        }
+        next.variants=variants;
+      }else if(next.stock!==undefined&&next.stock!==null&&String(next.stock).trim()!==''){
+        const available=Number(next.stock);
+        if(!Number.isInteger(available)||available<line.quantity)throw new ConflictException('A product in this order is out of stock.');
+        next.stock=available-line.quantity;tracked=true;
+      }
+    }
+    // Variant stock is the source of truth when every option tracks stock.
+    // Persist the aggregate parent quantity in the same compare-and-swap write.
+    if(tracked&&Array.isArray(next.variants)&&next.variants.length&&next.variants.every((variant:any)=>variant?.stock!==undefined&&variant?.stock!==null&&String(variant.stock).trim()!=='')){
+      next.stock=next.variants.reduce((total:number,variant:any)=>total+Number(variant.stock),0);
+    }
+    if(tracked){
+      const reserved=await tx.product.updateMany({where:{id:productId,businessId:business.id,data:{equals:original as any}},data:{data:next as any}});
+      if(reserved.count!==1)throw new ConflictException('Inventory changed during checkout. Refresh your cart and try again.');
+    }
+  }
+  const requestedCode=String(data.discountCode||'').trim().toUpperCase();
+  let discountUses=0;
+  if(requestedCode){
+    const priorOrders=await tx.order.findMany({where:{businessId:business.id}});
+    discountUses=priorOrders.filter(row=>String((row.data as any)?.discountCode||'').toUpperCase()===requestedCode&&!['cancelled','refunded'].includes(row.status)).length;
+  }
+  let totals:any;
+  try{totals=calculateStoreOrderTotals(commerce,subtotal,{countryCode:String(data.countryCode||''),deliveryMethod:String(data.deliveryMethod||'delivery'),discountCode:requestedCode,discountUses});}
+  catch(error){throw new BadRequestException(error instanceof Error?error.message:'Checkout settings are invalid');}
+  // Never accept lifecycle or accounting fields from the public checkout.
+  // In particular, a client supplied restoration marker could otherwise make
+  // a later cancellation skip the inventory release step.
+  const {
+    inventoryRestoredAt: _clientInventoryRestoredAt,
+    inventoryHistory: _clientInventoryHistory,
+    paymentHistory: _clientPaymentHistory,
+    refundHistory: _clientRefundHistory,
+    collectedAmountCents: _clientCollectedAmountCents,
+    paidAt: _clientPaidAt,
+    refundedAt: _clientRefundedAt,
+    fulfillmentStatus: _clientFulfillmentStatus,
+    ...checkoutData
+  }=data;
+  const normalized={...checkoutData,items,subtotal:totals.subtotal,shipping:totals.shipping,discount:totals.discount,tax:totals.tax,taxLabel:totals.taxLabel,total:totals.total,currency:totals.currency,discountCode:totals.discountCode,status:'New',fulfillmentStatus:'new',paymentStatus:'Pending',createdAt:new Date().toISOString(),customerActionTokenHash:tokenHash(customerActionToken)};
+  const amount=totals.total;
+  const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:totals.currency,data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0),paidOrders:Number((prior?.data as any)?.paidOrders||0)};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;},{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});return {...publicOrderData(order.data),id:order.id,status:order.status,createdAt:order.createdAt,cashOnDeliveryToken:customerActionToken};}
+  @Get(':id') async customerTracking(@Req() req:Request){
+    const id=String(req.params['id']||''),token=String(req.query.token||''),row=await this.db.order.findUnique({where:{id}});
+    const storedHash=(row?.data as any)?.customerActionTokenHash;
+    if(!row||typeof storedHash!=='string'||!/^[a-f0-9]{64}$/i.test(storedHash)||!token||!timingSafeEqual(Buffer.from(tokenHash(token),'hex'),Buffer.from(storedHash,'hex')))throw new NotFoundException('Order not found');
+    const data=row.data as Record<string,any>;
+    return {id:row.id,status:data.fulfillmentStatus||row.status,fulfillmentStatus:data.fulfillmentStatus||row.status,paymentStatus:data.paymentStatus||'Pending',trackingNumber:data.trackingNumber||null,shippingCarrier:data.shippingCarrier||null,trackingUrl:data.trackingUrl||null,timeline:Array.isArray(data.timeline)?data.timeline:[],items:Array.isArray(data.items)?data.items.map((item:any)=>({name:item.name,quantity:item.quantity,variantName:item.variantName})):[],total:data.total,currency:data.currency,createdAt:row.createdAt};
+  }
+  @Post(':id/cash-on-delivery') async setCashOnDelivery(@Req() req:Request,@Body() dto:TokenInput){
+    const id=String(req.params['id']),row=await this.db.order.findUnique({where:{id}}),storedHash=(row?.data as any)?.customerActionTokenHash;
+    if(!row||row.status!=='new'||typeof storedHash!=='string'||!/^[a-f0-9]{64}$/i.test(storedHash)||!timingSafeEqual(Buffer.from(tokenHash(dto.token),'hex'),Buffer.from(storedHash,'hex')))throw new NotFoundException('Order not found');
+    const current=row.data as Record<string,any>,payment=String(current.paymentStatus||'Pending').toLowerCase();
+    if(payment==='cash on delivery')return {ok:true};
+    if(payment==='paid'||payment==='refunded')throw new NotFoundException('Order not found');
+    const now=new Date().toISOString(),timeline=Array.isArray(current.timeline)?current.timeline:[];
+    const data={...current,fulfillmentStatus:current.fulfillmentStatus||'new',paymentMethod:'cash',paymentStatus:'Cash on delivery',completedAt:now,timeline:[...timeline,{type:'payment-method',status:'Cash on delivery',recordedAt:now}]};
+    const result=await this.db.order.updateMany({where:{id,status:'new',data:{equals:row.data as any}},data:{data:data as any}});
+    if(!result.count){const latest=await this.db.order.findUnique({where:{id}});if(String((latest?.data as any)?.paymentStatus||'').toLowerCase()==='cash on delivery')return {ok:true};throw new NotFoundException('Order not found');}
+    return {ok:true};
+  }
 }
 
 function deterministicTrialWebsite(prompt:string){
@@ -498,8 +878,16 @@ export class TrialPreviewController {
 @Controller('websites')
 export class WebsiteController {
   constructor(private db:DbService){}
-  private async businessFor(req:Request & {user:any}){const business=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!business)throw new NotFoundException('Create a business first');return business;}
-  private async requirePaidPublishing(userId:string){const access=await this.db.subscription.findUnique({where:{userId}});if(access?.status!=='ACTIVE'||access.billingType!=='ONE_TIME')throw new ForbiddenException('Activate CYB Lifetime Access before publishing your website. Your draft is saved.');}
+  private async businessFor(req:Request & {user:any}){const business=await selectedBusiness(this.db,req);if(!business)throw new NotFoundException('Create a business first');return business;}
+  private async requirePaidPublishing(user:{id:string;email:string}){
+    const access=await this.db.subscription.findUnique({where:{userId:user.id}});
+    if(access?.status==='ACTIVE'&&access.billingType==='ONE_TIME')return;
+    if(hasStagingTestPublishingEntitlement(user,process.env)){
+      Logger.warn(JSON.stringify({event:'staging_test_publishing_entitlement_used',userId:user.id,expiresAt:process.env.CYB_STAGING_TEST_PUBLISH_EXPIRES_AT}),'StagingTestEntitlement');
+      return;
+    }
+    throw new ForbiddenException('Activate CYB Lifetime Access before publishing your website. Your draft is saved.');
+  }
   @UseGuards(SessionGuard) @Get('ai/status') async aiStatus(){return {available:Boolean(process.env.OPENAI_API_KEY?.trim()),usageLimited:false};}
   @UseGuards(SessionGuard) @Throttle({default:{limit:8,ttl:60_000}}) @Post('ai/design') async aiDesign(@Req() req:Request & {user:any},@Body() dto:AiPromptInput){
     const apiKey=process.env.OPENAI_API_KEY?.trim();if(!apiKey)throw new ServiceUnavailableException('AI design is unavailable because OPENAI_API_KEY is not configured on the API service. Please contact support.');
@@ -540,7 +928,7 @@ export class WebsiteController {
     const data=await requestAiResponse({model:process.env.OPENAI_MODEL||'gpt-4o-mini',max_output_tokens:700,instructions:'You are the friendly CYB guide for visitors who have not created an account yet. Answer concise questions about CYB, starting a website, and the general website-building process. Do not claim to see or change a visitor’s account or website. If a question needs account-specific details, tell them to sign in. If you are unsure about a CYB feature, say so instead of guessing.',input:`Visitor context: ${context}\nQuestion: ${dto.message}`},apiKey,'AI help');
     const answer=aiResponseText(data);if(!answer)throw new ServiceUnavailableException('CYB AI returned an empty reply. Please try again.');return {answer};
   }
-  @UseGuards(SessionGuard) @Get('draft') async draft(@Req() req:Request & {user:any}) {const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});return b?.website||null;}
+  @UseGuards(SessionGuard) @Get('draft') async draft(@Req() req:Request & {user:any}) {const b=await selectedBusiness(this.db,req,{website:true});return b?.website||null;}
   @UseGuards(SessionGuard) @Get('publication-diagnostic') async publicationDiagnostic(@Req() req:Request & {user:any}) {
     if(!stagingDiagnosticsEnabled())throw new NotFoundException();
     const business=await this.businessFor(req),website=await this.db.website.findUnique({where:{businessId:business.id}});
@@ -550,7 +938,7 @@ export class WebsiteController {
     return {status,hasDraft:!!website?.draft,hasPublished,hasPublishedAt,changedPathCount:paths.length,changedPaths:paths.slice(0,80),truncated:paths.length>80};
   }
   @UseGuards(SessionGuard) @Put('draft') async saveDraft(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){
-    const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business first');
+    const b=await selectedBusiness(this.db,req);if(!b)throw new NotFoundException('Create a business first');
     const model=validateWebsite(dto.model,false);await assertOwnedMedia(this.db,req.user.id,model);
     const current=await this.db.website.findUnique({where:{businessId:b.id}});
     if(dto.expectedRevision!==undefined&&(current?.revision??0)!==dto.expectedRevision)throw new ConflictException('This website changed in another session. Reload the latest draft before saving your edits.');
@@ -560,7 +948,7 @@ export class WebsiteController {
     return this.db.website.findUnique({where:{businessId:b.id}});
   }
   @UseGuards(SessionGuard) @Post('publish') async publish(@Req() req:Request & {user:any},@Body() dto:WebsiteInput){
-    const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Create a business before publishing');await this.requirePaidPublishing(req.user.id);
+    const b=await selectedBusiness(this.db,req);if(!b)throw new NotFoundException('Create a business before publishing');await this.requirePaidPublishing(req.user);
     const model=validateWebsite(dto.model,true);await assertOwnedMedia(this.db,req.user.id,model);
     return this.db.$transaction(async tx=>{
       const current=await tx.website.findUnique({where:{businessId:b.id}});
@@ -571,9 +959,9 @@ export class WebsiteController {
       const version=await tx.websiteVersion.create({data:{websiteId:site.id,snapshot:site.draft as any}});return {published:true,revision:site.revision,slug:b.slug,versionId:version.id};
     });
   }
-  @UseGuards(SessionGuard) @Post('unpublish') async unpublish(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id}});if(!b)throw new NotFoundException('Business not found');return this.db.website.updateMany({where:{businessId:b.id},data:{published:Prisma.DbNull,publishedAt:null}});}
-  @UseGuards(SessionGuard) @Get('versions') async versions(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)return [];return (await this.db.websiteVersion.findMany({where:{websiteId:b.website.id},orderBy:{createdAt:'desc'},take:10})).map(({snapshot,createdAt,...version})=>({...version,model:snapshot,publishedAt:createdAt}));}
-  @UseGuards(SessionGuard) @Post('restore/:id') async restore(@Req() req:Request & {user:any}){const b=await this.db.business.findFirst({where:{ownerId:req.user.id},include:{website:true}});if(!b?.website)throw new NotFoundException('Website not found');const version=await this.db.websiteVersion.findFirst({where:{id:String(req.params['id']),websiteId:b.website.id}});if(!version)throw new NotFoundException('Version not found');const model=validateWebsite(version.snapshot,false);return this.db.website.update({where:{businessId:b.id},data:{draft:model as any,revision:{increment:1}}});}
+  @UseGuards(SessionGuard) @Post('unpublish') async unpublish(@Req() req:Request & {user:any}){const b=await selectedBusiness(this.db,req);if(!b)throw new NotFoundException('Business not found');return this.db.website.updateMany({where:{businessId:b.id},data:{published:Prisma.DbNull,publishedAt:null}});}
+  @UseGuards(SessionGuard) @Get('versions') async versions(@Req() req:Request & {user:any}){const b=await selectedBusiness(this.db,req,{website:true});if(!b?.website)return [];return (await this.db.websiteVersion.findMany({where:{websiteId:b.website.id},orderBy:{createdAt:'desc'},take:10})).map(({snapshot,createdAt,...version})=>({...version,model:snapshot,publishedAt:createdAt}));}
+  @UseGuards(SessionGuard) @Post('restore/:id') async restore(@Req() req:Request & {user:any}){const b=await selectedBusiness(this.db,req,{website:true});if(!b?.website)throw new NotFoundException('Website not found');const version=await this.db.websiteVersion.findFirst({where:{id:String(req.params['id']),websiteId:b.website.id}});if(!version)throw new NotFoundException('Version not found');const model=validateWebsite(version.snapshot,false);return this.db.website.update({where:{businessId:b.id},data:{draft:model as any,revision:{increment:1}}});}
   @Get('public/:slug') async publicSite(@Req() req:Request){const slug=String(req.params['slug']||'');const business=await this.db.business.findUnique({where:{slug}});if(!business)throw new NotFoundException('Website not found');const site=await this.db.website.findUnique({where:{businessId:business.id}});return {business:{name:business.name,slug:business.slug,category:business.category},website:site?.published||null,published:!!site?.published};}
 }
 

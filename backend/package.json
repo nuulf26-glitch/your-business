@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "start:dev": "nest start --watch",
-    "build": "npm run prisma:generate && nest build",
+    "build": "node --check scripts/start-prod.cjs && node --check scripts/migration-url.cjs && npm run prisma:generate && nest build",
     "start": "node dist/main.js",
     "start:prod": "prisma migrate deploy && node dist/main.js",
     "prisma:validate": "prisma validate",

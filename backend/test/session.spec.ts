@@ -286,10 +286,17 @@ describe('backend critical operations', () => {
   });
 
   it('scopes order updates to the signed-in owner business', async () => {
-    const db:any={business:{findFirst:jest.fn().mockResolvedValue({id:'business-owned'})},order:{updateMany:jest.fn().mockResolvedValue({count:0}),findUnique:jest.fn()}};
+    const tx:any={order:{findFirst:jest.fn().mockResolvedValue(null),updateMany:jest.fn(),findUnique:jest.fn()}};
+    const db:any={
+      business:{findFirst:jest.fn().mockResolvedValue({id:'business-owned'})},
+      $transaction:jest.fn(async(callback:any)=>callback(tx)),
+    };
     await expect(new OrderController(db).updateStatus({user:{id:'owner-1'},params:{id:'another-business-order'}} as any,{status:'delivered'} as any)).rejects.toThrow('Order not found');
-    expect(db.order.updateMany).toHaveBeenCalledWith({where:{id:'another-business-order',businessId:'business-owned'},data:{status:'delivered'}});
-    expect(db.order.findUnique).not.toHaveBeenCalled();
+    expect(db.business.findFirst).toHaveBeenCalledWith({where:{ownerId:'owner-1'}});
+    expect(db.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.order.findFirst).toHaveBeenCalledWith({where:{id:'another-business-order',businessId:'business-owned'}});
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
+    expect(tx.order.findUnique).not.toHaveBeenCalled();
   });
 
   it('rejects unsafe published links and strips private root fields', () => {
@@ -327,5 +334,30 @@ describe('backend critical operations', () => {
     const controller=new WebsiteController(db);
     await controller.saveDraft({user:{id:'owner'}} as any,{model:{brandName:'Draft',sections:[]},expectedRevision:5} as any);
     expect(db.website.updateMany).toHaveBeenCalledWith({where:{businessId:'owned-business',revision:5},data:{draft:{brandName:'Draft',sections:[]},revision:{increment:1}}});
+  });
+});
+
+
+describe('multi-store ownership and selection', () => {
+  it('scopes the selected store lookup to the authenticated owner', async () => {
+    const db:any={business:{findFirst:jest.fn().mockResolvedValue(null)}};
+    const req:any={user:{id:'owner-1'},get:jest.fn().mockReturnValue('foreign-store')};
+    await expect(new BusinessController(db).mine(req)).resolves.toBeNull();
+    expect(db.business.findFirst).toHaveBeenCalledWith({where:{ownerId:'owner-1',id:'foreign-store'},include:{website:true}});
+  });
+
+  it('lists only stores owned by the authenticated merchant', async () => {
+    const row={id:'store-1',name:'My store',slug:'my-store',category:'general',createdAt:new Date(),website:{published:{}}};
+    const db:any={business:{findMany:jest.fn().mockResolvedValue([row])}};
+    const result=await new BusinessController(db).stores({user:{id:'owner-1'}} as any);
+    expect(db.business.findMany).toHaveBeenCalledWith({where:{ownerId:'owner-1'},include:{website:true},orderBy:{createdAt:'asc'}});
+    expect(result).toEqual([{id:'store-1',name:'My store',slug:'my-store',category:'general',createdAt:row.createdAt,published:true}]);
+  });
+
+  it('creates another store under the signed-in owner with an isolated website', async () => {
+    const created={id:'store-2',ownerId:'owner-1',name:'Second Store',slug:'second-store',category:'general'};
+    const db:any={business:{count:jest.fn().mockResolvedValue(1),findUnique:jest.fn().mockResolvedValue(null),create:jest.fn().mockResolvedValue(created)}};
+    await expect(new BusinessController(db).createStore({user:{id:'owner-1'}} as any,{name:'Second Store',slug:'second-store',category:'general',settings:{themeColor:'#112233'}} as any)).resolves.toEqual(created);
+    expect(db.business.create).toHaveBeenCalledWith({data:expect.objectContaining({ownerId:'owner-1',name:'Second Store',slug:'second-store',settings:expect.objectContaining({storeName:'Second Store',storeUrl:'second-store',themeColor:'#112233'}),website:{create:{}}})});
   });
 });

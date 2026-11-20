@@ -25,3 +25,63 @@
     white-space: normal;
   }
 }
+
+.workspace-store-switcher {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0 14px;
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 12px;
+  background: rgba(255,255,255,.04);
+}
+.workspace-store-switcher > label,
+.workspace-create-store label {
+  color: #c9c7c2;
+  font-size: 11px;
+  font-weight: 700;
+}
+.workspace-store-switcher select,
+.workspace-create-store input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #514f4a;
+  border-radius: 7px;
+  padding: 0 9px;
+  color: #f8f7f3;
+  background: #252420;
+  font: inherit;
+  font-size: 12px;
+}
+.workspace-add-store,
+.workspace-create-store button {
+  min-height: 36px;
+  border: 1px solid #6e6a61;
+  border-radius: 7px;
+  padding: 7px 10px;
+  color: #f6f3ec;
+  background: #34322d;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.workspace-create-store {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+}
+.workspace-create-store [role="alert"] {
+  margin: 0;
+  color: #ffb3a9;
+  font-size: 11px;
+}
+.workspace-create-store button:disabled {
+  opacity: .6;
+  cursor: wait;
+}
+@media (max-width: 760px) {
+  .workspace-store-switcher { margin: 12px 0; }
+  .workspace-store-switcher select,
+  .workspace-create-store input { min-height: 42px; }
+}

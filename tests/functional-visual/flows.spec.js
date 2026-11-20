@@ -17,23 +17,24 @@ const product = {
 };
 const order = {
   id: "synthetic-order", status: "new", createdAt: "2026-01-15T09:00:00.000Z",
-  data: { customerName: "Synthetic QA customer", email: "visual-review@example.test", productName: "Synthetic QA product", total: 80, items: [{ name: "Synthetic QA product", quantity: 1, price: 80 }] },
+  data: { id: "ORD-legacy-display", customerName: "Synthetic QA customer", email: "visual-review@example.test", productName: "Synthetic QA product", total: 80, paymentStatus: "Cash on delivery", items: [{ name: "Synthetic QA product", quantity: 1, price: 80 }] },
 };
 const customer = {
   id: "synthetic-customer", data: { name: "Synthetic QA customer", email: "visual-review@example.test", phone: "+971500000000", orders: 1, totalSpent: 80, status: "New", createdAt: "2026-01-15T09:00:00.000Z" },
 };
 
-async function mockAppApi(page, { cookieAuth = false } = {}) {
+async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [order] } = {}) {
   const calls = [];
   let authenticated = !cookieAuth;
   let products = [product];
+  let stores = [{ id: business.id, name: business.name, slug: business.slug, category: business.category, published: true }];
   let draft = structuredClone(website);
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const pathname = url.pathname.replace(/^\/api\/v1/, "");
     const method = request.method();
-    calls.push({ method, pathname, body: request.postDataJSON?.() });
+    calls.push({ method, pathname, body: request.postDataJSON?.(), businessId: request.headers()["x-cyb-business-id"] || "" });
 
     if (pathname === "/auth/login" && method === "POST") {
       authenticated = true;
@@ -49,6 +50,13 @@ async function mockAppApi(page, { cookieAuth = false } = {}) {
     let body = {};
     if (pathname === "/auth/logout") body = { ok: true };
     else if (pathname === "/businesses/mine") body = business;
+    else if (pathname === "/businesses/mine/stores" && method === "GET") body = stores;
+    else if (pathname === "/businesses/mine/stores" && method === "POST") {
+      const input = request.postDataJSON() || {};
+      const created = { id: "synthetic-second-store", name: input.name, slug: input.slug, category: input.category, published: false };
+      stores = [...stores, created];
+      body = created;
+    }
     else if (pathname === "/businesses/mine/catalog") body = {};
     else if (pathname.startsWith("/businesses/mine/records")) body = [];
     else if (pathname === "/businesses/mine/analytics") body = { days: [], pages: [], sources: [] };
@@ -64,9 +72,13 @@ async function mockAppApi(page, { cookieAuth = false } = {}) {
       const created = { id: "synthetic-created-product", data: input };
       products = [...products, created];
       body = created;
-    } else if (pathname === "/orders" && method === "GET") body = [order];
+    } else if (pathname === "/orders" && method === "GET") body = orderFixtures;
+    else if (pathname === "/orders/synthetic-order/payment" && method === "PATCH") {
+      const input = request.postDataJSON()?.data || {};
+      body = { ...order, data: { ...order.data, paymentStatus: input.status === "paid" ? "Paid" : "Refunded" } };
+    }
     else if (pathname === "/orders/synthetic-order") body = { id: order.id, ...order.data, status: order.status, createdAt: order.createdAt };
-    else if (pathname === "/customers" && method === "GET") body = [customer];
+    else if (pathname === "/customers" && method === "GET") body = [{ id: customer.id, ...customer.data }];
     else if (pathname.startsWith("/customers/") && pathname.endsWith("/status")) body = { id: "synthetic-customer", data: { ...customer.data, status: request.postDataJSON()?.status || "Active" } };
     else if (pathname.startsWith("/orders/") && pathname.endsWith("/status")) body = { ok: true };
     else if (pathname === "/public/products/item/synthetic-product") body = { ...product.data, id: product.id, storeUrl: "atelier-preview" };
@@ -176,15 +188,29 @@ test("products, orders, and customers render fixture records and preserve update
   await page.locator("#sellingPrice").fill("25");
   await page.locator("#category").fill("Test");
   await page.locator("#stock").fill("3");
+  await page.getByRole("button", { name: "Add variant" }).click();
+  await page.getByLabel("Variant 1 name").fill("Small / Black");
+  await page.getByLabel("Variant 1 SKU").fill("QA-SMALL-BLACK");
+  await page.getByLabel("Variant 1 price").fill("20");
+  await page.getByLabel("Variant 1 stock").fill("2");
   await page.getByRole("button", { name: "Add product", exact: true }).click();
   await expect.poll(() => calls.some((call) => call.pathname === "/products" && call.method === "POST")).toBeTruthy();
+  const createdProductCall = calls.find((call) => call.pathname === "/products" && call.method === "POST");
+  expect(createdProductCall.body.data.variants).toContainEqual(expect.objectContaining({ name: "Small / Black", sku: "QA-SMALL-BLACK", price: 20, stock: 2 }));
 
   await page.goto("/orders/synthetic-order");
-  await page.locator("#status").selectOption("Processing");
-  await expect.poll(() => calls.some((call) => call.pathname === "/orders/synthetic-order/status" && call.method === "PATCH")).toBeTruthy();
+  await page.locator("#status").selectOption("processing");
+  await expect.poll(() => calls.some((call) => call.pathname === "/orders/synthetic-order/fulfillment" && call.method === "PATCH")).toBeTruthy();
+  await page.locator("#shippingCompany").fill("Synthetic Carrier");
+  await page.locator("#trackingNumber").fill("QA-TRACK-0001");
+  await page.locator("#trackingUrl").fill("https://example.test/track/QA-TRACK-0001");
+  await page.getByRole("button", { name: "Save Tracking Information" }).click();
+  await expect(page.getByText("Company: Synthetic Carrier")).toBeVisible();
+  await expect(page.getByText("Tracking Number: QA-TRACK-0001")).toBeVisible();
 
   await page.goto("/customers");
   await expect(page.getByText("Synthetic QA customer").first()).toBeVisible();
+  await expect(page.locator(".customer-card").filter({ hasText: "Synthetic QA customer" })).toContainText("$80.00");
   await page.locator(".customer-status-select").selectOption("Active");
   await expect.poll(() => calls.some((call) => call.pathname === "/customers/synthetic-customer/status" && call.method === "PATCH")).toBeTruthy();
 });
@@ -210,3 +236,76 @@ test("storefront product cart and cash-on-delivery checkout stay on synthetic ro
   expect(calls.some((call) => call.pathname === "/public/orders/synthetic-created-order/cash-on-delivery" && call.method === "POST")).toBeTruthy();
 });
 
+
+test("orders distinguish gross collections, refunds, and net revenue", async ({ page }) => {
+  await seedProtectedUser(page);
+  const paid = {
+    id: "paid-order", status: "new", createdAt: "2026-11-19T10:00:00.000Z",
+    data: { customerName: "Paid buyer", total: 37, paymentStatus: "Paid", collectedAmountCents: 3700, paymentHistory: [{ type: "collected", amountCents: 3700 }], items: [] },
+  };
+  const refunded = {
+    id: "refunded-order", status: "new", createdAt: "2026-11-19T11:00:00.000Z",
+    data: { customerName: "Refunded buyer", total: 32.5, paymentStatus: "Refunded", collectedAmountCents: 3250, paymentHistory: [{ type: "collected", amountCents: 3250 }, { type: "refund", amountCents: 3250 }], refundHistory: [{ amountCents: 3250, status: "recorded" }], items: [] },
+  };
+  await mockAppApi(page, { orders: [paid, refunded] });
+  await page.goto("/orders");
+  await expect(page.getByText("Net revenue", { exact: true })).toBeVisible();
+  await expect(page.locator(".orders-summary-grid").getByText("$37.00", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Gross collected \$69.50 · refunds \$32.50/)).toBeVisible();
+});
+
+test("merchant payment actions use the database order ID and update from the saved response", async ({ page }) => {
+  await seedProtectedUser(page);
+  const calls = await mockAppApi(page);
+  await page.goto("/orders");
+  await expect(page.getByText("#ORD-legacy-display")).toBeVisible();
+  await page.getByRole("button", { name: "Mark collected" }).click();
+  await expect.poll(() => calls.some(call => call.pathname === "/orders/synthetic-order/payment" && call.method === "PATCH")).toBeTruthy();
+  await expect(page.getByText("Payment: Paid")).toBeVisible();
+  expect(calls.some(call => call.pathname === "/orders/ORD-legacy-display/payment")).toBe(false);
+});
+
+test("storefront variant cards open option selection and persist the chosen variant in cart and COD order", async ({ page }) => {
+  const calls = await mockAppApi(page);
+  const variant = { id: "variant-small", name: "Small", sku: "QA-SMALL", price: 20, stock: 2 };
+  const model = { ...website, brandName: "Atelier Preview", sections: [{ id: "collection", type: "collection", title: "Shop", limit: 4 }] };
+  const variantRequests = [];
+  await page.route("**/api/v1/websites/public/atelier-preview", async route => { variantRequests.push(new URL(route.request().url()).pathname); await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ published: true, website: model, business: { slug: "atelier-preview" } }) }); });
+  await page.route("**/api/v1/public/products/atelier-preview", async route => { variantRequests.push(new URL(route.request().url()).pathname); await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([{ ...product.data, id: product.id, variants: [variant], storeUrl: "atelier-preview", stock: 0 }]) }); });
+  await page.route("**/api/v1/public/products/item/synthetic-product", async route => { variantRequests.push(new URL(route.request().url()).pathname); await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ...product.data, id: product.id, variants: [variant], storeUrl: "atelier-preview", stock: 0 }) }); });
+  await page.goto("/store/atelier-preview");
+  await page.getByRole("button", { name: "Choose options" }).click();
+  await expect(page).toHaveURL(/\/product\/synthetic-product$/);
+  await page.getByLabel("Options").selectOption("variant-small");
+  await page.getByRole("button", { name: "Add to cart" }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("businessCart") || "[]"))).toContainEqual(expect.objectContaining({ productId: "synthetic-product", variantId: "variant-small", variantName: "Small", sku: "QA-SMALL", price: 20 }));
+  expect(variantRequests).toContain("/api/v1/public/products/atelier-preview");
+  await page.goto("/cart");
+  await page.getByRole("button", { name: "Continue to checkout" }).click();
+  await page.locator("#fullName").fill("Synthetic variant buyer");
+  await page.locator("#email").fill(user.email);
+  await page.locator("#phone").fill("+971500000000");
+  await page.locator("#address").fill("Synthetic test address");
+  await page.locator("#city").fill("Test City");
+  await page.getByRole("button", { name: /continue to payment/i }).click();
+  await page.getByRole("button", { name: "Confirm cash on delivery" }).click();
+  await expect(page).toHaveURL(/\/order-success$/);
+  const orderRequest = calls.find(call => call.pathname === "/public/orders" && call.method === "POST");
+  expect(orderRequest.body.data.items[0]).toMatchObject({ id: "synthetic-product", variantId: "variant-small", variantName: "Small", price: 20 });
+});
+
+
+test("store management creates and switches between owner stores", async ({ page }) => {
+  const calls = await mockAppApi(page);
+  await seedProtectedUser(page);
+  await page.goto("/dashboard");
+  await expect(page.getByLabel("Active store")).toHaveValue("synthetic-business");
+  await page.getByRole("button", { name: "+ Add store" }).click();
+  await page.getByLabel("Store name").fill("Second Store");
+  await expect(page.getByLabel("Store URL")).toHaveValue("second-store");
+  await page.getByRole("button", { name: "Create store" }).click();
+  await expect(page.getByLabel("Active store")).toHaveValue("synthetic-second-store");
+  await expect.poll(() => calls.some(call => call.pathname === "/businesses/mine/stores" && call.method === "POST" && call.body?.slug === "second-store")).toBeTruthy();
+  expect(calls.some(call => call.pathname === "/businesses/mine" && call.businessId === "synthetic-second-store")).toBe(true);
+  expect(await page.evaluate(() => localStorage.getItem("cyb_active_business_id"))).toBe("synthetic-second-store");
+});

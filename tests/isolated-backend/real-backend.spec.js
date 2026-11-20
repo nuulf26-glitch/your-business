@@ -5,19 +5,19 @@ import process from 'node:process';
 const artifactsDir = 'artifacts/isolated-backend/screenshots';
 fs.mkdirSync(artifactsDir, { recursive: true });
 
-async function requestFromPage(page, path, method = 'GET', data) {
-  const result = await page.evaluate(async ({ path, method, data }) => {
+async function requestFromPage(page, path, method = 'GET', data, businessId) {
+  const result = await page.evaluate(async ({ path, method, data, businessId }) => {
     const response = await fetch(`/api/v1${path}`, {
       method,
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(businessId ? { 'x-cyb-business-id': businessId } : {}) },
       ...(data === undefined ? {} : { body: JSON.stringify(data) }),
     });
     return {
       status: response.status,
       body: await response.json().catch(() => null),
     };
-  }, { path, method, data });
+  }, { path, method, data, businessId });
   expect(result.status, `${method} ${path} returned ${JSON.stringify(result.body)}`).toBeLessThan(400);
   return result.body;
 }
@@ -120,11 +120,21 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(publicWebsite.published).toBe(true);
 
   const product = await requestFromPage(page, '/products', 'POST', {
-    data: { name: 'Synthetic E2E Product', description: 'Isolated test item', sellingPrice: 18, status: 'active', stock: 4 },
+    data: { name: 'Synthetic E2E Product', description: 'Isolated test item', sellingPrice: 18, status: 'active', stock: 4, variants: [{ id: 'synthetic-small', name: 'Small', sku: 'E2E-SMALL', price: 18, stock: 4 }] },
   });
   expect(product.name).toBe('Synthetic E2E Product');
   const products = await requestFromPage(page, '/products');
   expect(products.some((item) => item.id === product.id)).toBe(true);
+
+  const stores = await requestFromPage(page, "/businesses/mine/stores");
+  expect(stores.some((store) => store.slug === slug)).toBe(true);
+  const secondStore = await requestFromPage(page, "/businesses/mine/stores", "POST", { name: "Synthetic Secondary Store", slug: `${slug}-secondary`, category: "general", settings: { storeName: "Synthetic Secondary Store", storeUrl: `${slug}-secondary` } });
+  expect(secondStore.id).toBeTruthy();
+  expect(secondStore.slug).toBe(`${slug}-secondary`);
+  const secondStoreProducts = await requestFromPage(page, "/products", "GET", undefined, secondStore.id);
+  expect(secondStoreProducts).toEqual([]);
+  const firstStoreProducts = await requestFromPage(page, "/products");
+  expect(firstStoreProducts.some((item) => item.id === product.id)).toBe(true);
 
   await page.goto(`/store/${encodeURIComponent(slug)}`);
   await expect(page.getByText('Synthetic E2E Product', { exact: false }).first()).toBeVisible();
@@ -133,11 +143,28 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
 
   await page.goto(`/product/${encodeURIComponent(product.id)}`);
   await expect(page.getByRole('heading', { name: 'Synthetic E2E Product' })).toBeVisible();
+  await page.locator('.product-variant-select select').selectOption('synthetic-small');
+  await expect(page.getByText('18.00', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Add to cart' }).click();
+  const selectedCart = await page.evaluate(() => JSON.parse(localStorage.getItem('businessCart') || '[]'));
+  expect(selectedCart).toContainEqual(expect.objectContaining({ productId: product.id, variantId: 'synthetic-small', variantName: 'Small', price: 18 }));
   await page.goto('/cart');
   await expect(page.getByRole('heading', { name: 'Shopping cart' })).toBeVisible();
   await page.getByRole('button', { name: 'Continue to checkout' }).click();
   await expect(page.getByRole('heading', { name: 'Delivery details' })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/store/${encodeURIComponent(slug)}`);
+  await expect(page.getByText("Synthetic E2E Product", { exact: false }).first()).toBeVisible();
+  await checkNoHorizontalOverflow(page, "storefront mobile");
+  await page.screenshot({ path: `${artifactsDir}/storefront-390x844.png`, fullPage: true });
+  await page.goto(`/product/${encodeURIComponent(product.id)}`);
+  await checkNoHorizontalOverflow(page, "product mobile");
+  await page.goto("/cart");
+  await page.getByRole("button", { name: "Continue to checkout" }).click();
+  await expect(page.getByRole("heading", { name: "Delivery details" })).toBeVisible();
+  await checkNoHorizontalOverflow(page, "checkout mobile");
+  await page.screenshot({ path: `${artifactsDir}/checkout-390x844.png`, fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.locator('input[name="fullName"]').fill('Synthetic Checkout Customer');
   await page.locator('input[name="email"]').fill(`checkout-${process.env.GITHUB_RUN_ID || 'local'}@example.test`);
   await page.locator('input[name="phone"]').fill('+971500000000');
@@ -159,7 +186,45 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(checkoutOrder.status).toBe('new');
   expect(checkoutOrder.data.paymentStatus).toBe('Cash on delivery');
   const customers = await requestFromPage(page, '/customers');
-  expect(customers.some((item) => item.data?.email?.startsWith('checkout-'))).toBe(true);
+  expect(customers.some((item) => item.email?.startsWith('checkout-'))).toBe(true);
+
+  const completedOrder = await page.evaluate(() => JSON.parse(localStorage.getItem("completedOrder") || "null"));
+  expect(completedOrder?.cashOnDeliveryToken).toBeTruthy();
+  const customerOrderView = await requestFromPage(page, `/public/orders/${encodeURIComponent(checkoutOrder.id)}?token=${encodeURIComponent(completedOrder.cashOnDeliveryToken)}`);
+  expect(customerOrderView.fulfillmentStatus).toBe("new");
+  await expect(page.getByRole("heading", { name: "Order tracking" })).toBeVisible();
+
+  const expectedTotal = Number(checkoutOrder.data.total);
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
+  const paidCustomer = await requestFromPage(page, "/customers");
+  const checkoutCustomer = paidCustomer.find((item) => item.email?.startsWith("checkout-"));
+  expect(checkoutCustomer).toMatchObject({ totalSpent: expectedTotal, paidOrders: 1 });
+  const revenue = await requestFromPage(page, "/businesses/mine/commerce-analytics");
+  expect(revenue.revenue).toBe(expectedTotal);
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "processing" } });
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "packed" } });
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "shipped", trackingNumber: "SYNTHETIC-TRACK-001", carrier: "Synthetic Carrier", trackingUrl: "https://carrier.example/track/SYNTHETIC-TRACK-001" } });
+  const fulfilled = await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}`);
+  expect(fulfilled).toMatchObject({ fulfillmentStatus: "shipped", paymentStatus: "Paid", trackingNumber: "SYNTHETIC-TRACK-001" });
+  const customerTracking = await requestFromPage(page, `/public/orders/${encodeURIComponent(checkoutOrder.id)}?token=${encodeURIComponent(completedOrder.cashOnDeliveryToken)}`);
+  expect(customerTracking).toMatchObject({ fulfillmentStatus: "shipped", trackingNumber: "SYNTHETIC-TRACK-001" });
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/payment`, "PATCH", { data: { status: "refunded" } });
+  const refundedAnalytics = await requestFromPage(page, "/businesses/mine/commerce-analytics");
+  expect(refundedAnalytics.revenue).toBe(0);
+  expect(refundedAnalytics.refunds).toBe(expectedTotal);
+
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "returned" } });
+  await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "returned" } });
+  const returned = await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}`);
+  expect(returned).toMatchObject({ fulfillmentStatus: "returned", paymentStatus: "Refunded" });
+
+  const cancelOrder = await requestFromPage(page, "/public/orders", "POST", { data: { storeUrl: slug, customerName: "Synthetic Cancellation Customer", email: `cancel-${process.env.GITHUB_RUN_ID || "local"}@example.test`, items: [{ id: product.id, variantId: "synthetic-small", quantity: 1 }] } });
+  await requestFromPage(page, `/public/orders/${encodeURIComponent(cancelOrder.id)}/cash-on-delivery`, "POST", { token: cancelOrder.cashOnDeliveryToken });
+  await requestFromPage(page, `/orders/${encodeURIComponent(cancelOrder.id)}/fulfillment`, "PATCH", { data: { status: "cancelled" } });
+  await requestFromPage(page, `/orders/${encodeURIComponent(cancelOrder.id)}/fulfillment`, "PATCH", { data: { status: "cancelled" } });
+  const storedProducts = await requestFromPage(page, "/products");
+  expect(storedProducts.find((item) => item.id === product.id).data.variants[0].stock).toBe(4);
 
   await secondTab.close();
 });

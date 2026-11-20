@@ -10,7 +10,8 @@ WORKDIR /app
 COPY --from=build /app/package.json /app/package-lock.json ./
 RUN apk add --no-cache ffmpeg && npm ci --omit=dev --package-lock=true --workspaces=false
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/prisma ./prisma
 EXPOSE 10000
-CMD ["npm", "run", "start:prod"]
+CMD ["node", "scripts/start-prod.cjs"]

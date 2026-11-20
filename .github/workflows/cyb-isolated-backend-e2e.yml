@@ -1,8 +1,10 @@
 name: CYB isolated backend end-to-end verification
 
 on:
+  push:
+    branches: [codex/cyb-phase3-online-store-20261117]
   pull_request:
-    branches: [codex/cyb-render-integration-20261109]
+    branches: [codex/cyb-render-integration-20261109, codex/cyb-phase2-editor-20261116]
     paths:
       - "tests/isolated-backend/**"
       - "vite.config.isolated-e2e.js"

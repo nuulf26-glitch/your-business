@@ -3,6 +3,7 @@ import DashboardLayout from "../layouts/DashboardLayout";
 import { subscribeAppUser } from "../services/customBackendSession";
 import { getOrders, updateOrderStatus } from "../services/orderService";
 import "../styles/shipping.css";
+import StoreCommerceSettings from "../components/StoreCommerceSettings";
 
 export default function Shipping() {
   const [user, setUser] = useState(null);
@@ -74,6 +75,8 @@ export default function Shipping() {
             🔄 Refresh deliveries
           </button>
         </header>
+
+        <StoreCommerceSettings />
 
         {message && (
           <div className="shipping-message" role="status">

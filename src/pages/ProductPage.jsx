@@ -12,11 +12,14 @@ function ProductPage() {
 
   const [products, setProducts] = useState([]);
   const [quantity, setQuantity] = useState(1);
+  const [selectedVariantId, setSelectedVariantId] = useState("");
   const [added, setAdded] = useState(false);
+  const [loading, setLoading] = useState(true);
 
 
   useEffect(() => {
     async function loadProduct() {
+      setLoading(true);
       try {
         const data = await getProductById(productId);
 
@@ -29,6 +32,8 @@ function ProductPage() {
           "Could not load product:",
           error
         );
+      } finally {
+        setLoading(false);
       }
     }
 
@@ -41,11 +46,27 @@ function ProductPage() {
     return products.find((item) => item.id === productId);
   }, [products, productId]);
 
+  const variants = Array.isArray(product?.variants) ? product.variants : [];
+  const variantKey = variant => String(variant?.id || variant?.sku || variant?.name || "");
+  const chosenVariantId = selectedVariantId || (variants.length ? variantKey(variants[0]) : "");
+  const selectedVariant = variants.find(variant => variantKey(variant) === chosenVariantId);
+  const selectedVariantPrice = selectedVariant?.sellingPrice ?? selectedVariant?.price;
+  const purchaseProduct = selectedVariant
+    ? { ...product, ...selectedVariant, ...(selectedVariantPrice !== undefined && selectedVariantPrice !== null && selectedVariantPrice !== '' ? { sellingPrice: selectedVariantPrice } : {}) }
+    : product;
+  const availableStock = selectedVariant?.stock ?? product?.stock;
+  const hasTrackedStock = availableStock !== undefined && availableStock !== null && String(availableStock).trim() !== "";
+
   function addToCart() {
     if (!product) return;
 
     try {
-      const updatedCart = appendCart(readCart(localStorage),{...product,price:productPrice(product)},quantity);
+      const updatedCart = appendCart(readCart(localStorage),{
+        ...product,
+        ...(selectedVariant ? { variantId: chosenVariantId, variantName: selectedVariant.name || selectedVariant.label || selectedVariant.sku || "Variant", sku: selectedVariant.sku || product.sku } : {}),
+        price: productPrice(purchaseProduct),
+        stock: availableStock,
+      },quantity);
       localStorage.setItem("businessCart", JSON.stringify(updatedCart));
 
       setAdded(true);
@@ -56,6 +77,10 @@ function ProductPage() {
     } catch (error) {
       alert(error.message);
     }
+  }
+
+  if (loading) {
+    return <main role="status" className="product-page-loading">Loading product…</main>;
   }
 
   if (!product) {
@@ -108,8 +133,16 @@ function ProductPage() {
             <h1>{product.name}</h1>
 
             <p className="product-page-price">
-              USD {productPrice(product).toFixed(2)}
+              {product.currency||'USD'} {productPrice(purchaseProduct).toFixed(2)}
             </p>
+
+            {variants.length > 0 && (
+              <label className="product-variant-select">Options
+                <select value={chosenVariantId} onChange={event => { setSelectedVariantId(event.target.value); setQuantity(1); }}>
+                  {variants.map((variant, index) => <option key={variantKey(variant) || index} value={variantKey(variant)}>{variant.name || variant.label || variant.sku || `Option ${index + 1}`}</option>)}
+                </select>
+              </label>
+            )}
 
             <div className="product-page-description">
               <h2>Product details</h2>
@@ -124,9 +157,7 @@ function ProductPage() {
               <span>Availability</span>
 
               <strong>
-                {Number(product.stock) > 0
-                  ? `${product.stock} in stock`
-                  : "Out of stock"}
+                {!hasTrackedStock ? "Available" : Number(availableStock) > 0 ? `${availableStock} in stock` : "Out of stock"}
               </strong>
             </div>
 
@@ -150,7 +181,7 @@ function ProductPage() {
                   onClick={() =>
                     setQuantity((current) =>
                       Math.min(
-                        Number(product.stock) || 99,
+                        (hasTrackedStock ? Number(availableStock) : 99) || 99,
                         current + 1
                       )
                     )
@@ -164,7 +195,7 @@ function ProductPage() {
                 type="button"
                 className="product-add-cart-button"
                 onClick={addToCart}
-                disabled={Number(product.stock) <= 0}
+                disabled={(hasTrackedStock && Number(availableStock) <= 0) || (variants.length > 0 && !selectedVariant)}
               >
                 {added ? "Added to cart" : "Add to cart"}
               </button>
