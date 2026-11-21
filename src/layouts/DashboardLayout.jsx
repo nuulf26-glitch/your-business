@@ -105,7 +105,7 @@ function DashboardLayout({ children }) {
   }
 
   const navigationItems = [
-    { label: "Overview", path: "/dashboard" },
+    { label: "My websites", path: "/dashboard" },
     { label: "Create website", path: "/create-website" },
     { label: "Website editor", path: "/editor" },
     { label: "Templates", path: "/templates" },
@@ -162,6 +162,7 @@ function DashboardLayout({ children }) {
               {item.label}
             </NavLink>
           ))}
+          <a className="workspace-nav-link" href="/#faq">Help &amp; FAQ</a>
         </nav>
 
         <button

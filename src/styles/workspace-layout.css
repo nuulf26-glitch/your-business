@@ -7,6 +7,7 @@
 .workspace-navigation{display:grid;gap:4px;margin-top:3px}
 .workspace-nav-link{display:flex;align-items:center;min-height:38px;padding:8px 12px;border:1px solid transparent;border-radius:7px;color:#cecece;text-decoration:none;font-size:12px;transition:background 150ms ease,color 150ms ease,border-color 150ms ease}
 .workspace-nav-link:hover{background:#272727;color:#ffffff}.workspace-nav-link.active{border-color:#373737;background:#2e2e2e;color:#e1e1e1}
+.workspace-nav-link:focus-visible{outline:2px solid #d7c4a8;outline-offset:2px;color:#fff}
 .workspace-logout-button{margin-top:auto;min-height:40px;padding:9px 12px;border:1px solid #454545;border-radius:8px;background:transparent;color:#cfcfcf;font-size:12px;font-weight:650;text-align:left;cursor:pointer}.workspace-logout-button:hover{background:#272727;color:#ffffff}
 .workspace-main{min-width:0;padding:34px clamp(18px,3.2vw,48px);}
 .workspace-main>.settings-page{max-width:1280px}
