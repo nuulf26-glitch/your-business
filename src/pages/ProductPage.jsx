@@ -6,6 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import "../styles/productPage.css";
 import { getProductById } from "../services/productService";
+import { businessCall } from "../business/api";
+import { trackWebsiteEvent } from "../services/websiteAnalytics";
 function ProductPage() {
   const navigate = useNavigate();
   const { productId } = useParams();
@@ -46,6 +48,15 @@ function ProductPage() {
     return products.find((item) => item.id === productId);
   }, [products, productId]);
 
+  useEffect(() => {
+    if (!product?.storeUrl) return;
+    let active = true;
+    businessCall('businessCatalog',{storeUrl:product.storeUrl}).then(catalog=>{
+      if(active&&catalog?.analyticsEnabled)trackWebsiteEvent({storeUrl:product.storeUrl,type:'product_view',page:`/product/${product.id}`}).catch(()=>{});
+    }).catch(()=>{});
+    return ()=>{active=false;};
+  },[product?.storeUrl,product?.id]);
+
   const variants = Array.isArray(product?.variants) ? product.variants : [];
   const variantKey = variant => String(variant?.id || variant?.sku || variant?.name || "");
   const chosenVariantId = selectedVariantId || (variants.length ? variantKey(variants[0]) : "");
@@ -68,6 +79,7 @@ function ProductPage() {
         stock: availableStock,
       },quantity);
       localStorage.setItem("businessCart", JSON.stringify(updatedCart));
+      if(product.storeUrl)trackWebsiteEvent({storeUrl:product.storeUrl,type:'add_to_cart',page:`/product/${product.id}`}).catch(()=>{});
 
       setAdded(true);
 

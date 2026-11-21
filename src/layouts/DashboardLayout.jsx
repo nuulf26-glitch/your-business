@@ -115,6 +115,7 @@ function DashboardLayout({ children }) {
     { label: "Orders", path: "/orders" },
     { label: "Customers", path: "/customers" },
     { label: "CRM", path: "/crm" },
+    { label: "Analytics & reports", path: "/analytics" },
     { label: "Business tools", path: "/business" },
     { label: "Shipping", path: "/shipping" },
     { label: "Settings", path: "/settings" },

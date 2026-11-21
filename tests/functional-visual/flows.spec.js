@@ -30,12 +30,13 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
   let stores = [{ id: business.id, name: business.name, slug: business.slug, category: business.category, published: true }];
   let draft = structuredClone(website);
   let crmSegments = [{ id: "segment-1", name: "VIPs", filters: { search: "vip" } }];
+  let analyticsReports = [];
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     const pathname = url.pathname.replace(/^\/api\/v1/, "");
     const method = request.method();
-    calls.push({ method, pathname, body: request.postDataJSON?.(), businessId: request.headers()["x-cyb-business-id"] || "" });
+    calls.push({ method, pathname, searchParams: url.searchParams, body: request.postDataJSON?.(), businessId: request.headers()["x-cyb-business-id"] || "" });
 
     if (pathname === "/auth/login" && method === "POST") {
       authenticated = true;
@@ -85,6 +86,10 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
     else if (pathname === "/crm/reminders") body = [];
     else if (pathname.startsWith("/crm/activity/")) body = [{ id: "event-1", kind: "note", summary: "Synthetic timeline note", at: "2026-11-20T10:00:00.000Z" }];
     else if (pathname === "/crm/analytics") body = { customers: 1, leads: 1, conversionRate: 0, repeatCustomers: 0, netCustomerValueCents: 0 };
+    else if (pathname === "/analytics/overview") body = { range: { from: "2026-11-01", to: "2026-11-21", previousFrom: "2026-10-11", previousTo: "2026-10-31", timeZone: "Asia/Dubai" }, current: { orders: 2, paidOrders: 1, unpaidOrders: 1, collectedRevenueCents: 12500, refundsCents: 2500, netRevenueCents: 10000, averageOrderValueCents: 12500, newCustomers: 1, newLeads: 2, leadConversionRate: 0.5, openPipelineValueCents: 5000, dealWinRate: 0.5, completedTasks: 1, tasks: 2 }, previous: { orders: 1, paidOrders: 1, unpaidOrders: 0, collectedRevenueCents: 10000, refundsCents: 0, netRevenueCents: 10000, averageOrderValueCents: 10000, newCustomers: 0, newLeads: 1, leadConversionRate: 0, openPipelineValueCents: 0, dealWinRate: 0, completedTasks: 0, tasks: 1 }, previousWebsite: { visitors: 5, sessions: 5, pageViews: 8, conversionEvents: 0 }, website: { visitors: 8, sessions: 8, pageViews: 15, conversionEvents: 1, conversionRate: 0.125, pages: [{ page: "/", views: 9 }], sources: [{ source: "direct", visits: 6 }], devices: [{ device: "mobile", visits: 5 }], browsers: [{ browser: "Safari", visits: 4 }] }, commerce: { repeatCustomers: 1, totalPayingCustomers: 3, repeatPurchaseRate: 0.33, topProducts: [{ productId: "synthetic-product", name: "Synthetic QA product", quantity: 2, revenueCents: 12500 }] }, trend: [{ date: "2026-11-20", pageViews: 8, uniqueVisitors: 5, revenue: 100 }, { date: "2026-11-21", pageViews: 7, uniqueVisitors: 4, revenue: 0 }] };
+    else if (pathname === "/analytics/reports" && method === "GET") body = analyticsReports;
+    else if (pathname === "/analytics/reports" && method === "POST") { const input = request.postDataJSON()?.data || {}; const report = { id: `report-${analyticsReports.length + 1}`, ...input }; analyticsReports = [...analyticsReports, report]; body = report; }
+    else if (pathname.startsWith("/analytics/reports/") && method === "DELETE") { analyticsReports = analyticsReports.filter(item => item.id !== pathname.split("/").pop()); body = { deleted: true }; }
     else if (pathname === "/crm/customers") body = { items: [{ id: customer.id, ...customer.data, orders: 1, totalSpent: 80 }], page: 1, total: 1, totalPages: 1 };
     else if (pathname === "/crm/segments" && method === "GET") body = crmSegments;
     else if (pathname === "/crm/segments" && method === "POST") { const input = request.postDataJSON()?.data || {}; const created = { id: `segment-${crmSegments.length + 1}`, ...input }; crmSegments = [...crmSegments, created]; body = created; }
@@ -368,5 +373,24 @@ test('CRM filters, saved lists, activity timeline, and responsive customer views
   for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1024 }, { width: 390, height: 844 }, { width: 375, height: 812 }]) {
     await page.setViewportSize(viewport);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `CRM overflow at ${viewport.width}px`).toBeTruthy();
+  }
+});
+
+test('analytics dashboard shows real report fields, saves a range, and stays responsive', async ({ page }) => {
+  await seedProtectedUser(page);
+  const calls = await mockAppApi(page);
+  await page.goto('/analytics');
+  await expect(page.getByRole('heading', { name: 'Analytics & reports' })).toBeVisible();
+  await expect(page.getByText('AED 125', { exact: false })).toBeVisible();
+  await expect(page.getByText('No page view data for this period.')).toHaveCount(0);
+  await expect.poll(() => calls.some(call => call.pathname === '/analytics/overview')).toBeTruthy();
+  await page.getByRole('button', { name: '7 days' }).click();
+  await expect.poll(() => calls.some(call => call.pathname === '/analytics/overview' && call.searchParams?.get('from'))).toBeTruthy();
+  await page.getByLabel('Report name').fill('November overview');
+  await page.getByRole('button', { name: 'Save report' }).click();
+  await expect(page.getByRole('button', { name: /November overview/ })).toBeVisible();
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1024 }, { width: 390, height: 844 }, { width: 375, height: 812 }]) {
+    await page.setViewportSize(viewport);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `Analytics overflow at ${viewport.width}px`).toBeTruthy();
   }
 });
