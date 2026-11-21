@@ -27,8 +27,15 @@ All newly added browser cases intercept the API and use `.example.test` identiti
 
 - `node --check tests/functional-visual/flows.spec.js` — passed.
 - `git diff --check` — passed.
-- Playwright execution — blocked in this workspace because dependencies are not installed (`@playwright/test` is absent; the available `playwright` command is not the project's Playwright Test runner).
-- Backend/frontend CI and responsive screenshots — not run from this branch; no source application code changed. Existing workflows should run after the branch is pushed.
+- Root `npm ci --offline` — passed (180 packages installed from cache).
+- Root `npm run build` — passed.
+- Root `npm run lint` — passed with 0 errors and 1 existing Checkout hook dependency warning.
+- Targeted Playwright run — 4 tests were selected, but all were blocked before test execution because the Playwright Chromium headless-shell binary is absent. `/usr/bin/chromium` is installed but cannot start in this runtime (`socket() failed: Operation not permitted`). No browser assertions ran.
+- Backend `npm ci --offline` — passed (747 packages installed from cache).
+- Backend Prisma validation — passed with a synthetic localhost `DATABASE_URL`.
+- Backend build — passed with a synthetic localhost `DATABASE_URL`.
+- Backend Jest — 26 suites / 187 tests passed with a synthetic localhost `DATABASE_URL`.
+- Responsive screenshots — blocked by the browser startup restriction above; run through GitHub Actions after the branch is pushed.
 
 ## Remaining QA work
 
