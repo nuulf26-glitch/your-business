@@ -1030,7 +1030,15 @@ export class UploadController {
     if(!metadata)throw new NotFoundException('Image not found');
     const image=await store.get(key,{type:'arrayBuffer'});
     response.setHeader('Cross-Origin-Resource-Policy','cross-origin');
-    response.setHeader('Content-Type',String(metadata.metadata.contentType||'application/octet-stream'));
+    // Legacy public URLs can contain user-uploaded bytes. Never reflect an
+    // arbitrary stored MIME type here: HTML or SVG served from the API origin
+    // could execute as active content when a public asset URL is opened.
+    const legacyType=String(metadata.metadata.contentType||'').split(';',1)[0].trim().toLowerCase();
+    const safeTypes=new Set(['image/jpeg','image/png','image/webp','image/gif','video/mp4','video/webm']);
+    const safe=safeTypes.has(legacyType);
+    response.setHeader('X-Content-Type-Options','nosniff');
+    response.setHeader('Content-Type',safe?legacyType:'application/octet-stream');
+    if(!safe)response.setHeader('Content-Disposition','attachment');
     response.setHeader('Cache-Control','public, max-age=31536000, immutable');
     return response.status(200).send(Buffer.from(image));
   }
