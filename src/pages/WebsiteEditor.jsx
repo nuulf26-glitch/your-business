@@ -263,6 +263,7 @@ export default function WebsiteEditor() {
   const [showPreview, setShowPreview] = useState(false);
   const [showPublish, setShowPublish] = useState(false);
   const [showAiDesigner, setShowAiDesigner] = useState(false);
+  const [newAiWebsite, setNewAiWebsite] = useState(false);
   const [publishUrl, setPublishUrl] = useState("");
   const [status, setStatus] = useState("Saved");
   const [publicationStatus, setPublicationStatus] = useState('Checking…');
@@ -290,6 +291,9 @@ export default function WebsiteEditor() {
     async function loadEditor() {
       try {
         setLoadNotice("");
+        const params = new URLSearchParams(window.location.search);
+        const requestedTemplate = params.get("template");
+        const startWithAi = params.get("start") === "ai";
         const [storeResult, productsResult, draftResult, diagnosticResult] = await Promise.allSettled([getStore(), getProducts(), loadWebsiteRecord(), loadPublicationDiagnostic()]);
         if (!active) return;
         if (diagnosticResult.status === 'fulfilled') setPublicationDiagnostic(diagnosticResult.value);
@@ -316,10 +320,29 @@ export default function WebsiteEditor() {
           setSavedSections(next.savedSections || []);
           setSelectedId(next.sections[0]?.id || null);
           setStatus(recovered ? "Unsaved" : "Saved");
+        } else if (requestedTemplate === "modern" || requestedTemplate === "dark") {
+          const palette = requestedTemplate === "dark"
+            ? { backgroundColor: "#25231f", textColor: "#f3eee5", primaryColor: "#c5a27f" }
+            : { backgroundColor: "#f5f3ec", textColor: "#25251f", primaryColor: "#655b43" };
+          const next = {
+            ...createDefaultModel(),
+            ...palette,
+            template: requestedTemplate,
+            brandName: store?.businessName || store?.storeName || "Your Business",
+          };
+          setModel(next);
+          setSelectedId(next.sections[0]?.id || null);
+          setStatus("Unsaved");
+          setLoadNotice(`${requestedTemplate === "dark" ? "Luxury dark" : "Modern"} starter applied. Save your draft when you are ready.`);
         } else {
           if (store?.businessName || store?.storeName) setModel(current => ({ ...current, brandName: store.businessName || store.storeName }));
           setSelectedId((current) => current || currentModel.current.sections[0]?.id || null);
         }
+        if (startWithAi) {
+          setNewAiWebsite(!(privateDraft || store?.editorData || store?.sections || store?.elements));
+          setShowAiDesigner(true);
+        }
+        if (requestedTemplate || startWithAi) window.history.replaceState({}, "", window.location.pathname);
         setProducts(Array.isArray(productList) ? productList : []);
         if (productsResult.status === "rejected") {
           const reason = productsResult.reason;
@@ -690,7 +713,7 @@ export default function WebsiteEditor() {
     {collectionPreview && <div className="full-preview"><header><span>{collectionPreview.name} · Design Collection preview</span><div><button type="button" onClick={() => applyCollection(collectionPreview)}>Add sections to current page</button><button type="button" onClick={() => addCollectionPages(collectionPreview)}>Add all 4 pages</button><button type="button" onClick={() => setCollectionPreview(null)}>Close</button></div></header><WebsiteRenderer model={collectionWebsite(collectionPreview,createSection)} /></div>}
     {showPublish && <div className="editor-modal-backdrop" role="presentation"><section className="editor-modal publish-modal" role="dialog" aria-modal="true"><p className="modal-kicker">Published</p><h2>Your website is live.</h2><p>Your last design is now saved to your GetCyb store and will be shown on your public website.</p>{publishUrl ? <a href={publishUrl} target="_blank" rel="noreferrer">Open your website ↗</a> : <div className="publish-missing-url">Finish Store Setup to choose your public website address.</div>}<button className="topbar-action" type="button" onClick={() => setShowPublish(false)}>Done</button></section></div>}
     {productForm && <div className="editor-modal-backdrop"><section className="editor-modal" role="dialog" aria-modal="true" aria-label="Product details"><EditorProductForm product={productForm.product} onCancel={()=>setProductForm(null)} onSaved={(product,list)=>{setProducts(list);if(productForm.insert==='add')addProduct(product);else if(productForm.insert==='replace'&&selected)updateSection({productId:product.id,title:product.name,body:product.description,image:product.imageUrl,media:mediaItems(product),price:product.sellingPrice});setProductForm(null);showToast('Product saved to Products');}}/></section></div>}
-    {showAiDesigner && <AiDesigner model={model} products={products} onApply={next => { commit(migrateLegacyEditor(next), { message: "AI changes added to your editor" }); setActivePageId(websitePages(next)[0]?.id || "home"); setSelectedId(websitePages(next)[0]?.sections?.[0]?.id || null); }} onClose={() => setShowAiDesigner(false)} />}
+    {showAiDesigner && <AiDesigner model={model} products={products} newWebsite={newAiWebsite} onApply={next => { commit(migrateLegacyEditor(next), { message: "AI changes added to your editor" }); setNewAiWebsite(false); setActivePageId(websitePages(next)[0]?.id || "home"); setSelectedId(websitePages(next)[0]?.sections?.[0]?.id || null); }} onClose={() => { setShowAiDesigner(false); setNewAiWebsite(false); }} />}
     {toast && <div className="editor-toast" role="status">{toast}</div>}
   </div>;
 }

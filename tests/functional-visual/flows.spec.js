@@ -23,12 +23,12 @@ const customer = {
   id: "synthetic-customer", data: { name: "Synthetic QA customer", email: "visual-review@example.test", phone: "+971500000000", orders: 1, totalSpent: 80, status: "New", createdAt: "2026-01-15T09:00:00.000Z" },
 };
 
-async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [order] } = {}) {
+async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [order], emptyWebsite = false } = {}) {
   const calls = [];
   let authenticated = !cookieAuth;
   let products = [product];
   let stores = [{ id: business.id, name: business.name, slug: business.slug, category: business.category, published: true }];
-  let draft = structuredClone(website);
+  let draft = emptyWebsite ? null : structuredClone(website);
   let crmSegments = [{ id: "segment-1", name: "VIPs", filters: { search: "vip" } }];
   let analyticsReports = [];
   await page.route("**/api/v1/**", async (route) => {
@@ -137,6 +137,46 @@ test("editor draft save and publish use the existing API contracts", async ({ pa
   await page.getByRole("button", { name: "Publish", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Your website is live." })).toBeVisible({ timeout: 15000 });
   expect(calls.some((call) => call.pathname === "/websites/publish" && call.method === "POST")).toBeTruthy();
+});
+
+test("new website setup offers an AI start and opens the editable draft flow", async ({ page }) => {
+  await seedProtectedUser(page);
+  const calls = await mockAppApi(page, { emptyWebsite: true });
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1024 }, { width: 390, height: 844 }, { width: 375, height: 812 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/create-website");
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    expect(overflow, `website setup overflows at ${viewport.width}px`).toBeFalsy();
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/create-website");
+  await page.getByLabel("Business name").fill("Synthetic New Studio");
+  await page.getByLabel("Business Description").fill("A test-only creative studio.");
+  await page.getByRole("button", { name: /General Business/ }).click();
+  await page.getByLabel("Website Address").fill("synthetic-new-studio");
+  await page.getByRole("radio", { name: /Start with AI/ }).check();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page).toHaveURL(/\/editor$/);
+  await expect(page.getByRole("dialog", { name: "Create or edit your website with AI" })).toBeVisible();
+  await expect(page.getByLabel("Describe your website")).toBeVisible();
+  expect(calls.some(call => call.pathname === "/businesses/mine" && call.method === "PUT")).toBeTruthy();
+});
+
+test("using a template opens the editor with its selected starter styling", async ({ page }) => {
+  await seedProtectedUser(page);
+  const calls = await mockAppApi(page, { emptyWebsite: true });
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1024 }, { width: 390, height: 844 }, { width: 375, height: 812 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/templates?onboarding=1");
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    expect(overflow, `template gallery overflows at ${viewport.width}px`).toBeFalsy();
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/templates?onboarding=1");
+  await page.getByRole("button", { name: /Use template/ }).first().click();
+  await expect(page).toHaveURL(/\/editor\?template=modern$/);
+  await page.getByRole("button", { name: "Save Draft" }).click();
+  await expect.poll(() => calls.some(call => call.pathname === "/websites/draft" && call.method === "PUT" && call.body?.model?.template === "modern" && call.body?.model?.backgroundColor === "#f5f3ec")).toBeTruthy();
 });
 
 test("image crop controls preview and save persistent crop metadata", async ({ page }) => {

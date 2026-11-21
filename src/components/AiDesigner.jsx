@@ -5,7 +5,7 @@ import { customBackendRequest } from "../services/customBackendSession";
 import { parseAiHelpText } from "../utils/aiHelpText.js";
 import "../styles/aiDesigner.css";
 
-export default function AiDesigner({ model = {}, products = [], onApply, onClose, initialTab = "design", publicMode = false }) {
+export default function AiDesigner({ model = {}, products = [], onApply, onClose, initialTab = "design", publicMode = false, newWebsite = false }) {
   const [tab, setTab] = useState(initialTab === "help" || publicMode ? "help" : "design");
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState([]);
@@ -18,7 +18,7 @@ export default function AiDesigner({ model = {}, products = [], onApply, onClose
   const [confirmOverwrite, setConfirmOverwrite] = useState(false);
   const [appliedNotice, setAppliedNotice] = useState("");
   const inFlight = useRef(false);
-  const hasExistingWebsite = Boolean(model.pages?.some(page => page.sections?.length) || model.sections?.length);
+  const hasExistingWebsite = !newWebsite && Boolean(model.pages?.some(page => page.sections?.length) || model.sections?.length);
 
   async function design(event, mode = "create") {
     event.preventDefault(); if (inFlight.current || !prompt.trim()) return; inFlight.current = true; setBusy(true); setError(""); setAppliedNotice("");
