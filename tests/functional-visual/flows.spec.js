@@ -389,7 +389,7 @@ test('analytics dashboard shows real report fields, saves a range, and stays res
   await expect.poll(() => calls.some(call => call.pathname === '/analytics/overview' && call.searchParams?.get('from'))).toBeTruthy();
   await page.getByLabel('Report name').fill('November overview');
   await page.getByRole('button', { name: 'Save report' }).click();
-  await expect(page.getByRole('button', { name: /November overview/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'November overview daily', exact: true })).toBeVisible();
   for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1024 }, { width: 390, height: 844 }, { width: 375, height: 812 }]) {
     await page.setViewportSize(viewport);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `Analytics overflow at ${viewport.width}px`).toBeTruthy();
