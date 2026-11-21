@@ -64,7 +64,11 @@ function FAQ() {
               key={item.question}
             >
               <button
+                type="button"
+                id={`faq-question-${index}`}
                 className="faq-question"
+                aria-expanded={open === index}
+                aria-controls={`faq-answer-${index}`}
                 onClick={() =>
                   setOpen(open === index ? -1 : index)
                 }
@@ -74,11 +78,9 @@ function FAQ() {
                 <strong>{open === index ? "−" : "+"}</strong>
               </button>
 
-              {open === index && (
-                <div className="faq-answer">
-                  <p>{item.answer}</p>
-                </div>
-              )}
+              <div id={`faq-answer-${index}`} className="faq-answer" role="region" aria-labelledby={`faq-question-${index}`} hidden={open !== index}>
+                <p>{item.answer}</p>
+              </div>
             </div>
           ))}
         </div>
