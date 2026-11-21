@@ -39,7 +39,7 @@ export default function Templates() {
     return categoryMatch && textMatch;
   }), [selectedCategory, searchQuery]);
   function toggleFavorite(id) { setFavorites(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]); }
-  function chooseTemplate(id) { localStorage.setItem("selectedTemplate", id); navigate("/editor"); }
+  function chooseTemplate(id) { navigate(`/editor?template=${encodeURIComponent(id)}`); }
 
   return <main className="templates-page">
     <header className="templates-header"><div><span className="templates-kicker">CYB / DESIGN LIBRARY</span><h1>Choose your starting point.</h1><p>Explore the templates currently available, then customize your pages in the editor.</p></div><button type="button" className="templates-back-button" onClick={() => navigate("/dashboard")}>← Dashboard</button></header>

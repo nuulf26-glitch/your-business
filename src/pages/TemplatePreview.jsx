@@ -9,6 +9,7 @@ import PortfolioTemplate from "../templates/PortfolioTemplate";
 import FitnessTemplate from "../templates/FitnessTemplate";
 import CoffeeTemplate from "../templates/CoffeeTemplate";
 import ModernTemplate from "../templates/ModernTemplate";
+import DarkTemplate from "../templates/DarkTemplate";
 
 function TemplatePreview() {
 
@@ -18,6 +19,7 @@ function TemplatePreview() {
 
   const templates = {
     modern: ModernTemplate,
+    dark: DarkTemplate,
     restaurant: RestaurantTemplate,
     startup: StartupTemplate,
     realestate: RealEstateTemplate,
