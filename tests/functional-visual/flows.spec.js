@@ -42,10 +42,28 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
       authenticated = true;
       return route.fulfill({ status: 200, headers: { "Set-Cookie": "cyb-visual-session=synthetic; Path=/; HttpOnly; SameSite=Lax" }, contentType: "application/json", body: JSON.stringify(user) });
     }
+    if (pathname === "/auth/signup" && method === "POST") {
+      authenticated = true;
+      return route.fulfill({ status: 201, headers: { "Set-Cookie": "cyb-visual-session=synthetic; Path=/; HttpOnly; SameSite=Lax" }, contentType: "application/json", body: JSON.stringify(user) });
+    }
     if (pathname === "/auth/me") {
       const hasCookie = (request.headers().cookie || "").includes("cyb-visual-session=synthetic");
       const allowed = cookieAuth ? hasCookie : authenticated;
       return route.fulfill({ status: allowed ? 200 : 401, contentType: "application/json", body: JSON.stringify(allowed ? user : { message: "No synthetic session" }) });
+    }
+
+    if (pathname === "/auth/forgot-password" && method === "POST") {
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+    }
+    if (pathname === "/auth/reset-password" && method === "POST") {
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) });
+    }
+    if (pathname === "/websites/ai/design" && method === "POST") {
+      const input = request.postDataJSON() || {};
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+        model: { editorVersion: 2, brandName: "AI Atelier", template: "modern", sections: [], pages: [{ id: "home", title: "Home", sections: [{ id: "ai-hero", type: "hero", label: "Hero", title: "An AI generated first draft", body: "Preview only until the owner applies it." }] }] },
+        changesSummary: `Created a draft for: ${input.prompt}`,
+      }) });
     }
 
     let status = 200;
@@ -128,6 +146,38 @@ test("synthetic login keeps the cookie-backed session after reload and opens das
   expect(calls.filter((call) => call.pathname === "/auth/me").length).toBeGreaterThan(1);
 });
 
+test("new synthetic account registration validates terms and opens the dashboard", async ({ page }) => {
+  const calls = await mockAppApi(page, { cookieAuth: true });
+  await page.goto("/signup");
+  await page.locator("#businessName").fill("Synthetic Studio");
+  await page.locator("#fullName").fill("Synthetic Owner");
+  await page.locator("#signupEmail").fill("new-owner@example.test");
+  await page.locator("#signupPassword").fill("synthetic-only-password");
+  await page.locator('input[type="checkbox"]').check();
+  await page.getByRole("button", { name: "Create account" }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.locator(".workspace-navigation")).toBeVisible({ timeout: 15000 });
+  const signup = calls.find(call => call.pathname === "/auth/signup" && call.method === "POST");
+  expect(signup?.body).toMatchObject({ email: "new-owner@example.test", fullName: "Synthetic Owner", businessName: "Synthetic Studio", acceptedTerms: true });
+  expect(calls.some(call => call.pathname === "/auth/me")).toBeTruthy();
+});
+
+test("forgot and reset password journeys show generic recovery and success states", async ({ page }) => {
+  const calls = await mockAppApi(page);
+  await page.goto("/forgot-password");
+  await page.locator("#forgotPasswordEmail").fill("owner@example.test");
+  await page.getByRole("button", { name: "Send reset link" }).click();
+  await expect(page.getByText(/If an account matches that email/)).toBeVisible();
+  expect(calls.find(call => call.pathname === "/auth/forgot-password")?.body).toEqual({ email: "owner@example.test" });
+
+  await page.goto("/reset-password?token=synthetic-reset-token");
+  await page.locator("#new-password").fill("replacement-only-password");
+  await page.locator("#confirm-password").fill("replacement-only-password");
+  await page.getByRole("button", { name: "Reset password" }).click();
+  await expect(page.getByText("Your password has been reset. You can now log in.")).toBeVisible();
+  expect(calls.find(call => call.pathname === "/auth/reset-password")?.body).toEqual({ token: "synthetic-reset-token", password: "replacement-only-password" });
+});
+
 test("editor draft save and publish use the existing API contracts", async ({ page }) => {
   await seedProtectedUser(page);
   const calls = await mockAppApi(page);
@@ -137,6 +187,40 @@ test("editor draft save and publish use the existing API contracts", async ({ pa
   await page.getByRole("button", { name: "Publish", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Your website is live." })).toBeVisible({ timeout: 15000 });
   expect(calls.some((call) => call.pathname === "/websites/publish" && call.method === "POST")).toBeTruthy();
+});
+
+test("AI website generation stays a preview until applied and saved as a draft", async ({ page }) => {
+  await seedProtectedUser(page);
+  const calls = await mockAppApi(page);
+  await page.goto("/editor");
+  await page.getByRole("button", { name: /Design with AI/ }).click();
+  await page.locator("#ai-prompt").fill("Create a quiet luxury skincare store with a product gallery.");
+  await page.getByRole("button", { name: "Create my website" }).click();
+  await expect(page.getByText("Preview your editable first draft before applying it to the editor.")).toBeVisible();
+  expect(calls.some(call => call.pathname === "/websites/draft" && call.method === "PUT")).toBeFalsy();
+  expect(calls.some(call => call.pathname === "/websites/publish" && call.method === "POST")).toBeFalsy();
+  await page.getByRole("button", { name: "Replace website…" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "This will replace the current website draft" })).toBeVisible();
+  await page.getByRole("button", { name: "Confirm replacement" }).click();
+  await expect(page.locator(".ai-success")).toContainText("Changes are in your editor as an editable draft.");
+  await page.getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "Save Draft" }).click();
+  await expect.poll(() => calls.some(call => call.pathname === "/websites/draft" && call.method === "PUT" && call.body?.model?.brandName === "AI Atelier")).toBeTruthy();
+  expect(calls.some(call => call.pathname === "/websites/publish" && call.method === "POST")).toBeFalsy();
+});
+
+test("editor undo and redo restore the prior website name", async ({ page }) => {
+  await seedProtectedUser(page);
+  await mockAppApi(page);
+  await page.goto("/editor");
+  const name = page.getByRole("textbox", { name: "Business name" });
+  await expect(name).toHaveValue("Atelier Preview");
+  await name.fill("Changed Studio");
+  await expect(name).toHaveValue("Changed Studio");
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(name).toHaveValue("Atelier Preview");
+  await page.getByRole("button", { name: "Redo" }).click();
+  await expect(name).toHaveValue("Changed Studio");
 });
 
 test("image crop controls preview and save persistent crop metadata", async ({ page }) => {
