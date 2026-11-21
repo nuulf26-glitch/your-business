@@ -51,6 +51,7 @@ if (order.backendId) {
 
     localStorage.removeItem("pendingOrder");
     localStorage.removeItem("businessCart");
+    try { sessionStorage.removeItem("cyb_storefront_checkout_attempt"); } catch { /* Storage can be disabled by browser privacy settings. */ }
 
     navigate("/order-success");
   }

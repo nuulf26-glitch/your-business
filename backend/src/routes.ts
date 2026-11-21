@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, ForbiddenException, Logger, ServiceUnavailableException, Headers, UnauthorizedException } from '@nestjs/common';
-import { IsEmail, IsNumber, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn, IsBoolean, IsInt, Min } from 'class-validator';
+import { IsEmail, IsNumber, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn, IsBoolean, IsInt, Min, Matches } from 'class-validator';
 import { Request, Response } from 'express';
 import * as argon2 from 'argon2';
 import { randomBytes, createHash, createHmac, timingSafeEqual } from 'node:crypto';
@@ -73,6 +73,10 @@ class StoreInput { @IsString() @MaxLength(120) name!: string; @IsString() @MaxLe
 async function selectedBusiness(db:DbService,req:Request & {user:any},include?:Record<string,unknown>):Promise<any>{const header=typeof req.get==='function'?req.get('x-cyb-business-id'):((req.headers as any)?.['x-cyb-business-id']);const id=String(header||'').trim();return db.business.findFirst({where:id?{ownerId:req.user.id,id}:{ownerId:req.user.id},...(include?{include}: {})});}
 async function logCustomerActivity(db:DbService,businessId:string,customerId:string,eventKey:string,event:Record<string,unknown>){const id=`crm_evt_${createHash('sha256').update(`${businessId}:customer:${customerId}:${eventKey}`).digest('hex').slice(0,48)}`;await db.businessRecord.createMany({data:[{id,businessId,type:'crmActivity',data:{customerId,...event,eventKey,at:event.at||new Date().toISOString()}}],skipDuplicates:true});}
 class JsonInput { @IsObject() data!: Record<string, unknown>; }
+class CheckoutOrderInput extends JsonInput {
+  @IsString() @Matches(/^[A-Za-z0-9_-]{32,128}$/) idempotencyKey!: string;
+  @IsString() @Matches(/^[A-Za-z0-9_-]{32,128}$/) customerActionToken!: string;
+}
 class WebsiteInput { @IsObject() model!: Record<string, unknown>; @IsOptional() @IsInt() @Min(0) expectedRevision?: number; }
 class AiPromptInput { @IsString() @MinLength(8) @MaxLength(1200) prompt!: string; @IsOptional() @IsIn(['create','modify']) mode?:'create'|'modify'; @IsOptional() @IsObject() model?:Record<string,unknown>; }
 class AiHelpInput { @IsString() @MinLength(1) @MaxLength(2000) message!: string; @IsOptional() @IsObject() context?: Record<string, unknown>; }
@@ -726,8 +730,32 @@ export class OrderController {
 // business by its public slug; private order reads remain owner-scoped above.
 function publicOrderData(value: unknown): Record<string, unknown> {
   const data = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  const { customerActionTokenHash: _privateTokenHash, ...publicData } = data;
+  const { customerActionTokenHash: _privateTokenHash, checkoutRequestHash: _privateCheckoutHash, ...publicData } = data;
   return publicData;
+}
+
+function checkoutRequestHash(data:Record<string,any>,storeSlug:string) {
+  const stable={
+    storeSlug,
+    customerName:String(data.customerName||'').trim().slice(0,160),
+    email:String(data.email||'').trim().toLowerCase().slice(0,254),
+    phone:String(data.phone||'').trim().slice(0,40),
+    address:String(data.address||'').trim().slice(0,300),
+    city:String(data.city||'').trim().slice(0,120),
+    countryCode:String(data.countryCode||'').trim().toUpperCase().slice(0,3),
+    deliveryMethod:String(data.deliveryMethod||'delivery').trim().toLowerCase().slice(0,30),
+    discountCode:String(data.discountCode||'').trim().toUpperCase().slice(0,80),
+    notes:String(data.notes||'').trim().slice(0,1000),
+    items:(Array.isArray(data.items)?data.items:[]).map(item=>({
+      productId:String(item?.id||item?.productId||'').slice(0,120),
+      variantId:String(item?.variantId||item?.variant?.id||'').slice(0,120),
+      quantity:Number(item?.quantity),
+    })),
+  };
+  return createHash('sha256').update(JSON.stringify(stable)).digest('hex');
+}
+function checkoutOrderId(businessId:string,idempotencyKey:string) {
+  return `checkout_${createHash('sha256').update(`${businessId}:${idempotencyKey}`).digest('hex').slice(0,48)}`;
 }
 
 function authoritativeProductPrice(productData: Record<string, unknown>) {
@@ -741,7 +769,7 @@ function authoritativeProductPrice(productData: Record<string, unknown>) {
 @Controller('public/orders')
 export class PublicOrderController {
   constructor(private db:DbService){}
-  @Post() async create(@Body() dto:JsonInput){const data=dto.data as Record<string,any>;const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===String(item.id||item.productId||'')),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||['hidden','archived'].includes(String((product.data as any)?.status||'')))throw new BadRequestException('A product in this order is unavailable');const productData=product.data as Record<string,any>,variants=Array.isArray(productData.variants)?productData.variants:[];const requestedVariant=String(item.variantId||item.variant?.id||'');let variant:any=null;if(variants.length){variant=variants.find(value=>String(value?.id||value?.sku||value?.name||'')===requestedVariant);if(!variant)throw new BadRequestException('Choose an available product variant');}const pricingData=variant?{...productData,...variant}:productData;const price=authoritativeProductPrice(pricingData);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');const stock=variant?.stock??productData.stock;if(stock!==undefined&&stock!==null&&String(stock).trim()!==''&&(!Number.isInteger(Number(stock))||Number(stock)<quantity))throw new BadRequestException('A product in this order is out of stock');return {...item,id:product.id,name:product.name,price,quantity,...(variant?{variantId:String(variant.id||variant.sku||variant.name),variantName:String(variant.name||variant.label||variant.sku||'Variant'),sku:variant.sku||productData.sku}:{} )};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),customerActionToken=randomBytes(32).toString('base64url'),storeSettings=(business.settings||{}) as Record<string,any>,commerce={...(storeSettings.commerceSettings||{}),currency:storeSettings.commerceSettings?.currency||storeSettings.currency||'USD'};const order=await this.db.$transaction(async tx=>{
+  @Post() async create(@Body() dto:CheckoutOrderInput){const data=dto.data as Record<string,any>,idempotencyKey=String(dto.idempotencyKey||'').trim(),customerActionToken=String(dto.customerActionToken||'').trim();if(!/^[A-Za-z0-9_-]{32,128}$/.test(idempotencyKey)||!/^[A-Za-z0-9_-]{32,128}$/.test(customerActionToken))throw new BadRequestException('Valid checkout security tokens are required');const slug=String(data.storeUrl||'');const business=await this.db.business.findUnique({where:{slug},include:{website:true}});if(!business?.website?.published)throw new NotFoundException('Store not found');const requestHash=checkoutRequestHash(data,slug),id=checkoutOrderId(business.id,idempotencyKey);const prior=await this.db.order?.findUnique?.({where:{id}});if(prior){if((prior.data as any)?.checkoutRequestHash!==requestHash||(prior.data as any)?.customerActionTokenHash!==tokenHash(customerActionToken))throw new ConflictException('This checkout key was already used for a different order. Refresh checkout and try again.');return {...publicOrderData(prior.data),id:prior.id,status:prior.status,createdAt:prior.createdAt,cashOnDeliveryToken:customerActionToken};}const name=String(data.customerName||'').trim(),email=String(data.email||'').trim().toLowerCase();if(!name||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer name and email');const cart=Array.isArray(data.items)?data.items:[];if(!cart.length||cart.length>100)throw new BadRequestException('Invalid order items');const products=await this.db.product.findMany({where:{businessId:business.id}});const items=cart.map(item=>{const product=products.find(p=>p.id===String(item.id||item.productId||'')),quantity=Number(item.quantity);if(!product||!Number.isInteger(quantity)||quantity<1||quantity>99||['hidden','archived'].includes(String((product.data as any)?.status||'')))throw new BadRequestException('A product in this order is unavailable');const productData=product.data as Record<string,any>,variants=Array.isArray(productData.variants)?productData.variants:[];const requestedVariant=String(item.variantId||item.variant?.id||'');let variant:any=null;if(variants.length){variant=variants.find(value=>String(value?.id||value?.sku||value?.name||'')===requestedVariant);if(!variant)throw new BadRequestException('Choose an available product variant');}const pricingData=variant?{...productData,...variant}:productData;const price=authoritativeProductPrice(pricingData);if(!Number.isFinite(price)||price<0)throw new BadRequestException('Invalid product price');const stock=variant?.stock??productData.stock;if(stock!==undefined&&stock!==null&&String(stock).trim()!==''&&(!Number.isInteger(Number(stock))||Number(stock)<quantity))throw new BadRequestException('A product in this order is out of stock');return {...item,id:product.id,name:product.name,price,quantity,...(variant?{variantId:String(variant.id||variant.sku||variant.name),variantName:String(variant.name||variant.label||variant.sku||'Variant'),sku:variant.sku||productData.sku}:{} )};});const subtotal=items.reduce((sum,item)=>sum+item.price*item.quantity,0),storeSettings=(business.settings||{}) as Record<string,any>,commerce={...(storeSettings.commerceSettings||{}),currency:storeSettings.commerceSettings?.currency||storeSettings.currency||'USD'};let order:any;try{order=await this.db.$transaction(async tx=>{
   const byProduct=new Map<string,any[]>();
   for(const item of items){const list=byProduct.get(item.id)||[];list.push(item);byProduct.set(item.id,list);}
   for(const [productId,lines] of byProduct){
@@ -807,9 +835,9 @@ export class PublicOrderController {
     fulfillmentStatus: _clientFulfillmentStatus,
     ...checkoutData
   }=data;
-  const normalized={...checkoutData,items,subtotal:totals.subtotal,shipping:totals.shipping,discount:totals.discount,tax:totals.tax,taxLabel:totals.taxLabel,total:totals.total,currency:totals.currency,discountCode:totals.discountCode,status:'New',fulfillmentStatus:'new',paymentStatus:'Pending',createdAt:new Date().toISOString(),customerActionTokenHash:tokenHash(customerActionToken)};
+  const normalized={...checkoutData,items,subtotal:totals.subtotal,shipping:totals.shipping,discount:totals.discount,tax:totals.tax,taxLabel:totals.taxLabel,total:totals.total,currency:totals.currency,discountCode:totals.discountCode,status:'New',fulfillmentStatus:'new',paymentStatus:'Pending',createdAt:new Date().toISOString(),customerActionTokenHash:tokenHash(customerActionToken),checkoutRequestHash:requestHash};
   const amount=totals.total;
-  const created=await tx.order.create({data:{businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:totals.currency,data:normalized as any}});const prior=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((prior?.data as any)?.orders||0)+1,totalSpent:Number((prior?.data as any)?.totalSpent||0),paidOrders:Number((prior?.data as any)?.paidOrders||0)};if(prior)await tx.customer.update({where:{id:prior.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;},{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});return {...publicOrderData(order.data),id:order.id,status:order.status,createdAt:order.createdAt,cashOnDeliveryToken:customerActionToken};}
+  const created=await tx.order.create({data:{id,businessId:business.id,status:'new',amountCents:Math.round(amount*100),currency:totals.currency,data:normalized as any}});const priorCustomer=await tx.customer.findFirst({where:{businessId:business.id,data:{path:['email'],equals:email}}});const customerData={name,email,phone:String(data.phone||''),storeUrl:slug,status:'Active',lastOrder:new Date().toISOString(),orders:Number((priorCustomer?.data as any)?.orders||0)+1,totalSpent:Number((priorCustomer?.data as any)?.totalSpent||0),paidOrders:Number((priorCustomer?.data as any)?.paidOrders||0)};if(priorCustomer)await tx.customer.update({where:{id:priorCustomer.id},data:{data:customerData as any}});else await tx.customer.create({data:{businessId:business.id,data:customerData as any}});return created;},{isolationLevel:Prisma.TransactionIsolationLevel.Serializable});}catch(error){const existing=await this.db.order?.findUnique?.({where:{id}});if(!existing||(existing.data as any)?.checkoutRequestHash!==requestHash||(existing.data as any)?.customerActionTokenHash!==tokenHash(customerActionToken))throw error;order=existing;}return {...publicOrderData(order.data),id:order.id,status:order.status,createdAt:order.createdAt,cashOnDeliveryToken:customerActionToken};}
   @Get(':id') async customerTracking(@Req() req:Request){
     const id=String(req.params['id']||''),token=String(req.query.token||''),row=await this.db.order.findUnique({where:{id}});
     const storedHash=(row?.data as any)?.customerActionTokenHash;

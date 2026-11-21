@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/checkout.css";
 import { COUNTRY_OPTIONS } from "../utils/countryOptions.js";
@@ -16,6 +16,50 @@ const initialForm = {
   discountCode: "",
   notes: "",
 };
+const checkoutAttemptKey = "cyb_storefront_checkout_attempt";
+
+async function checkoutScope(cart, form) {
+  const payload = {
+    storeUrl: String(cart[0]?.storeUrl || ""),
+    customerName: form.fullName.trim().slice(0, 160),
+    email: form.email.trim().toLowerCase().slice(0, 254),
+    phone: form.phone.trim().slice(0, 40),
+    address: form.address.trim().slice(0, 300),
+    city: form.city.trim().slice(0, 120),
+    countryCode: form.countryCode.trim().toUpperCase().slice(0, 3),
+    deliveryMethod: form.deliveryMethod.trim().toLowerCase().slice(0, 30),
+    discountCode: form.discountCode.trim().toUpperCase().slice(0, 80),
+    notes: form.notes.trim().slice(0, 1000),
+    items: cart.map((item) => ({
+      productId: String(item.id || item.productId || "").slice(0, 120),
+      variantId: String(item.variantId || item.variant?.id || "").slice(0, 120),
+      quantity: Number(item.quantity || 0),
+    })),
+  };
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function getCheckoutIdempotencyKey(cart, form, attemptRef) {
+  const scope = await checkoutScope(cart, form);
+  if (attemptRef.current?.scope === scope) return attemptRef.current;
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(checkoutAttemptKey) || "null");
+    if (saved?.scope === scope && /^[A-Za-z0-9_-]{32,128}$/.test(saved.idempotencyKey || "")) {
+      attemptRef.current = saved;
+      if (/^[A-Za-z0-9_-]{32,128}$/.test(saved.customerActionToken || "")) return saved;
+    }
+  } catch { /* Private browsing may disable session storage; this submit still receives a fresh key. */ }
+  const random = new Uint8Array(64);
+  if (!globalThis.crypto?.getRandomValues) throw new Error("Secure checkout is unavailable in this browser. Update your browser and try again.");
+  globalThis.crypto.getRandomValues(random);
+  const idempotencyKey = Array.from(random.subarray(0, 32), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const customerActionToken = Array.from(random.subarray(32), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  attemptRef.current = { scope, idempotencyKey, customerActionToken };
+  try { sessionStorage.setItem(checkoutAttemptKey, JSON.stringify(attemptRef.current)); } catch { /* The component ref keeps retry protection for this checkout session. */ }
+  return attemptRef.current;
+}
 
 function readSavedCart() {
   try {
@@ -30,6 +74,7 @@ function readSavedCart() {
 
 function Checkout() {
   const navigate = useNavigate();
+  const checkoutAttemptRef = useRef(null);
 
   const [cart] = useState(readSavedCart);
   const [form, setForm] = useState(initialForm);
@@ -75,7 +120,6 @@ function Checkout() {
 
   function handleChange(event) {
     const { name, value } = event.target;
-
     setForm((current) => ({
       ...current,
       [name]: value,
@@ -148,7 +192,8 @@ const storeUrl = cart[0]?.storeUrl || "";
         paymentStatus: "Pending",
         date: new Date().toISOString(),
       };
-const saved = await customBackendRequest('/public/orders', { method: 'POST', body: JSON.stringify({ data: newOrder }) });
+const checkoutTokens = await getCheckoutIdempotencyKey(cart, form, checkoutAttemptRef);
+const saved = await customBackendRequest('/public/orders', { method: 'POST', body: JSON.stringify({ ...checkoutTokens, data: newOrder }) });
 Object.assign(newOrder, saved, { id: saved.id, backendId: saved.id });
 
      

@@ -252,6 +252,9 @@ test("storefront product cart and cash-on-delivery checkout stay on synthetic ro
   await page.getByRole("button", { name: "Confirm cash on delivery" }).click();
   await expect(page).toHaveURL(/\/order-success$/);
   expect(calls.some((call) => call.pathname === "/public/orders" && call.method === "POST")).toBeTruthy();
+  const checkoutRequest = calls.find((call) => call.pathname === "/public/orders" && call.method === "POST");
+  expect(checkoutRequest.body.idempotencyKey).toMatch(/^[A-Za-z0-9_-]{32,128}$/);
+  expect(checkoutRequest.body.customerActionToken).toMatch(/^[A-Za-z0-9_-]{32,128}$/);
   expect(calls.some((call) => call.pathname === "/public/orders/synthetic-created-order/cash-on-delivery" && call.method === "POST")).toBeTruthy();
 });
 

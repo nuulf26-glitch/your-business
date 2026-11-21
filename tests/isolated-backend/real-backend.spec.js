@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import process from 'node:process';
 
@@ -242,6 +243,10 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   await page.locator('input[name="phone"]').fill('+971500000000');
   await page.locator('input[name="address"]').fill('Synthetic Test Address');
   await page.locator('input[name="city"]').fill('Al Ain');
+  let checkoutPayload;
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/api/v1/public/orders' && request.method() === 'POST') checkoutPayload = request.postDataJSON();
+  });
   await checkNoHorizontalOverflow(page, 'checkout desktop');
   await page.screenshot({ path: `${artifactsDir}/checkout-1440x900.png`, fullPage: true });
   await page.locator('form button[type="submit"]').click();
@@ -257,6 +262,11 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(checkoutOrder).toBeTruthy();
   expect(checkoutOrder.status).toBe('new');
   expect(checkoutOrder.data.paymentStatus).toBe('Cash on delivery');
+  expect(checkoutPayload?.idempotencyKey).toMatch(/^[A-Za-z0-9_-]{32,128}$/);
+  expect(checkoutPayload?.customerActionToken).toMatch(/^[A-Za-z0-9_-]{32,128}$/);
+  const repeatedCheckout = await requestFromPage(page, '/public/orders', 'POST', checkoutPayload);
+  expect(repeatedCheckout.id).toBe(checkoutOrder.id);
+  expect((await requestFromPage(page, '/orders')).filter(item => item.id === checkoutOrder.id)).toHaveLength(1);
   const customers = await requestFromPage(page, '/customers');
   expect(customers.some((item) => item.email?.startsWith('checkout-'))).toBe(true);
 
@@ -300,7 +310,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const returned = await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}`);
   expect(returned).toMatchObject({ fulfillmentStatus: "returned", paymentStatus: "Refunded" });
 
-  const cancelOrder = await requestFromPage(page, "/public/orders", "POST", { data: { storeUrl: slug, customerName: "Synthetic Cancellation Customer", email: `cancel-${process.env.GITHUB_RUN_ID || "local"}@example.test`, items: [{ id: product.id, variantId: "synthetic-small", quantity: 1 }] } });
+  const cancelOrder = await requestFromPage(page, "/public/orders", "POST", { idempotencyKey: `cancel-${randomUUID().replaceAll('-', '')}`, customerActionToken: `action-${randomUUID().replaceAll('-', '')}`, data: { storeUrl: slug, customerName: "Synthetic Cancellation Customer", email: `cancel-${process.env.GITHUB_RUN_ID || "local"}@example.test`, items: [{ id: product.id, variantId: "synthetic-small", quantity: 1 }] } });
   await requestFromPage(page, `/public/orders/${encodeURIComponent(cancelOrder.id)}/cash-on-delivery`, "POST", { token: cancelOrder.cashOnDeliveryToken });
   await requestFromPage(page, `/orders/${encodeURIComponent(cancelOrder.id)}/fulfillment`, "PATCH", { data: { status: "cancelled" } });
   await requestFromPage(page, `/orders/${encodeURIComponent(cancelOrder.id)}/fulfillment`, "PATCH", { data: { status: "cancelled" } });
