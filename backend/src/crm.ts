@@ -82,6 +82,10 @@ export class CrmController {
         break;
       } catch(error:any) {
         if(error?.code!=='P2034'||attempt===2)throw error;
+        // Concurrent conversions of duplicate leads can conflict under the
+        // serializable transaction. A small randomized backoff avoids both
+        // requests retrying in lockstep and exhausting all attempts together.
+        await new Promise(resolve=>setTimeout(resolve,15+Math.floor(Math.random()*30)*(attempt+1)));
       }
     }
     if(out.at)await this.logActivity(this.db,b.id,`lead:${id}:converted`,{customerId:out.customerId,leadId:id,kind:'lead_converted',summary:'Lead converted to customer',at:out.at});
