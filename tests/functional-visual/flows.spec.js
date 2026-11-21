@@ -381,7 +381,8 @@ test('analytics dashboard shows real report fields, saves a range, and stays res
   const calls = await mockAppApi(page);
   await page.goto('/analytics');
   await expect(page.getByRole('heading', { name: 'Analytics & reports' })).toBeVisible();
-  await expect(page.getByText('AED 125', { exact: false })).toBeVisible();
+  const collectedRevenue = page.getByRole('article').filter({ hasText: 'Collected revenue' });
+  await expect(collectedRevenue.getByRole('strong')).toHaveText('AED 125');
   await expect(page.getByText('No page view data for this period.')).toHaveCount(0);
   await expect.poll(() => calls.some(call => call.pathname === '/analytics/overview')).toBeTruthy();
   await page.getByRole('button', { name: '7 days' }).click();
