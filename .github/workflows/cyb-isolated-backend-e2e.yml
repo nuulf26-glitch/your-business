@@ -2,9 +2,9 @@ name: CYB isolated backend end-to-end verification
 
 on:
   push:
-    branches: [codex/cyb-phase3-online-store-20261117, codex/cyb-phase4-crm-20261121, codex/cyb-phase5-analytics-20261121]
+    branches: [codex/cyb-phase3-online-store-20261117, codex/cyb-phase4-crm-20261121, codex/cyb-phase5-analytics-20261121, codex/cyb-phase6-payments-20261122]
   pull_request:
-    branches: [codex/cyb-render-integration-20261109, codex/cyb-phase2-editor-20261116, codex/cyb-phase3-online-store-20261117, codex/cyb-phase4-crm-20261121]
+    branches: [codex/cyb-render-integration-20261109, codex/cyb-phase2-editor-20261116, codex/cyb-phase3-online-store-20261117, codex/cyb-phase4-crm-20261121, codex/cyb-phase5-analytics-20261121]
     paths:
       - "tests/isolated-backend/**"
       - "vite.config.isolated-e2e.js"
@@ -123,6 +123,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cyb-isolated-real-api-e2e-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/isolated-backend/
+          path: |
+            artifacts/isolated-backend/
+            test-results/
           if-no-files-found: warn
           retention-days: 7
