@@ -71,6 +71,7 @@ class LegacySessionInput {
 }
 class StoreInput { @IsString() @MaxLength(120) name!: string; @IsString() @MaxLength(100) slug!: string; @IsString() category!: string; @IsObject() settings!: object; }
 async function selectedBusiness(db:DbService,req:Request & {user:any},include?:Record<string,unknown>):Promise<any>{const header=typeof req.get==='function'?req.get('x-cyb-business-id'):((req.headers as any)?.['x-cyb-business-id']);const id=String(header||'').trim();return db.business.findFirst({where:id?{ownerId:req.user.id,id}:{ownerId:req.user.id},...(include?{include}: {})});}
+async function logCustomerActivity(db:DbService,businessId:string,customerId:string,eventKey:string,event:Record<string,unknown>){const id=`crm_evt_${createHash('sha256').update(`${businessId}:customer:${customerId}:${eventKey}`).digest('hex').slice(0,48)}`;await db.businessRecord.createMany({data:[{id,businessId,type:'crmActivity',data:{customerId,...event,eventKey,at:event.at||new Date().toISOString()}}],skipDuplicates:true});}
 class JsonInput { @IsObject() data!: Record<string, unknown>; }
 class WebsiteInput { @IsObject() model!: Record<string, unknown>; @IsOptional() @IsInt() @Min(0) expectedRevision?: number; }
 class AiPromptInput { @IsString() @MinLength(8) @MaxLength(1200) prompt!: string; @IsOptional() @IsIn(['create','modify']) mode?:'create'|'modify'; @IsOptional() @IsObject() model?:Record<string,unknown>; }
@@ -511,16 +512,20 @@ export class CustomerController {
     const business=await this.business(req);
     const email=String(dto.data.email||'').trim().toLowerCase();
     if(email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw new BadRequestException('Enter a valid customer email');
-    return this.db.customer.create({data:{businessId:business.id,data:{...dto.data,...(email?{email}:{}),status:dto.data.status||'Active',totalSpent:0,paidOrders:0,orders:0} as any}});
+    const customer=await this.db.customer.create({data:{businessId:business.id,data:{...dto.data,...(email?{email}:{}),status:dto.data.status||'Active',totalSpent:0,paidOrders:0,orders:0} as any}});
+    await logCustomerActivity(this.db,business.id,customer.id,'created',{kind:'customer_created',summary:'Customer profile created'});
+    return customer;
   }
   @Patch(':id/status') async updateStatus(@Req() req:Request & {user:any},@Body() dto:CustomerStatusInput){
     const status=String(dto.status||'').trim();
     if(!['New','Active','Inactive','VIP','Blocked'].includes(status))throw new BadRequestException('Invalid customer status');
     const business=await this.business(req),id=String(req.params['id']),customer=await this.db.customer.findFirst({where:{id,businessId:business.id}});
     if(!customer)throw new NotFoundException('Customer not found');
-    const data={...(customer.data as Record<string,unknown>),status};
+    const changed=(customer.data as any)?.status!==status,at=new Date().toISOString();
+    const data={...(customer.data as Record<string,unknown>),status,...(changed?{statusUpdatedAt:at}:{})};
     const result=await this.db.customer.updateMany({where:{id,businessId:business.id},data:{data:data as any}});
     if(!result.count)throw new NotFoundException('Customer not found');
+    if(changed)await logCustomerActivity(this.db,business.id,id,`status:${at}:${status}`,{kind:'customer_status_changed',summary:`Customer status changed to ${status}`,at});
     return {id,...data};
   }
   @Patch(':id/notes') async updateNotes(@Req() req:Request & {user:any},@Body() dto:JsonInput){
@@ -528,9 +533,11 @@ export class CustomerController {
     if(note.length>2000)throw new BadRequestException('Customer notes cannot exceed 2000 characters');
     const business=await this.business(req),id=String(req.params['id']),customer=await this.db.customer.findFirst({where:{id,businessId:business.id}});
     if(!customer)throw new NotFoundException('Customer not found');
-    const data={...(customer.data as Record<string,any>),notes:note,noteUpdatedAt:new Date().toISOString()};
+    if(String((customer.data as any)?.notes||'')===note)return {id,notes:note,noteUpdatedAt:(customer.data as any)?.noteUpdatedAt||null};
+    const at=new Date().toISOString(),data={...(customer.data as Record<string,any>),notes:note,noteUpdatedAt:at};
     const result=await this.db.customer.updateMany({where:{id,businessId:business.id},data:{data:data as any}});
     if(!result.count)throw new NotFoundException('Customer not found');
+    await logCustomerActivity(this.db,business.id,id,`notes:${at}:${createHash('sha256').update(note).digest('hex').slice(0,16)}`,{kind:'customer_notes_updated',summary:'Customer notes updated',at});
     return {id,notes:note,noteUpdatedAt:data.noteUpdatedAt};
   }
   @Delete(':id') async remove(@Req() req:Request & {user:any}){

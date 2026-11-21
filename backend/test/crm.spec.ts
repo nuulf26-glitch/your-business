@@ -46,4 +46,15 @@ describe('CRM activity, reminders, exports and ownership',()=>{
   expect(response.send).toHaveBeenCalledWith(expect.stringContaining('ada@example.test'));
   expect(response.send.mock.calls[0][0]).not.toContain('other@example.test');
  });
+ it('records changed customer tags once and scopes the tag update to the owning merchant',async()=>{
+  const customer={id:'customer_1',businessId:'biz_a',data:{name:'Ada',tags:['vip']},updatedAt:new Date('2026-11-20T12:00:00Z')};
+  const db:any={business:ownedBusiness,customer:{findFirst:jest.fn(async({where}:any)=>where.businessId==='biz_a'?customer:null),updateMany:jest.fn(async({where,data}:any)=>{if(where.businessId!=='biz_a')return {count:0};customer.data=data.data;return {count:1};})},businessRecord:{createMany:jest.fn(async()=>({count:1}))}};
+  const crm=new CrmController(db);
+  await crm.updateCustomerTags(request(),'customer_1',{data:{tags:['vip','priority']}});
+  expect(db.businessRecord.createMany).toHaveBeenCalledTimes(1);
+  expect(db.businessRecord.createMany).toHaveBeenCalledWith(expect.objectContaining({data:[expect.objectContaining({businessId:'biz_a',type:'crmActivity',data:expect.objectContaining({customerId:'customer_1',kind:'customer_tags_changed'})})],skipDuplicates:true}));
+  await crm.updateCustomerTags(request(),'customer_1',{data:{tags:['priority','vip']}});
+  expect(db.businessRecord.createMany).toHaveBeenCalledTimes(1);
+  await expect(crm.updateCustomerTags(request('biz_missing'),'customer_1',{data:{tags:['leak']}})).rejects.toThrow();
+ });
 });

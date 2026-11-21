@@ -144,11 +144,22 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const converted = concurrentConversions[0];
   const convertedAgain = await requestFromPage(page, `/crm/leads/${encodeURIComponent(crmLead.id)}/convert`, 'POST', { data: {} });
   expect(convertedAgain).toMatchObject({ customerId: converted.customerId, created: false });
+  await requestFromPage(page, '/customers', 'POST', { data: { name: 'Zed CRM Customer', email: `sort-${process.env.GITHUB_RUN_ID || 'local'}@example.test` } });
+  const firstCustomerPage = await requestFromPage(page, '/crm/customers?search=example.test&sort=name&direction=asc&page=1&pageSize=1');
+  const secondCustomerPage = await requestFromPage(page, '/crm/customers?search=example.test&sort=name&direction=asc&page=2&pageSize=1');
+  expect(firstCustomerPage.total).toBeGreaterThanOrEqual(2);
+  expect(firstCustomerPage.items[0].id).not.toBe(secondCustomerPage.items[0].id);
+  expect(firstCustomerPage.items[0].name.localeCompare(secondCustomerPage.items[0].name)).toBeLessThan(0);
   await requestFromPage(page, `/crm/activity/${encodeURIComponent(converted.customerId)}`, 'POST', { data: { kind: 'note', summary: 'Synthetic CRM timeline note' } });
+  await requestFromPage(page, `/crm/customers/${encodeURIComponent(converted.customerId)}/tags`, 'POST', { data: { tags: ['vip', 'e2e'] } });
+  await requestFromPage(page, `/customers/${encodeURIComponent(converted.customerId)}/status`, 'PATCH', { status: 'VIP' });
+  await requestFromPage(page, `/customers/${encodeURIComponent(converted.customerId)}/notes`, 'PATCH', { data: { note: 'Synthetic customer change note' } });
   const timeline = await requestFromPage(page, `/crm/activity/${encodeURIComponent(converted.customerId)}`);
   expect(timeline.some((event) => event.kind === 'lead_converted')).toBe(true);
   expect(timeline.some((event) => event.summary === 'Synthetic CRM timeline note')).toBe(true);
-  await requestFromPage(page, `/crm/customers/${encodeURIComponent(converted.customerId)}/tags`, 'POST', { data: { tags: ['vip', 'e2e'] } });
+  expect(timeline.some((event) => event.kind === 'customer_tags_changed')).toBe(true);
+  expect(timeline.some((event) => event.kind === 'customer_status_changed')).toBe(true);
+  expect(timeline.some((event) => event.kind === 'customer_notes_updated')).toBe(true);
   const filteredCustomers = await requestFromPage(page, `/crm/customers?search=${encodeURIComponent(crmLead.email)}&tag=vip&page=1&pageSize=10`);
   expect(filteredCustomers.items.map((item) => item.id)).toContain(converted.customerId);
   const savedList = await requestFromPage(page, '/crm/segments', 'POST', { data: { name: 'Synthetic VIPs', filters: { search: crmLead.email, tag: 'vip', minSpent: 0 } } });
@@ -173,6 +184,8 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(unsafeDelete).toBe(400);
   await requestFromPage(page, `/crm/pipeline/stages`, 'PATCH', { data: { stages: ['Qualification', 'Review', 'Negotiation', 'Won'], renames: { Proposal: 'Review' } } });
   expect((await requestFromPage(page, '/crm/deals')).find((item) => item.id === crmDeal.id).stage).toBe('Review');
+  const renamedDealTimeline = await requestFromPage(page, `/crm/activity/${encodeURIComponent(converted.customerId)}`);
+  expect(renamedDealTimeline.some((event) => event.kind === 'deal_stage_changed' && event.summary === 'Deal moved to Review')).toBe(true);
   const unsafeCustomDelete = await page.evaluate(async () => { const response = await fetch('/api/v1/crm/pipeline/stages', { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: { stages: ['Qualification', 'Negotiation', 'Won'] } }) }); return response.status; });
   expect(unsafeCustomDelete).toBe(400);
   await requestFromPage(page, `/crm/deals/${encodeURIComponent(crmDeal.id)}`, 'PATCH', { data: { stage: 'Qualification' } });
@@ -181,7 +194,17 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const crmTask = await requestFromPage(page, '/crm/tasks', 'POST', { data: { title: 'Synthetic due follow-up', customerId: converted.customerId, dueAt: '2026-01-01T00:00:00.000Z', reminderAt: '2026-01-01T00:00:00.000Z', priority: 'urgent' } });
   const reminders = await requestFromPage(page, '/crm/reminders');
   expect(reminders.filter((item) => item.taskId === crmTask.id)).toHaveLength(1);
-  await requestFromPage(page, `/crm/reminders/${encodeURIComponent(reminders.find((item) => item.taskId === crmTask.id).id)}`, 'PATCH', { data: { status: 'read' } });
+  expect((await requestFromPage(page, '/crm/reminders')).filter((item) => item.taskId === crmTask.id)).toHaveLength(1);
+  const reminderId = reminders.find((item) => item.taskId === crmTask.id).id;
+  await requestFromPage(page, `/crm/reminders/${encodeURIComponent(reminderId)}`, 'PATCH', { data: { status: 'read' } });
+  expect((await requestFromPage(page, '/crm/reminders')).find((item) => item.id === reminderId).status).toBe('read');
+  await requestFromPage(page, `/crm/reminders/${encodeURIComponent(reminderId)}`, 'PATCH', { data: { status: 'unread' } });
+  expect((await requestFromPage(page, '/crm/reminders')).find((item) => item.id === reminderId).status).toBe('unread');
+  await requestFromPage(page, `/crm/reminders/${encodeURIComponent(reminderId)}`, 'PATCH', { data: { status: 'dismissed' } });
+  expect((await requestFromPage(page, '/crm/reminders')).some((item) => item.id === reminderId)).toBe(false);
+  await requestFromPage(page, `/crm/tasks/${encodeURIComponent(crmTask.id)}`, 'PATCH', { data: { status: 'completed' } });
+  const completedTaskTimeline = await requestFromPage(page, `/crm/activity/${encodeURIComponent(converted.customerId)}`);
+  expect(completedTaskTimeline.some((event) => event.kind === 'task_completed')).toBe(true);
   const foreignLeadResponse = await page.evaluate(async ({ id, businessId }) => { const response = await fetch(`/api/v1/crm/leads/${encodeURIComponent(id)}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json', 'x-cyb-business-id': businessId }, body: JSON.stringify({ data: { status: 'lost' } }) }); return response.status; }, { id: crmLead.id, businessId: secondStore.id });
   expect(foreignLeadResponse).toBe(404);
 
@@ -267,6 +290,10 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const crmRefunds = await requestFromPage(page, '/crm/analytics');
   expect(crmRefunds.refundsCents).toBeGreaterThanOrEqual(Math.round(expectedTotal * 100));
   expect(crmRefunds.netCustomerValueCents).toBeLessThanOrEqual(crmMoney.netCustomerValueCents);
+  const storefrontTimeline = await requestFromPage(page, `/crm/activity/${encodeURIComponent(checkoutCustomer.id)}`);
+  expect(storefrontTimeline.some((event) => event.kind === 'store_order' && event.orderId === checkoutOrder.id)).toBe(true);
+  expect(storefrontTimeline.some((event) => event.kind === 'payment_collected' && event.orderId === checkoutOrder.id)).toBe(true);
+  expect(storefrontTimeline.some((event) => event.kind === 'payment_refunded' && event.orderId === checkoutOrder.id)).toBe(true);
 
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "returned" } });
   await requestFromPage(page, `/orders/${encodeURIComponent(checkoutOrder.id)}/fulfillment`, "PATCH", { data: { status: "returned" } });
