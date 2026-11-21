@@ -193,7 +193,7 @@ const storeUrl = cart[0]?.storeUrl || "";
         date: new Date().toISOString(),
       };
 const checkoutTokens = await getCheckoutIdempotencyKey(cart, form, checkoutAttemptRef);
-const saved = await customBackendRequest('/public/orders', { method: 'POST', body: JSON.stringify({ ...checkoutTokens, data: newOrder }) });
+const saved = await customBackendRequest('/public/orders', { method: 'POST', body: JSON.stringify({ idempotencyKey: checkoutTokens.idempotencyKey, customerActionToken: checkoutTokens.customerActionToken, data: newOrder }) });
 Object.assign(newOrder, saved, { id: saved.id, backendId: saved.id });
 
      
