@@ -25,6 +25,7 @@ const Products = lazy(() => import("./pages/Products"));
 const Orders = lazy(() => import("./pages/Orders"));
 const OrderDetails = lazy(() => import("./pages/OrderDetails"));
 const Customers = lazy(() => import("./pages/Customers"));
+const CRM = lazy(() => import("./pages/CRM"));
 const StoreSetup = lazy(() => import("./pages/StoreSetup"));
 const StoreDesigner = lazy(() => import("./pages/StoreDesigner"));
 const Shipping = lazy(() => import("./pages/Shipping"));
@@ -108,6 +109,7 @@ function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="/crm" element={<ProtectedRoute><CRM /></ProtectedRoute>} />
 
       <Route
         path="/store-setup"
