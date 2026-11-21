@@ -5,6 +5,7 @@ import BookingWidget from "./business/BookingWidget";
 import { businessCall } from "./business/api";
 import WebsiteRenderer from "./editor/WebsiteRenderer";
 import { publishedWebsite } from "./editor/publishing";
+import { grantAnalyticsConsent, analyticsConsentKey, trackWebsiteEvent } from "./services/websiteAnalytics";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -26,6 +27,9 @@ function PublicStore() {
   const [productSearch, setProductSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [productSort, setProductSort] = useState("featured");
+  const [consentRevision, setConsentRevision] = useState(0);
+  const analyticsDecision = (() => { try { return sessionStorage.getItem(analyticsConsentKey(storeUrl)) || ''; } catch { return ''; } })();
+  const analyticsConsent = analyticsDecision === 'granted';
 
   useEffect(() => {
     let active = true;
@@ -76,13 +80,11 @@ function PublicStore() {
   }, [storeUrl]);
 
   useEffect(() => {
-    if (!catalog?.analyticsEnabled || loading || !editorData) return;
-    try {
-      let sessionId = sessionStorage.getItem(`getcyb-visit:${storeUrl}`);
-      if (!sessionId) { sessionId = crypto.randomUUID?.() || `visit-${Date.now()}-${Math.random().toString(16).slice(2)}`; sessionStorage.setItem(`getcyb-visit:${storeUrl}`,sessionId); }
-      businessCall('recordPageView',{storeUrl,sessionId,page:pageSlug || '/',referrer:document.referrer}).catch(() => {});
-    } catch { /* Analytics never prevents the website from loading. */ }
-  },[catalog?.analyticsEnabled,loading,editorData,storeUrl,pageSlug]);
+    if (!catalog?.analyticsEnabled || !analyticsConsent || loading || !editorData) return;
+    trackWebsiteEvent({storeUrl,type:'page_view',page:pageSlug ? `/${pageSlug}` : '/'}).catch(() => {});
+  },[catalog?.analyticsEnabled,analyticsConsent,consentRevision,loading,editorData,storeUrl,pageSlug]);
+
+  const consentNotice = catalog?.analyticsEnabled && !analyticsDecision ? <aside className="website-analytics-consent" aria-label="Optional website analytics"><p>Allow anonymous, session-based analytics to help this business understand website visits? No name, email, or precise location is collected.</p><div><button type="button" onClick={() => { grantAnalyticsConsent(storeUrl); setConsentRevision(value=>value+1); }}>Allow</button><button type="button" onClick={() => { try { sessionStorage.setItem(analyticsConsentKey(storeUrl),'denied'); } catch { /* Storage can be disabled by the browser. */ } setConsentRevision(value=>value+1); }}>No thanks</button></div></aside> : null;
 
   const brandName =
     editorData?.brandName ||
@@ -117,9 +119,10 @@ function addToCart(product) {
     openProduct(product.id);
     return;
   }
-  try { localStorage.setItem('businessCart',JSON.stringify(appendCart(readCart(localStorage),{...product,price:productPrice(product)}))); alert('Added to cart'); }
+  try { localStorage.setItem('businessCart',JSON.stringify(appendCart(readCart(localStorage),{...product,price:productPrice(product)}))); if(catalog?.analyticsEnabled&&analyticsConsent)trackWebsiteEvent({storeUrl,type:'add_to_cart',page:pageSlug?`/${pageSlug}`:'/'}).catch(()=>{}); alert('Added to cart'); }
   catch(error) { alert(error.message); }
 }
+
 
   const categories = useMemo(() => [...new Set(products.map(product => product.category).filter(Boolean))], [products]);
   const visibleProducts = useMemo(() => {
@@ -169,7 +172,7 @@ function addToCart(product) {
     (Array.isArray(editorData?.pages) && editorData.pages.some(page => Array.isArray(page.sections)));
   if (editorData?.editorVersion === 2 || structuredWebsite) {
     return (
-      <WebsiteRenderer
+      <><WebsiteRenderer
         model={{ ...editorData, editorVersion: 2 }}
         baseUrl={`/store/${storeUrl}`}
         slug={pageSlug}
@@ -179,12 +182,12 @@ function addToCart(product) {
         submitForm={data => businessCall("submitInquiry", { ...data, storeUrl })}
         products={products}
         addToCart={addToCart}
-      />
+      />{consentNotice}</>
     );
   }
 
   return (
-    <div
+    <><div
       className={`public-store-page template-${template}`}
       style={{
         "--store-primary": primaryColor,
@@ -472,7 +475,7 @@ function addToCart(product) {
           © 2026 {brandName}. All rights reserved.
         </p>
       </footer>
-    </div>
+    </div>{consentNotice}</>
   );
 }
 

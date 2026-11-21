@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import "../styles/checkout.css";
 import { COUNTRY_OPTIONS } from "../utils/countryOptions.js";
 import { customBackendRequest } from "../services/customBackendSession";
+import { trackWebsiteEvent } from "../services/websiteAnalytics";
 
 const initialForm = {
   fullName: "",
@@ -48,6 +49,7 @@ function Checkout() {
     customBackendRequest(`/businesses/public/${encodeURIComponent(storeUrl)}`)
       .then(store=>{
         const settings=store?.settings?.commerceSettings||{};
+        if(store?.settings?.businessCatalog?.analyticsEnabled)trackWebsiteEvent({storeUrl,type:'checkout_start',page:'/checkout'}).catch(()=>{});
         setCommerceSettings(settings);
         const countries=[...new Set((settings.shippingZones||[]).flatMap(zone=>zone.countryCodes||[]))];
         if(countries.length)setForm(current=>({...current,countryCode:countries.includes(current.countryCode)?current.countryCode:countries[0]}));

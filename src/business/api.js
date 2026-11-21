@@ -31,6 +31,7 @@ export async function businessCall(name, data = {}) {
   if (name === 'rescheduleBooking') return customBackendRequest(`/businesses/mine/records/${encodeURIComponent(data.id)}/reschedule`, { method: 'PATCH', body: JSON.stringify({ data: { start: data.start } }) });
   if (name === 'submitInquiry') return customBackendRequest('/public/inquiries', { method: 'POST', body: JSON.stringify({ data }) });
   if (name === 'createPickupOrder') return customBackendRequest('/public/pickup-orders', { method: 'POST', body: JSON.stringify({ data }) });
-  if (name === 'recordPageView') return customBackendRequest('/public/analytics/pageview', { method: 'POST', body: JSON.stringify({ data }) });
+  if (name === 'recordPageView') return customBackendRequest('/analytics/event', { method: 'POST', body: JSON.stringify({ data: { ...data, type: 'page_view', eventId: data.eventId || crypto.randomUUID(), userAgent: navigator.userAgent } }) });
+  if (name === 'recordAnalyticsEvent') return customBackendRequest('/analytics/event', { method: 'POST', body: JSON.stringify({ data: { ...data, eventId: data.eventId || crypto.randomUUID(), userAgent: navigator.userAgent } }) });
   throw new Error(`The ${name} feature is not connected to the custom backend yet.`);
 }
