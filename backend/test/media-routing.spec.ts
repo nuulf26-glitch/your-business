@@ -23,4 +23,19 @@ describe('public uploaded media URL',()=>{
   const app=module.createNestApplication();app.setGlobalPrefix('api/v1');await app.listen(0,'127.0.0.1');
   try{const response=await fetch(`${await app.getUrl()}/api/v1/uploads/businesses/test-user/${'a'.repeat(36)}`);expect(response.status).toBe(200);expect(response.headers.get('content-type')).toContain('video/mp4');expect(new Uint8Array(await response.arrayBuffer())).toEqual(content);expect(store.get).toHaveBeenCalledWith(`businesses/test-user/${'a'.repeat(36)}`,{type:'arrayBuffer'});}finally{await app.close();}
  });
+
+ it('does not serve active legacy upload content from the API origin',async()=>{
+  const store={getMetadata:jest.fn().mockResolvedValue({metadata:{contentType:'text/html; charset=utf-8'}}),get:jest.fn().mockResolvedValue(Buffer.from('<script>document.body.textContent="executed"</script>'))};
+  (getStore as jest.Mock).mockReturnValue(store);
+  const module=await Test.createTestingModule({controllers:[UploadController],providers:[{provide:MediaStorage,useValue:{}}]}).overrideGuard(SessionGuard).useValue({canActivate:()=>true}).compile();
+  const app=module.createNestApplication();app.setGlobalPrefix('api/v1');await app.listen(0,'127.0.0.1');
+  try{
+   const response=await fetch(`${await app.getUrl()}/api/v1/uploads/businesses/test-user/${'b'.repeat(36)}`);
+   expect(response.status).toBe(200);
+   expect(response.headers.get('content-type')).toContain('application/octet-stream');
+   expect(response.headers.get('content-disposition')).toBe('attachment');
+   expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+   expect(await response.text()).toContain('<script>');
+  }finally{await app.close();}
+ });
 });
