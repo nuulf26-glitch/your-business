@@ -120,6 +120,7 @@ function DashboardLayout({ children }) {
     { label: "Marketing", path: "/marketing" },
     { label: "Memberships", path: "/memberships" },
     { label: "Support inbox", path: "/support/inbox" },
+    { label: "Courses", path: "/courses" },
     { label: "Business tools", path: "/business" },
     { label: "Shipping", path: "/shipping" },
     { label: "Settings", path: "/settings" },
