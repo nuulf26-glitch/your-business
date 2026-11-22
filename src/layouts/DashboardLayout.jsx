@@ -118,6 +118,7 @@ function DashboardLayout({ children }) {
     { label: "Analytics & reports", path: "/analytics" },
     { label: "Content & CMS", path: "/cms" },
     { label: "Marketing", path: "/marketing" },
+    { label: "Memberships", path: "/memberships" },
     { label: "Business tools", path: "/business" },
     { label: "Shipping", path: "/shipping" },
     { label: "Settings", path: "/settings" },

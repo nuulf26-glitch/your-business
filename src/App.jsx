@@ -30,6 +30,8 @@ const Analytics = lazy(() => import("./pages/Analytics"));
 const CMS = lazy(() => import("./pages/CMS"));
 const Marketing = lazy(() => import("./pages/Marketing"));
 const MarketingUnsubscribe = lazy(() => import("./pages/MarketingUnsubscribe"));
+const Memberships = lazy(() => import("./pages/Memberships"));
+const MembershipAccess = lazy(() => import("./pages/MembershipAccess"));
 const StoreSetup = lazy(() => import("./pages/StoreSetup"));
 const StoreDesigner = lazy(() => import("./pages/StoreDesigner"));
 const Shipping = lazy(() => import("./pages/Shipping"));
@@ -118,6 +120,8 @@ function App() {
       <Route path="/cms" element={<ProtectedRoute><CMS /></ProtectedRoute>} />
       <Route path="/marketing" element={<ProtectedRoute><Marketing /></ProtectedRoute>} />
       <Route path="/unsubscribe" element={<MarketingUnsubscribe />} />
+      <Route path="/memberships" element={<ProtectedRoute><Memberships /></ProtectedRoute>} />
+      <Route path="/memberships/access" element={<MembershipAccess />} />
 
       <Route
         path="/store-setup"
