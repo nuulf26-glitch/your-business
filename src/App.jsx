@@ -28,6 +28,10 @@ const Customers = lazy(() => import("./pages/Customers"));
 const CRM = lazy(() => import("./pages/CRM"));
 const Analytics = lazy(() => import("./pages/Analytics"));
 const CMS = lazy(() => import("./pages/CMS"));
+const PublicCmsPage = lazy(() => import("./pages/PublicCmsPage"));
+const About = lazy(() => import("./pages/About"));
+const Contact = lazy(() => import("./pages/Contact"));
+const PricingPage = lazy(() => import("./pages/PricingPage"));
 const StoreSetup = lazy(() => import("./pages/StoreSetup"));
 const StoreDesigner = lazy(() => import("./pages/StoreDesigner"));
 const Shipping = lazy(() => import("./pages/Shipping"));
@@ -43,6 +47,9 @@ function App() {
     <Routes>
       {/* Main public pages */}
       <Route path="/" element={<LandingPage />} />
+      <Route path="/about" element={<About />} />
+      <Route path="/contact" element={<Contact />} />
+      <Route path="/pricing" element={<PricingPage />} />
       <Route path="/design-preview" element={<DesignPreview />} />
       <Route path="/try" element={<TryWebsite />} />
       <Route path="/login" element={<Login />} />
@@ -57,6 +64,7 @@ function App() {
       <Route path="/editor" element={<ProtectedRoute><WebsiteEditor /></ProtectedRoute>} />
 
       {/* Customer store */}
+      <Route path="/store/:storeUrl/content/:collectionSlug/*" element={<PublicCmsPage />} />
       <Route path="/store/:storeUrl/*" element={<PublicStore />} />
       <Route path="/store/:storeUrl/cart" element={<Cart />} />
       <Route path="/product/:productId" element={<ProductPage />} />

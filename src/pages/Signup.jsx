@@ -110,9 +110,7 @@ async function handleSignup(event) {
             <h2>Start building your website</h2>
 
               <p>
-              Enter your details to keep your saved website preview. CYB Lifetime
-              Access is a one-time $246 payment through Stripe. You can review
-              the payment before confirming secure checkout.
+              Creating an account saves your website and unlocks publishing after activation. Lifetime access is a one-time $246 USD payment. You will review the checkout before confirming any payment.
             </p>
           </div>
 

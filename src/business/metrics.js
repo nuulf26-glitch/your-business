@@ -13,7 +13,7 @@ function collectedCents(order) {
     ? data.paymentHistory.filter((entry) => entry?.type === "collected")
     : [];
   if (events.length) return events.reduce((sum, entry) => sum + (Number(entry.amountCents) || 0), 0);
-  if (!["paid", "refunded"].includes(String(data.paymentStatus || "").toLowerCase())) return 0;
+  if (!["paid", "refunded"].includes(String(data.paymentStatus || data.status || "").toLowerCase())) return 0;
   return Number(data.collectedAmountCents ?? data.amountCents) || cents(data.total);
 }
 
@@ -26,7 +26,7 @@ function refundCents(order) {
 
 export function orderMetrics(orders) {
   const collected = orders.filter((order) => collectedCents(order) > 0);
-  const paid = orders.filter((order) => String(order?.paymentStatus || order?.data?.paymentStatus || "").toLowerCase() === "paid");
+  const paid = orders.filter((order) => ["paid", "refunded"].includes(String(order?.paymentStatus || order?.data?.paymentStatus || order?.status || order?.data?.status || "").toLowerCase()));
   const grossCollectedCents = collected.reduce((sum, order) => sum + collectedCents(order), 0);
   const refundedCents = orders.reduce((sum, order) => sum + refundCents(order), 0);
   const netRevenueCents = grossCollectedCents - refundedCents;

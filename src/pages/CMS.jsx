@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { getStore } from '../services/storeService';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { archiveCmsCollection, archiveCmsEntry, createCmsCollection, createCmsEntry, listCmsCollections, listCmsEntries, publishCmsEntry, unpublishCmsEntry, updateCmsEntry } from '../services/cmsService';
 import '../styles/cms.css';
@@ -23,6 +24,7 @@ export default function CMS() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [businessSlug, setBusinessSlug] = useState('');
   const selected = useMemo(() => collections.find((row) => row.id === selectedId) || null, [collections, selectedId]);
 
   async function loadCollections(preferredId = selectedId) {
@@ -42,6 +44,7 @@ export default function CMS() {
 
   useEffect(() => {
     let mounted = true;
+    getStore().then(store => { if (mounted) setBusinessSlug(store?.storeUrl || ''); }).catch(() => {});
     listCmsCollections().then((rows) => {
       if (!mounted) return;
       const safeRows = Array.isArray(rows) ? rows : [];
@@ -158,7 +161,7 @@ export default function CMS() {
         {collections.map((collection) => <button type="button" key={collection.id} className={`cms-collection ${selectedId === collection.id ? 'selected' : ''}`} onClick={() => { setSelectedId(collection.id); setActiveEntry(null); setEntryForm(null); }}><strong>{collection.name}</strong><small>/{collection.slug}</small><span>CMS collection</span></button>)}
       </aside>
       <section className="cms-panel cms-content-panel">
-        {selected && <><div className="cms-panel-heading"><div><span className="cms-eyebrow">/{selected.slug}</span><h2>{selected.name}</h2><p>{selected.description || 'Manage drafts and published entries.'}</p></div><button type="button" className="cms-danger-quiet" disabled={busy} onClick={archiveCollection}>Archive collection</button></div>
+        {selected && <><div className="cms-panel-heading"><div><span className="cms-eyebrow">/{selected.slug}</span><h2>{selected.name}</h2><p>{selected.description || 'Manage drafts and published entries.'}</p></div><div className="cms-actions">{businessSlug && <a className="cms-quiet" href={`/store/${encodeURIComponent(businessSlug)}/content/${encodeURIComponent(selected.slug)}`} target="_blank" rel="noreferrer">View live collection ↗</a>}<button type="button" className="cms-danger-quiet" disabled={busy} onClick={archiveCollection}>Archive collection</button></div></div>
           <div className="cms-content-grid"><div className="cms-entry-list"><div className="cms-list-heading"><h3>Entries <span>{entries.length}</span></h3><button type="button" className="cms-primary" onClick={newEntry}>New entry</button></div>
             {entries.length ? entries.map((entry) => <article className={`cms-entry-item ${activeEntry?.id === entry.id ? 'selected' : ''}`} key={entry.id}><button type="button" className="cms-entry-select" onClick={() => editEntry(entry)}><strong>{entry.title}</strong><small>{entry.slug}</small></button><span className={`cms-status ${entry.status}`}>{entry.status === 'published' ? 'Published' : 'Draft'}</span><button type="button" className="cms-remove" disabled={busy} onClick={() => archiveEntry(entry)}>Archive</button></article>) : <p className="cms-inline-empty">No entries yet. Add your first one.</p>}
           </div>

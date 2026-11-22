@@ -49,7 +49,7 @@ export default function GoogleSignInButton({ acceptedTerms = false }) {
     return () => { active = false; script?.removeEventListener('load', render); };
   }, [acceptedTerms, navigate]);
 
-  if (!clientId) return <p className="auth-provider-unavailable">Google sign-in is not configured on this environment.</p>;
+  if (!clientId) return <p className="auth-provider-unavailable">Google sign-in is unavailable here. Continue with your email and password.</p>;
   return <div className="auth-provider-wrap">
     <div ref={host} />
     {error && <p className="auth-error" role="alert">{error}</p>}
