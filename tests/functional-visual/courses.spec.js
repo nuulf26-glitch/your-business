@@ -39,7 +39,7 @@ test("course authoring is responsive and shows publish and learner controls", as
 
 test("learners can complete lessons and see issued completion", async ({ page }) => {
   await mockCourseApi(page);
-  await page.goto(`/learn?course=${course.id}`);
+  await page.goto(`/learn/${course.id}`);
   await page.getByLabel("Private access key").fill("synthetic-private-course-token-123456789012345");
   await page.getByRole("button", { name: "Open course" }).click();
   await expect(page.getByRole("heading", { name: "Considered Design" })).toBeVisible();
