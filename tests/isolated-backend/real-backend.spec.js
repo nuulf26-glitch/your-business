@@ -329,3 +329,94 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
 
   await secondTab.close();
 });
+
+test('approved business features persist through authenticated APIs with tenant isolation', async ({ page }) => {
+  const email = process.env.E2E_TEST_EMAIL;
+  const password = process.env.E2E_TEST_PASSWORD;
+  const slug = process.env.E2E_STORE_SLUG;
+  const suffix = randomUUID().replaceAll('-', '');
+  await page.goto('/login');
+  await page.locator('#loginEmail').fill(email);
+  await page.locator('input[autocomplete="current-password"]').fill(password);
+  await page.getByRole('button', { name: 'Log in' }).click();
+  await expect(page).toHaveURL(/\/dashboard(?:$|\?)/);
+
+  const business = await requestFromPage(page, '/businesses/mine');
+  expect(business.id).toBeTruthy();
+  expect(business.slug).toBe(slug);
+  const model = {
+    editorVersion: 2,
+    brandName: 'Synthetic Approved Features Store',
+    sections: [{ id: `features-${suffix}`, type: 'hero', title: 'Isolated feature test', body: 'Synthetic only.' }],
+  };
+  await requestFromPage(page, '/websites/publish', 'POST', { model });
+
+  const collection = await requestFromPage(page, '/cms/collections', 'POST', { data: {
+    name: 'Test stories', slug: `stories-${suffix}`, description: 'Ephemeral API E2E content.', categories: ['Guides'],
+    fields: [{ key: 'title', label: 'Title', type: 'text', required: true }, { key: 'body', label: 'Body', type: 'longText', required: true }],
+  } });
+  const entry = await requestFromPage(page, `/cms/collections/${encodeURIComponent(collection.id)}/entries`, 'POST', { data: {
+    title: 'Isolated API story', slug: `story-${suffix}`, category: 'Guides', content: { title: 'Isolated API story', body: 'Synthetic published content.' },
+  } });
+  await requestFromPage(page, `/cms/entries/${encodeURIComponent(entry.id)}/publish`, 'POST', { data: {} });
+  const publicContent = await requestFromPage(page, `/public/cms/${encodeURIComponent(slug)}/${encodeURIComponent(collection.slug)}`);
+  expect(publicContent.entries.map((item) => item.id)).toContain(entry.id);
+
+  const marketing = await requestFromPage(page, '/marketing/contacts', 'POST', { data: {
+    name: 'Synthetic opted-in contact', email: `marketing-${suffix}@example.test`, consented: true, consentSource: 'Isolated API end-to-end test opt-in',
+  } });
+  expect(marketing.consentStatus).toBe('subscribed');
+  expect(marketing.unsubscribeToken).toMatch(/^[A-Za-z0-9_-]{40,64}$/);
+  const unsubscribed = await requestFromPage(page, '/marketing/unsubscribe', 'POST', { data: {
+    businessSlug: marketing.businessSlug, contactId: marketing.id, token: marketing.unsubscribeToken,
+  } });
+  expect(unsubscribed.consentStatus).toBe('unsubscribed');
+
+  const tier = await requestFromPage(page, '/memberships/tiers', 'POST', { data: {
+    name: `Test tier ${suffix}`, description: 'Ephemeral API E2E tier.', protectedContent: ['Synthetic member lesson.'],
+  } });
+  const entitlement = await requestFromPage(page, '/memberships/entitlements', 'POST', { data: {
+    tierId: tier.id, name: 'Synthetic member', email: `member-${suffix}@example.test`,
+  } });
+  expect(entitlement.accessToken).toMatch(/^[A-Za-z0-9_-]{40,64}$/);
+  const memberContent = await requestFromPage(page, '/public/memberships/access', 'POST', { token: entitlement.accessToken });
+  expect(memberContent.content).toEqual(['Synthetic member lesson.']);
+
+  const requestId = `support-${suffix}`;
+  const support = await requestFromPage(page, '/public/support', 'POST', { data: {
+    storeUrl: slug, requestId, name: 'Synthetic support customer', email: `support-${suffix}@example.test`,
+    subject: 'Isolated support request', message: 'This is synthetic support test data.', needsHuman: true,
+  } });
+  const supportDetail = await requestFromPage(page, `/support/inbox/${encodeURIComponent(support.id)}`);
+  expect(supportDetail).toMatchObject({ id: support.id, requiresHuman: true, subject: 'Isolated support request' });
+  await requestFromPage(page, `/support/inbox/${encodeURIComponent(support.id)}/notes`, 'POST', { data: { note: 'Private synthetic QA note.' } });
+  const supportAfterNote = await requestFromPage(page, `/support/inbox/${encodeURIComponent(support.id)}`);
+  expect(supportAfterNote.messages.some((message) => message.kind === 'internal_note')).toBe(true);
+
+  const course = await requestFromPage(page, '/courses', 'POST', { data: {
+    title: 'Synthetic E2E Course', slug: `course-${suffix}`, description: 'Synthetic course only.', visibility: 'private',
+  } });
+  const lesson = await requestFromPage(page, `/courses/${encodeURIComponent(course.id)}/lessons`, 'POST', { data: {
+    title: 'Lesson one', body: 'Synthetic lesson content.', quiz: [{ prompt: 'Select the test answer', options: ['Wrong', 'Correct'], correctOption: 1 }], passPercent: 80,
+  } });
+  await requestFromPage(page, `/courses/${encodeURIComponent(course.id)}`, 'PATCH', { data: { status: 'published' } });
+  const enrollment = await requestFromPage(page, `/courses/${encodeURIComponent(course.id)}/enrollments`, 'POST', { data: {
+    learnerName: 'Synthetic learner', email: `learner-${suffix}@example.test`,
+  } });
+  const accessPayload = { courseId: course.id, accessToken: enrollment.accessToken };
+  const courseAccess = await requestFromPage(page, '/public/courses/access', 'POST', { data: accessPayload });
+  expect(courseAccess.course.lessons[0]).not.toHaveProperty('quiz.0.correctOption');
+  expect(courseAccess.course.lessons[0].quiz[0]).not.toHaveProperty('correctOption');
+  const progress = await requestFromPage(page, '/public/courses/progress', 'POST', { data: { ...accessPayload, lessonId: lesson.id, answers: [1] } });
+  expect(progress).toMatchObject({ lessonId: lesson.id, completed: true, passed: true });
+  const completedCourse = await requestFromPage(page, '/public/courses/access', 'POST', { data: accessPayload });
+  expect(completedCourse.certificate).toMatchObject({ learnerName: 'Synthetic learner', courseTitle: 'Synthetic E2E Course' });
+
+  const secondStore = await requestFromPage(page, '/businesses/mine/stores', 'POST', {
+    name: `Synthetic second store ${suffix}`, slug: `features-${suffix}`, category: 'general', settings: { storeName: `Synthetic second store ${suffix}`, storeUrl: `features-${suffix}` },
+  });
+  for (const path of ['/cms/collections', '/memberships/tiers', '/support/inbox', '/courses']) {
+    expect(await requestFromPage(page, path, 'GET', undefined, secondStore.id), `${path} must be isolated to the selected business`).toEqual([]);
+  }
+  await expect(page.locator('body')).not.toContainText('Page Not Found');
+});
