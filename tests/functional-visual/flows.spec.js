@@ -427,5 +427,19 @@ test('analytics dashboard shows real report fields, saves a range, and stays res
   for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1024 }, { width: 390, height: 844 }, { width: 375, height: 812 }]) {
     await page.setViewportSize(viewport);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `Analytics overflow at ${viewport.width}px`).toBeTruthy();
+    if (viewport.width === 375) {
+      const workspaceNav = page.getByRole('navigation', { name: 'Workspace' });
+      const navState = await workspaceNav.evaluate((nav) => {
+        const lastLink = nav.lastElementChild;
+        nav.scrollLeft = nav.scrollWidth;
+        const navRect = nav.getBoundingClientRect();
+        const lastRect = lastLink.getBoundingClientRect();
+        return { overflowX: getComputedStyle(nav).overflowX, hasScrollableItems: nav.scrollWidth > nav.clientWidth, lastLinkReachable: lastRect.right <= navRect.right + 1 };
+      });
+      expect(navState.overflowX).toBe('auto');
+      expect(navState.hasScrollableItems).toBeTruthy();
+      expect(navState.lastLinkReachable).toBeTruthy();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'Scrolling workspace navigation must not widen the document').toBeTruthy();
+    }
   }
 });
