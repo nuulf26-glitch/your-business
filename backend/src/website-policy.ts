@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { assertPublishedContactFormDefinition } from './form-policy';
 
 const TYPES=new Set(['hero','about','services','menu','booking','gallery','faq','reviews','footer','heading','text','button','photo','video','cta','container','columns','product','chat','contact','divider','spacer','collection','group']);
 export function validateWebsite(input:unknown,publishing=true):Record<string,any>{
@@ -19,6 +20,7 @@ export function validateWebsite(input:unknown,publishing=true):Record<string,any
       if(depth>6||sections.length>200)throw new BadRequestException('Too many nested sections.');
       for(const section of sections){
         if(!section.id||sectionIds.has(section.id)||!TYPES.has(section.type))throw new BadRequestException('Invalid or duplicate section.');sectionIds.add(section.id);
+        if(section.formFields!==undefined){if(section.type!=='contact')throw new BadRequestException('Custom questions can only be added to contact forms.');try{assertPublishedContactFormDefinition(section);}catch(error){throw new BadRequestException(error instanceof Error?error.message:'Invalid contact form.');}}
         if(section.href&&!/^(https?:\/\/|mailto:|tel:|#|\/(?!\/))/i.test(section.href))throw new BadRequestException('Use a safe link destination.');
         for(const url of [section.image,...(section.images||[])])if(url&&!/^(https:\/\/|\/api\/v1\/uploads\/)/i.test(url))throw new BadRequestException('Website images must use HTTPS.');
         const media=[...(Array.isArray(section.media)?section.media:[]),...(Array.isArray(section.items)?section.items.flatMap((item:any)=>Array.isArray(item?.media)?item.media:[]):[])];

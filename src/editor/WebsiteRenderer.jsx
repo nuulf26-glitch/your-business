@@ -59,14 +59,28 @@ export function WebsiteSection(props) {
 function WebsiteForm({ section, submitForm }) {
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
+  const [answers, setAnswers] = useState({});
+  const fields = Array.isArray(section.formFields) ? section.formFields.slice(0, 12) : [];
+  const visibleFields = fields.filter(field => !field.showWhen || String(answers[field.showWhen.fieldId] ?? '') === String(field.showWhen.value));
+  const setAnswer = (fieldId, value) => setAnswers(current => {
+    const next = { ...current, [fieldId]: value };
+    for (const field of fields) if (field.showWhen && String(next[field.showWhen.fieldId] ?? '') !== String(field.showWhen.value)) delete next[field.id];
+    return next;
+  });
   return <form className="cyb-form" onSubmit={async event => {
     event.preventDefault(); if (!submitForm) return;
     const form = event.currentTarget;
-    const data = Object.fromEntries(new FormData(form));
+    const data = Object.fromEntries([...new FormData(form)].filter(([key]) => !key.startsWith('custom_')));
+    const customAnswers = Object.fromEntries(visibleFields.flatMap(field => {
+      const input = form.elements.namedItem(`custom_${field.id}`);
+      if (!input) return [];
+      if (field.type === 'checkbox') return input.checked ? [[field.id, 'true']] : [];
+      return [[field.id, String(input.value || '')]];
+    }));
     setBusy(true); setStatus('');
-    try { await submitForm({ ...data, formId: section.id }); setStatus('Thank you. Your message has been received.'); form.reset(); }
+    try { await submitForm({ ...data, formId: section.id, ...(fields.length ? { answers: customAnswers } : {}) }); setStatus('Thank you. Your message has been received.'); form.reset(); setAnswers({}); }
     catch { setStatus('Could not send your message. Please try again.'); } finally { setBusy(false); }
-  }}><label>Your name<input name="name" required maxLength={120} autoComplete="name" /></label><label>Email<input name="email" type="email" required autoComplete="email" /></label><label>Message<textarea name="message" required maxLength={4000} rows={4} /></label><button className="cyb-action" disabled={!submitForm || busy}>{busy ? 'Sending…' : 'Send inquiry'}</button>{!submitForm && <p className="cyb-note">Form preview. Submission is available on the published website when configured.</p>}<p role="status">{status}</p></form>;
+  }}><label>Your name<input name="name" required maxLength={120} autoComplete="name" /></label><label>Email<input name="email" type="email" required autoComplete="email" /></label><label>Message<textarea name="message" required maxLength={4000} rows={4} /></label>{visibleFields.map(field => <label key={field.id}>{field.label}{field.type === 'textarea' ? <textarea name={`custom_${field.id}`} required={!!field.required} maxLength={2000} rows={3} value={answers[field.id] || ''} onChange={event => setAnswer(field.id, event.target.value)} /> : field.type === 'select' ? <select name={`custom_${field.id}`} required={!!field.required} value={answers[field.id] || ''} onChange={event => setAnswer(field.id, event.target.value)}><option value="">Choose an option</option>{(field.options || []).map(option => <option key={option} value={option}>{option}</option>)}</select> : field.type === 'checkbox' ? <input name={`custom_${field.id}`} type="checkbox" value="true" required={!!field.required} checked={answers[field.id] === 'true'} onChange={event => setAnswer(field.id, event.target.checked ? 'true' : '')} /> : <input name={`custom_${field.id}`} type="text" required={!!field.required} maxLength={2000} value={answers[field.id] || ''} onChange={event => setAnswer(field.id, event.target.value)} />}</label>)}<button className="cyb-action" disabled={!submitForm || busy}>{busy ? 'Sending…' : 'Send inquiry'}</button>{!submitForm && <p className="cyb-note">Form preview. Submission is available on the published website when configured.</p>}<p role="status">{status}</p></form>;
 }
 export default function WebsiteRenderer({ model, products = [], addToCart, baseUrl = '', slug = '', onPageChange, booking, submitForm, catalog, pickup, device = 'auto', className = '', style, renderSection, editText, selectedId, onSelectSection, onDragSection, onDropSection, dropTarget }) {
   const [menuOpen, setMenuOpen] = useState(false);
