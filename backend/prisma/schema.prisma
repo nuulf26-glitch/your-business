@@ -211,3 +211,13 @@ model MediaAsset {
   createdAt DateTime @default(now())
   @@index([ownerId, status, expiresAt])
 }
+
+model ApiThrottleBucket {
+  id String @id
+  totalHits Int
+  expiresAt DateTime
+  blockedUntil DateTime?
+  updatedAt DateTime @updatedAt
+  @@index([expiresAt])
+  @@index([blockedUntil])
+}
