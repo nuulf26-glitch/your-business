@@ -17,7 +17,7 @@ const routes = [
   ["dashboard", "/dashboard"], ["editor", "/editor"], ["templates", "/templates"],
   ["create-website", "/create-website"], ["products", "/products"],
   ["orders", "/orders"], ["order-details", "/orders/fixture-order"],
-  ["customers", "/customers"], ["business", "/business"], ["cms", "/cms"], ["marketing", "/marketing"], ["marketing-unsubscribe", "/unsubscribe?token=visual-test"], ["memberships", "/memberships"], ["membership-access", "/memberships/access?token=visual-test"],
+  ["customers", "/customers"], ["business", "/business"], ["cms", "/cms"], ["marketing", "/marketing"], ["marketing-unsubscribe", "/unsubscribe?token=visual-test"], ["memberships", "/memberships"], ["membership-access", "/memberships/access?token=visual-test"], ["support-inbox", "/support/inbox"], ["public-support", "/support/atelier-preview"],
   ["settings", "/settings"], ["store-setup", "/store-setup"],
   ["store-designer", "/store-designer"], ["shipping", "/shipping"],
   ["storefront", "/store/atelier-preview"], ["product-page", "/product/fixture-product"],

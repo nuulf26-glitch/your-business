@@ -15,6 +15,7 @@ import { AnalyticsController } from './analytics';
 import { CmsController, PublicCmsController } from './cms';
 import { MarketingController } from './marketing';
 import { MembershipsController, PublicMembershipsController } from './memberships';
+import { PublicSupportController, SupportInboxController } from './support-inbox';
 
 @Module({
   imports: [
@@ -26,7 +27,7 @@ import { MembershipsController, PublicMembershipsController } from './membership
       useFactory: (db: DbService) => ({ throttlers: [{ ttl: 60_000, limit: 100 }], storage: new DatabaseThrottlerStorage(db) }),
     }),
   ],
-  controllers: [HealthController, AuthController, BusinessController, ProductController, PublicProductController, PublicBusinessController, WebsiteController, TrialPreviewController, UploadController, CustomerController, OrderController, PublicOrderController, StripeController, StripeWebhookController, PlatformRefundController, CrmController, AnalyticsController, CmsController, PublicCmsController, MarketingController, MembershipsController, PublicMembershipsController],
+  controllers: [HealthController, AuthController, BusinessController, ProductController, PublicProductController, PublicBusinessController, WebsiteController, TrialPreviewController, UploadController, CustomerController, OrderController, PublicOrderController, StripeController, StripeWebhookController, PlatformRefundController, CrmController, AnalyticsController, CmsController, PublicCmsController, MarketingController, MembershipsController, PublicMembershipsController, PublicSupportController, SupportInboxController],
   providers: [MediaStorage, SessionGuard, MailService, { provide: APP_GUARD, useClass: ThrottlerGuard }, { provide: APP_GUARD, useClass: OriginGuard }],
 })
 export class AppModule {}

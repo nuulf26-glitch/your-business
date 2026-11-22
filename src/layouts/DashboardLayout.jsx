@@ -119,6 +119,7 @@ function DashboardLayout({ children }) {
     { label: "Content & CMS", path: "/cms" },
     { label: "Marketing", path: "/marketing" },
     { label: "Memberships", path: "/memberships" },
+    { label: "Support inbox", path: "/support/inbox" },
     { label: "Business tools", path: "/business" },
     { label: "Shipping", path: "/shipping" },
     { label: "Settings", path: "/settings" },
