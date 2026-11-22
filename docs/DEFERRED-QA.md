@@ -14,3 +14,8 @@ approved build work continues. Close items with evidence in the owning phase PR.
 | Browser QA | Local Chromium is unavailable; the responsive Playwright suite passed on GitHub's Chromium runner, including four viewport sizes (visual QA run #246) | Passed in CI |
 | Planning | Recover approved Phase 14–16 names and scope; resolve the historical Phase 12 numbering conflict | Blocked on source records |
 | Sequence | Phase 13 Forgot Password work must remain last per approved record | Deferred until Phases 14–16 complete |
+| CMS baseline | Confirm published entries render in public CYB themes and verify collection/content isolation using two authenticated businesses | Pending centralized final QA |
+| Marketing baseline | Verify consent capture, signed unsubscribe, suppression retention and cross-business isolation; email delivery intentionally remains disabled | Pending centralized final QA |
+| Membership baseline | Verify tier grants, access-token expiry/revocation, protected-content visibility and cross-business isolation | Pending centralized final QA |
+| Unified Inbox baseline | Submit public support requests, confirm merchant routing, private-note visibility, assignment/handoff and cross-business isolation | Pending centralized final QA |
+| Courses baseline | Verify owner-scoped authoring, invitation access/revocation, learner progress and certificates using isolated test accounts | Pending centralized final QA |
