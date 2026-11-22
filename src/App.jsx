@@ -34,6 +34,8 @@ const Memberships = lazy(() => import("./pages/Memberships"));
 const MembershipAccess = lazy(() => import("./pages/MembershipAccess"));
 const SupportInbox = lazy(() => import("./support/SupportInboxPage"));
 const PublicSupportForm = lazy(() => import("./support/PublicSupportFormPage"));
+const Courses = lazy(() => import("./pages/Courses"));
+const LearnCourse = lazy(() => import("./pages/LearnCourse"));
 const StoreSetup = lazy(() => import("./pages/StoreSetup"));
 const StoreDesigner = lazy(() => import("./pages/StoreDesigner"));
 const Shipping = lazy(() => import("./pages/Shipping"));
@@ -126,6 +128,8 @@ function App() {
       <Route path="/memberships/access" element={<MembershipAccess />} />
       <Route path="/support/inbox" element={<ProtectedRoute><SupportInbox /></ProtectedRoute>} />
       <Route path="/support/:storeUrl" element={<PublicSupportForm />} />
+      <Route path="/courses" element={<ProtectedRoute><Courses /></ProtectedRoute>} />
+      <Route path="/learn/:courseId" element={<LearnCourse />} />
 
       <Route
         path="/store-setup"

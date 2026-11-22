@@ -426,7 +426,15 @@ test('analytics dashboard shows real report fields, saves a range, and stays res
   await expect(page.getByRole('button', { name: 'November overview daily', exact: true })).toBeVisible();
   for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1024 }, { width: 390, height: 844 }, { width: 375, height: 812 }]) {
     await page.setViewportSize(viewport);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `Analytics overflow at ${viewport.width}px`).toBeTruthy();
+    const layout = await page.evaluate(() => {
+      const viewportWidth = window.innerWidth;
+      const overflowers = [...document.body.querySelectorAll("*")].map((element) => {
+        const rect = element.getBoundingClientRect();
+        return { tag: element.tagName, className: String(element.className || "").slice(0, 100), left: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width), scrollWidth: element.scrollWidth, clientWidth: element.clientWidth };
+      }).filter((element) => element.width > 0 && (element.left < -1 || element.right > viewportWidth + 1)).slice(0, 12);
+      return { viewportWidth, documentWidth: document.documentElement.scrollWidth, overflowers };
+    });
+    expect(layout.documentWidth <= layout.viewportWidth + 1, `Analytics overflow at ${viewport.width}px: ${JSON.stringify(layout)}`).toBeTruthy();
     if (viewport.width === 375) {
       const workspaceNav = page.getByRole('navigation', { name: 'Workspace' });
       const navState = await workspaceNav.evaluate((nav) => {
