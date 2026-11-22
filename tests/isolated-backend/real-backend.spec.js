@@ -7,18 +7,20 @@ const artifactsDir = 'artifacts/isolated-backend/screenshots';
 fs.mkdirSync(artifactsDir, { recursive: true });
 
 async function requestFromPage(page, path, method = 'GET', data, businessId) {
-  const result = await page.evaluate(async ({ path, method, data, businessId }) => {
-    const response = await fetch(`/api/v1${path}`, {
-      method,
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...(businessId ? { 'x-cyb-business-id': businessId } : {}) },
-      ...(data === undefined ? {} : { body: JSON.stringify(data) }),
-    });
-    return {
-      status: response.status,
-      body: await response.json().catch(() => null),
-    };
-  }, { path, method, data, businessId });
+  const origin = new URL(page.url()).origin;
+  const response = await page.context().request.fetch(new URL(`/api/v1${path}`, origin).toString(), {
+    method,
+    headers: {
+      Origin: origin,
+      Referer: page.url(),
+      ...(businessId ? { 'x-cyb-business-id': businessId } : {}),
+    },
+    ...(data === undefined ? {} : { data }),
+  });
+  const result = {
+    status: response.status(),
+    body: await response.json().catch(() => null),
+  };
   expect(result.status, `${method} ${path} returned ${JSON.stringify(result.body)}`).toBeLessThan(400);
   return result.body;
 }
