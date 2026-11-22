@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import { customBackendRequest } from "../services/customBackendSession";
 import "../styles/courses.css";
 
@@ -6,8 +7,9 @@ const readSessionToken = key => { try { return sessionStorage.getItem(key) || ""
 const saveSessionToken = (key, token) => { try { sessionStorage.setItem(key, token); } catch { return false; } return true; };
 
 export default function LearnCourse() {
+  const { courseId: routeCourseId } = useParams();
   const params = new URLSearchParams(window.location.search);
-  const courseId = params.get("course") || "";
+  const courseId = routeCourseId || params.get("course") || "";
   const key = `cyb_course_access_${courseId}`;
   const [accessToken, setAccessToken] = useState(() => readSessionToken(key));
   const [tokenInput, setTokenInput] = useState(accessToken);
