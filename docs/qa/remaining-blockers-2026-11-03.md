@@ -60,3 +60,31 @@ These checks detect unreadable/truncated archives but do not prove a successful 
 - https://github.com/advisories/GHSA-g3hv-75wg-m249
 - https://github.com/stripe/stripe-php/blob/master/lib/Balance.php
 - https://docs.stripe.com/events/manage-webhook-endpoints
+
+## Follow-up verification — 2026-11-04
+
+This continuation starts from merged PR #55 and live staging commit `f6bdcf37d034199c18215e892053a3be84527906`. Render confirms the staging API deployment is live at that commit. The production service and MUSE were not touched.
+
+### Browser and customer journey
+
+- The local Chromium download/font-extraction failure was avoided using the supported remote Chrome environment with its Playwright API; no alternate download mirror was used.
+- The remote browser exposes a 1363×936 CSS viewport and no viewport-resize API. The public home, login, signup, and forgot-password routes loaded; at 1363px each checked route had no horizontal document overflow.
+- The protected dashboard loaded in the existing authenticated staging session. The staging-only Stripe diagnostic is a real read-only request and returned: `Test mode: no · Verified: no · Amount: $246.00 USD`. No checkout or charge was created.
+- Signup showed an unchecked Terms/Privacy checkbox and the Google message “Google sign-in is not configured on this environment.” No account was created and Terms were not accepted.
+- The forgot-password form loaded, but no request was submitted: the previously used email was not associated with an account, and no known legitimate test-account email was available to target.
+- Exact widths 1440, 1024, 768, 390, and 375px remain unverified because this Playwright surface cannot set or emulate a viewport. Do not mark responsive QA green based on this run.
+- The existing PR #55 two-account HTTP tests remain the only account-isolation evidence. They passed against in-memory fixtures; live access using a second authorized account remains blocked. No other account identity was used and no customer records were changed.
+- API health returned `{ status: "ok", database: "ok" }`.
+
+### Backups
+
+The Render resource view confirms the same available PostgreSQL 16 staging database, 5 GB disk, and existing paid plan. The Render connector does not expose backup retention windows or downloadable backup archives. Prior owner-authenticated Recovery view observations recorded three-day PITR, exports retained at least seven days, zero exports, and a disabled export action; those are not fresh integrity evidence. No archive could be parsed or checksummed, so backup integrity remains unverified. No database writes, restore, export, or extra-cost resource was used.
+
+### Remaining owner actions
+
+1. **Google Sign-In:** In Google Cloud Console, authorize the web origin `https://getcyb-staging-web.onrender.com` and provide the web OAuth client ID through Render’s staging frontend build variable `VITE_GOOGLE_CLIENT_ID` and staging API runtime variable `GOOGLE_CLIENT_ID`. Use the same client ID in both places; no client secret is used by this implementation. Redeploy the frontend and API, then a real Google sign-in can be checked.
+2. **Stripe test mode:** Set a legitimate test-mode `STRIPE_SECRET_KEY` and the signing secret `STRIPE_WEBHOOK_SECRET` on the staging API through Render’s secret environment-variable UI. In Stripe’s test-mode workbench, register `https://getcyb-staging-api.onrender.com/api/v1/payments/stripe/webhook` and subscribe it to `checkout.session.completed` and `checkout.session.async_payment_succeeded`. Then the hosted test checkout, signed delivery, activation, and publish journey can be verified. Keep all secret values out of chat and source control. Current diagnostic still reports test mode unavailable.
+3. **Forgot Password:** Identify an email already registered to a staging test account controlled by the owner. Ensure the staging mail provider has valid SMTP host, port, user, sender, and non-empty password configuration. Then one reset request can be submitted to that registered test account and delivery checked. Do not create an account under another person’s identity.
+4. **Live isolation:** Provide a second authorized staging test account controlled by the owner, with Terms and any email verification completed normally. Keep its account data isolated from customer records. The existing account session alone cannot prove cross-account denial.
+5. **Backup integrity:** The owner must expose an existing retained backup through the authenticated Render Recovery/export flow or provide a safe private archive. It can then be checksummed and parsed using the procedure above without restoring over staging. The connector cannot currently establish exact retention from live metadata or access an archive.
+
