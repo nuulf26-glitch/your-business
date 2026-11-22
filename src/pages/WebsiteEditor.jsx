@@ -74,6 +74,39 @@ function createId(prefix = "section") {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`;
 }
 
+function ConditionalFormFields({ fields = [], onChange }) {
+  const update = (id, patch) => onChange(fields.map(field => field.id === id ? { ...field, ...patch } : field));
+  const add = () => {
+    if (fields.length >= 12) return;
+    onChange([...fields, { id: createId('question'), label: 'New question', type: 'text', required: false }]);
+  };
+  const remove = id => onChange(fields.filter(field => field.id !== id).map(field => field.showWhen?.fieldId === id ? { ...field, showWhen: undefined } : field));
+  const conditionChoices = fields.flatMap((parent, parentIndex) => {
+    if (!['select', 'checkbox'].includes(parent.type)) return [];
+    const values = parent.type === 'checkbox' ? [{ value: 'true', label: 'Checked' }] : (parent.options || []).map(value => ({ value, label: value }));
+    return values.map(option => ({ key: `${parentIndex}:${option.value}`, fieldId: parent.id, value: option.value, label: `${parent.label} = ${option.label}` }));
+  });
+  return <section className="conditional-form-builder" aria-label="Custom form questions">
+    <div className="side-heading"><span>Custom questions</span><p>Add questions to this contact form. Use “Show when” to reveal a question based on an earlier choice.</p></div>
+    {fields.map((field, index) => {
+      const parents = fields.slice(0, index).filter(candidate => ['select', 'checkbox'].includes(candidate.type));
+      const conditionOptions = conditionChoices.filter(choice => parents.some(parent => parent.id === choice.fieldId));
+      const selectedCondition = conditionOptions.find(choice => choice.fieldId === field.showWhen?.fieldId && choice.value === field.showWhen?.value)?.key || '';
+      return <fieldset className="conditional-form-field" key={field.id}>
+        <legend>Question {index + 1}</legend>
+        <label className="property-field"><span>Question label</span><input aria-label={`Question ${index + 1} label`} maxLength={100} value={field.label} onChange={event => update(field.id, { label: event.target.value })} /></label>
+        <label className="property-field"><span>Answer type</span><select aria-label={`Question ${index + 1} type`} value={field.type} onChange={event => update(field.id, { type: event.target.value, options: event.target.value === 'select' ? (field.options?.length >= 2 ? field.options : ['Option 1', 'Option 2']) : undefined, showWhen: undefined })}><option value="text">Short answer</option><option value="textarea">Long answer</option><option value="select">Choose from a list</option><option value="checkbox">Yes / no</option></select></label>
+        {field.type === 'select' && <label className="property-field"><span>Choices (comma-separated)</span><textarea aria-label={`Question ${index + 1} choices`} rows="2" value={(field.options || []).join(', ')} onChange={event => update(field.id, { options: [...new Set(event.target.value.split(',').map(option => option.trim()).filter(Boolean))].slice(0, 20) })} /></label>}
+        <label className="property-field"><span><input type="checkbox" checked={!!field.required} onChange={event => update(field.id, { required: event.target.checked })} /> Required</span></label>
+        <label className="property-field"><span>Show when</span><select aria-label={`Question ${index + 1} visibility condition`} value={selectedCondition} onChange={event => { const choice = conditionOptions.find(item => item.key === event.target.value); update(field.id, { showWhen: choice ? { fieldId: choice.fieldId, value: choice.value } : undefined }); }}><option value="">Always show</option>{conditionOptions.map(choice => <option key={choice.key} value={choice.key}>{choice.label}</option>)}</select></label>
+        <button type="button" className="topbar-action" onClick={() => remove(field.id)}>Remove question</button>
+      </fieldset>;
+    })}
+    <button type="button" className="add-repeater" disabled={fields.length >= 12} onClick={add}>＋ Add a question</button>
+    <p className="selected-caption">Name, email and message stay required so the business can reply.</p>
+  </section>;
+}
+
 function money(value) {
   const number = Number(value);
   return `$${Number.isFinite(number) ? number.toFixed(2) : "0.00"}`;
@@ -614,6 +647,7 @@ export default function WebsiteEditor() {
       {selected.type === "product" && <label className="property-field"><span>Price (USD)</span><input value={selected.price ?? ""} onChange={(event) => updateSection({ price: event.target.value })} /></label>}
       {selected.type === "chat" && <label className="property-field"><span>Business email</span><input type="email" value={selected.email || ""} onChange={(event) => updateSection({ email: event.target.value })} placeholder="hello@yourbusiness.com" /></label>}
       {selected.type === "reviews" && <EditableReviewItems items={selected.items || []} onChange={items => updateSection({ items })} />}
+      {selected.type === "contact" && <ConditionalFormFields fields={Array.isArray(selected.formFields) ? selected.formFields : []} onChange={formFields => updateSection({ formFields })} />}
       <MediaFields key={selected.id} items={mediaItems(selectedProduct || selected)} onBusyChange={setMediaUploading} disabled={selected.locked} onChange={async media=>{if(selectedProduct){const updated={...selectedProduct,media,imageUrl:primaryImage(media)};setProducts(current=>current.map(item=>item.id===updated.id?updated:item));setProductMediaSaving(count=>count+1);const save=productMediaQueue.current.catch(()=>{}).then(()=>updateProduct(updated.id,updated));productMediaQueue.current=save;try{await save;}catch(error){showToast('Product media was not saved: '+error.message);throw error;}finally{setProductMediaSaving(count=>count-1);}return;}updateSection({media,image:primaryImage(media),images:media.filter(item=>item.type==='image').map(item=>item.url)});}}/>
       {['product','collection'].includes(selected.type) && <button type="button" className="add-repeater" onClick={()=>setProductForm({product:null,insert:selected.type==='product'?'replace':'none'})}>＋ Create product here</button>}
       {selected.type==='product' && <button type="button" className="add-repeater" onClick={()=>{const product=products.find(item=>item.id===selected.productId||item.legacyId===selected.productId);if(product)setProductForm({product,insert:'replace'});else setShowProductPicker(true);}}>Edit product details & media</button>}

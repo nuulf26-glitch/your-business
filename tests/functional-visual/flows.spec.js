@@ -139,6 +139,37 @@ test("editor draft save and publish use the existing API contracts", async ({ pa
   expect(calls.some((call) => call.pathname === "/websites/publish" && call.method === "POST")).toBeTruthy();
 });
 
+test("contact forms support saved conditional questions on mobile and desktop", async ({ page }) => {
+  await seedProtectedUser(page);
+  const calls = await mockAppApi(page);
+  await page.goto("/editor");
+  await page.getByRole("navigation", { name: "Editor navigation" }).getByRole("button", { name: "Add section" }).click();
+  await page.getByRole("button", { name: /Contact form/ }).click();
+  await page.getByRole("button", { name: /Add a question/ }).click();
+  await page.getByLabel("Question 1 label").fill("What do you need?");
+  await page.getByLabel("Question 1 type").selectOption("select");
+  await page.getByLabel("Question 1 choices").fill("Consultation, Other");
+  await page.getByRole("button", { name: /Add a question/ }).click();
+  await page.getByLabel("Question 2 label").fill("Please describe");
+  await page.getByLabel("Question 2 type").selectOption("textarea");
+  await page.getByLabel("Question 2 visibility condition").selectOption({ label: "What do you need? = Other" });
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect.poll(() => calls.some(call => call.pathname === "/websites/draft" && call.method === "PUT" && call.body?.model?.pages?.some(item => item.sections.some(section => section.type === "contact" && section.formFields?.length === 2)))).toBeTruthy();
+
+  const saved = [...calls].reverse().find(call => call.pathname === "/websites/draft" && call.method === "PUT");
+  const formSection = saved.body.model.pages.flatMap(item => item.sections).find(section => section.type === "contact");
+  expect(formSection.formFields[1].showWhen).toEqual({ fieldId: formSection.formFields[0].id, value: "Other" });
+  await page.getByRole("button", { name: "Preview Website" }).click();
+  const preview = page.locator(".full-preview");
+  const choice = preview.getByRole("combobox", { name: "What do you need?" });
+  await choice.selectOption("Consultation");
+  await expect(preview.getByLabel("Please describe")).toBeHidden();
+  await choice.selectOption("Other");
+  await expect(preview.getByLabel("Please describe")).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBeTruthy();
+});
+
 test("image crop controls preview and save persistent crop metadata", async ({ page }) => {
   await seedProtectedUser(page);
   const calls = await mockAppApi(page);
