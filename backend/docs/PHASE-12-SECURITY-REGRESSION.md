@@ -26,7 +26,10 @@ are recorded as blockers rather than expanded into guessed scope.
 - [x] Add migration for expiring throttle buckets and opportunistic cleanup of
   old records.
 - [x] Add unit regression coverage for limit response metadata and hashed keys.
-- [ ] Verify real multi-replica limit behavior against an isolated database.
+- [x] Apply the migration and verify concurrent increments from two independent
+  rate-limit storage instances against an ephemeral PostgreSQL database. Passed
+  in the isolated backend E2E workflow run linked from Draft PR #94; this did
+  not access staging or production.
 - [ ] Complete final staging security and regression verification after Phases
   12–16 are ready; no staging or production environment was changed here.
 
@@ -43,5 +46,7 @@ are recorded as blockers rather than expanded into guessed scope.
   tests are claimed as passed.
 - Dependency audit: `npm audit --audit-level=high` passed with zero
   vulnerabilities.
+- Isolated PostgreSQL migration and concurrent multi-instance test: passed in
+  GitHub Actions (CYB isolated backend E2E run #220).
 - `git diff --check`: passed.
 - Production / staging: not accessed or modified.
