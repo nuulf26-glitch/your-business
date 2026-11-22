@@ -17,7 +17,7 @@ const routes = [
   ["dashboard", "/dashboard"], ["editor", "/editor"], ["templates", "/templates"],
   ["create-website", "/create-website"], ["products", "/products"],
   ["orders", "/orders"], ["order-details", "/orders/fixture-order"],
-  ["customers", "/customers"], ["business", "/business"],
+  ["customers", "/customers"], ["business", "/business"], ["cms", "/cms"],
   ["settings", "/settings"], ["store-setup", "/store-setup"],
   ["store-designer", "/store-designer"], ["shipping", "/shipping"],
   ["storefront", "/store/atelier-preview"], ["product-page", "/product/fixture-product"],
@@ -157,7 +157,7 @@ for (const viewport of viewports) {
       test(`${name} renders the real functional route at ${viewport.width}×${viewport.height}`, async ({ page }) => {
         fs.mkdirSync(path.join(outputRoot, viewport.label), { recursive: true });
         const intercepted = await installSyntheticApi(page);
-        const protectedRoute = /^\/(dashboard|editor|create-website|products|orders|customers|business|settings|store-setup|store-designer|shipping)(\/|$)/.test(route);
+        const protectedRoute = /^\/(dashboard|editor|create-website|products|orders|customers|business|settings|store-setup|store-designer|shipping|cms)(\/|$)/.test(route);
         if (protectedRoute) {
           await page.addInitScript((user) => sessionStorage.setItem("getcyb_session_user", JSON.stringify(user)), fixtureUser);
         }

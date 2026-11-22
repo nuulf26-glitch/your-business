@@ -2,9 +2,9 @@ name: CYB isolated backend end-to-end verification
 
 on:
   push:
-    branches: [codex/cyb-phase3-online-store-20261117, codex/cyb-phase4-crm-20261121, codex/cyb-phase5-analytics-20261121, codex/cyb-phase6-payments-20261122]
+    branches: [codex/cyb-phase3-online-store-20261117, codex/cyb-phase4-crm-20261121, codex/cyb-phase5-analytics-20261121, codex/cyb-phase6-payments-20261122, codex/cyb-cms-core-stacked-20261122, codex/cyb-marketing-automation-stacked-20261122, codex/cyb-memberships-stacked-20261122, codex/cyb-unified-inbox-stacked-20261122, codex/cyb-courses-stacked-20261122]
   pull_request:
-    branches: [codex/cyb-render-integration-20261109, codex/cyb-phase2-editor-20261116, codex/cyb-phase3-online-store-20261117, codex/cyb-phase4-crm-20261121, codex/cyb-phase5-analytics-20261121, codex/cyb-phase12-security-regression-20261122]
+    branches: [codex/cyb-render-integration-20261109, codex/cyb-phase2-editor-20261116, codex/cyb-phase3-online-store-20261117, codex/cyb-phase4-crm-20261121, codex/cyb-phase5-analytics-20261121, codex/cyb-phase12-security-regression-20261122, codex/cyb-conditional-forms-20261122, codex/cyb-cms-core-stacked-20261122, codex/cyb-marketing-automation-stacked-20261122, codex/cyb-memberships-stacked-20261122, codex/cyb-unified-inbox-stacked-20261122, codex/cyb-courses-stacked-20261122]
     paths:
       - "tests/isolated-backend/**"
       - "vite.config.isolated-e2e.js"
