@@ -156,7 +156,7 @@ function Pricing() {
                 marginBottom: "10px"
               }}
             >
-              Build Your Website for Free
+              Start a Free Website Preview
             </button>
 
             <p style={{ textAlign: "center", fontSize: "0.80rem", color: "#666", margin: "0 0 30px 0", fontFamily: "'Mograp', sans-serif" }}>

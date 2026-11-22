@@ -11,3 +11,7 @@ export const updateCmsEntry = (id, data) => customBackendRequest(`/cms/entries/$
 export const publishCmsEntry = (id) => customBackendRequest(`/cms/entries/${encodeURIComponent(id)}/publish`, { method: 'POST', body: body({}) });
 export const unpublishCmsEntry = (id) => customBackendRequest(`/cms/entries/${encodeURIComponent(id)}/unpublish`, { method: 'POST', body: body({}) });
 export const archiveCmsEntry = (id) => customBackendRequest(`/cms/entries/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export const getPublicCmsCollection = (businessSlug, collectionSlug, entrySlug = '') => {
+  const query = entrySlug ? `?entry=${encodeURIComponent(entrySlug)}` : '';
+  return customBackendRequest(`/public/cms/${encodeURIComponent(businessSlug)}/${encodeURIComponent(collectionSlug)}${query}`);
+};

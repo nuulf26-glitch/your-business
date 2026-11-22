@@ -462,9 +462,7 @@ function addToCart(product) {
             </p>
           </div>
 
-          <a href="mailto:hello@example.com">
-            Send a message
-          </a>
+          {websiteSetup?.contactEmail ? <a href={`mailto:${websiteSetup.contactEmail}`}>Email {websiteSetup.contactEmail}</a> : <p>Contact details have not been added by this business yet.</p>}
         </section>
       </main>
 
