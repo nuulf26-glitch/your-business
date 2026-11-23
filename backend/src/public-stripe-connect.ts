@@ -95,6 +95,24 @@ export class PublicStripeConnectController {
     return { url: session.url };
   }
 
+  @Post(':id/stripe-cancel')
+  async cancelCheckout(@Req() req: Request) {
+    const result = await this.orderAndAccount(req);
+    if (!result.accountId) return { cancelled: true };
+    const recordId = paymentRecordId(result.order.id);
+    const payment = await this.db.businessRecord.findFirst({ where: { id: recordId, businessId: result.order.businessId, type: paymentType } });
+    if (!payment) return { cancelled: true };
+    const data = payment.data as any;
+    if (data.status === 'paid') throw new BadRequestException('This order has already been paid.');
+    if (data.checkoutSessionId && data.status === 'pending') {
+      const session = await this.stripeGet(`/checkout/sessions/${encodeURIComponent(data.checkoutSessionId)}`, result.accountId);
+      if (session.status === 'complete') throw new BadRequestException('Payment is already complete.');
+      if (session.status === 'open') await this.stripePost(`/checkout/sessions/${encodeURIComponent(data.checkoutSessionId)}/expire`, new URLSearchParams(), result.accountId, `cyb-expire-${result.order.id}`);
+    }
+    await this.db.businessRecord.update({ where: { id: payment.id }, data: { status: 'expired', data: { ...data, status: 'expired', updatedAt: new Date().toISOString() } } });
+    return { cancelled: true };
+  }
+
   private async stripeGet(path: string, accountId: string) {
     let response: globalThis.Response;
     try { response = await fetch(`https://api.stripe.com/v1${path}`, { headers: directChargeHeaders(process.env.STRIPE_SECRET_KEY!.trim(), accountId), signal: AbortSignal.timeout(20000) }); }
