@@ -34,7 +34,8 @@ describe('merchant direct-charge checkout isolation', () => {
     const response = await controller.checkout({ params: { id: 'order-owned' }, query: {}, body: { token: 'synthetic-order-token', accountId: 'acct_attacker999' } } as any);
     expect(response.url).toBe('https://checkout.stripe.com/c/pay/test');
     const connectedRequest = fetchSpy.mock.calls.find(([, init]: any) => init?.headers?.['Stripe-Account']);
-    expect(connectedRequest?.[1]?.headers?.['Stripe-Account']).toBe('acct_owned123');
+    const connectedHeaders = connectedRequest?.[1]?.headers as Record<string, string> | undefined;
+    expect(connectedHeaders?.['Stripe-Account']).toBe('acct_owned123');
     const body = new URLSearchParams(String(connectedRequest?.[1]?.body));
     expect(body.get('metadata[businessId]')).toBe('business-owned');
     expect(body.has('payment_intent_data[application_fee_amount]')).toBe(false);
