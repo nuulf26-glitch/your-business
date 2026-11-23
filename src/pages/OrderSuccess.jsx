@@ -52,14 +52,11 @@ function OrderSuccess() {
         <section className="order-success-card">
           <div className="order-success-icon">✓</div>
 
-          <span>Order confirmed</span>
+          <span>{String(order.paymentMethod || "").startsWith("stripe") && String(order.paymentStatus || "").toLowerCase() !== "paid" ? "Payment processing" : "Order confirmed"}</span>
 
-          <h1>Thank you for your order.</h1>
+          <h1>{String(order.paymentMethod || "").startsWith("stripe") && String(order.paymentStatus || "").toLowerCase() !== "paid" ? "We’re confirming your payment." : "Thank you for your order."}</h1>
 
-          <p>
-            Your order has been received. You will receive updates using the
-            contact details you provided.
-          </p>
+          <p>{String(order.paymentMethod || "").startsWith("stripe") && String(order.paymentStatus || "").toLowerCase() !== "paid" ? "Your order is saved. Stripe will confirm the payment status shortly." : "Your order has been received. You will receive updates using the contact details you provided."}</p>
 
           <div className="order-success-number">
             <span>Order number</span>
