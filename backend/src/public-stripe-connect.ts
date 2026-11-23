@@ -1,5 +1,6 @@
 import { BadRequestException, Controller, Get, NotFoundException, Post, Req, ServiceUnavailableException } from '@nestjs/common';
 import { Request } from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import { createHash } from 'node:crypto';
 import { DbService } from './database';
 import { tokenHash } from './session';
@@ -24,7 +25,7 @@ export class PublicStripeConnectController {
     if (!id || !token) throw new NotFoundException('Order not found');
     const order = await this.db.order.findUnique({ where: { id } });
     const storedHash = (order?.data as any)?.customerActionTokenHash;
-    if (!order || typeof storedHash !== 'string' || !/^[a-f0-9]{64}$/i.test(storedHash) || tokenHash(token) !== storedHash) throw new NotFoundException('Order not found');
+    if (!order || typeof storedHash !== 'string' || !/^[a-f0-9]{64}$/i.test(storedHash) || !timingSafeEqual(Buffer.from(tokenHash(token), 'hex'), Buffer.from(storedHash, 'hex'))) throw new NotFoundException('Order not found');
     const data = order.data as any;
     if (order.status !== 'new' || ['paid', 'refunded', 'cash on delivery'].includes(String(data.paymentStatus || '').toLowerCase())) throw new BadRequestException('This order is not available for card checkout.');
     const accountRecord = await this.db.businessRecord.findFirst({ where: { businessId: order.businessId, type: accountType } });
