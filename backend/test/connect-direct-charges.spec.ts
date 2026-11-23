@@ -1,8 +1,9 @@
-import { applyDirectChargeEvent, directChargeHeaders, validatedDirectChargeAccount } from '../src/connect-direct-charges';
+import { applyDirectChargeEvent, approvedDirectChargeAccount, directChargeHeaders, validatedDirectChargeAccount } from '../src/connect-direct-charges';
 
 describe('merchant Stripe Connect direct charges', () => {
   const ready = {
     id: 'acct_1234567890',
+    country: 'AE',
     charges_enabled: true,
     details_submitted: true,
     payouts_enabled: true,
@@ -14,6 +15,9 @@ describe('merchant Stripe Connect direct charges', () => {
     expect(validatedDirectChargeAccount({ ...ready, charges_enabled: false })).toBeNull();
     expect(validatedDirectChargeAccount({ ...ready, details_submitted: false })).toBeNull();
     expect(validatedDirectChargeAccount({ ...ready, capabilities: { card_payments: 'pending' } })).toBeNull();
+    expect(approvedDirectChargeAccount(ready, ['AE'])).toBe(ready.id);
+    expect(approvedDirectChargeAccount({ ...ready, country: 'US' }, ['AE'])).toBeNull();
+    expect(approvedDirectChargeAccount(ready, ['US'])).toBeNull();
     expect(validatedDirectChargeAccount({ ...ready, id: 'acct_bad\nInjected: yes' })).toBeNull();
   });
 
