@@ -3,7 +3,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Request } from 'express';
 import { DbService } from './database';
 import { SessionGuard, tokenHash } from './session';
-import { directChargeHeaders, validatedDirectChargeAccount } from './connect-direct-charges';
+import { applyDirectChargeEvent, directChargeHeaders, validatedDirectChargeAccount } from './connect-direct-charges';
 
 const ACCOUNT_RECORD = 'stripeConnectAccount';
 const PAYMENT_RECORD = 'stripeConnectPayment';
@@ -176,23 +176,7 @@ export class StripeConnectWebhookController {
       if (!order) return { received: true };
       const orderData = order.data as any;
       const now = new Date().toISOString();
-      let status = String(paymentData.status || 'pending');
-      if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') status = session.payment_status === 'paid' || event.type === 'checkout.session.async_payment_succeeded' ? 'paid' : 'processing';
-      if (event.type === 'checkout.session.async_payment_failed' || event.type === 'payment_intent.payment_failed') status = 'failed';
-      if (event.type === 'charge.refunded' && String(orderData.paymentStatus || '').toLowerCase() === 'paid') status = 'refunded';
-      if (String(orderData.paymentStatus || '').toLowerCase() === 'refunded') status = 'refunded';
-      const nextOrder = { ...orderData, paymentMethod: 'stripe_direct', paymentStatus: status === 'paid' ? 'Paid' : status === 'refunded' ? 'Refunded' : status === 'failed' ? 'Failed' : 'Processing' };
-      const history = Array.isArray(orderData.paymentHistory) ? orderData.paymentHistory : [];
-      if (status === 'paid' && !history.some((entry: any) => entry.type === 'collected')) {
-        nextOrder.collectedAmountCents = order.amountCents || 0;
-        nextOrder.paidAt = now;
-        nextOrder.paymentHistory = [...history, { type: 'collected', amountCents: nextOrder.collectedAmountCents, method: 'stripe_direct', recordedAt: now, sourceEventId: event.id }];
-      }
-      if (status === 'refunded' && !history.some((entry: any) => entry.type === 'refund' && entry.sourceEventId === event.id)) {
-        const refundCents = Math.min(Number(session.amount_refunded || order.amountCents || 0), Number(order.amountCents || 0));
-        nextOrder.refundHistory = [...(Array.isArray(orderData.refundHistory) ? orderData.refundHistory : []), { amountCents: refundCents, status: 'succeeded', recordedAt: now, sourceEventId: event.id }];
-        nextOrder.paymentHistory = [...history, { type: 'refund', amountCents: refundCents, recordedAt: now, sourceEventId: event.id }];
-      }
+      const { status, nextOrder } = applyDirectChargeEvent(event, orderData, Number(order.amountCents || 0));
       const updated = await tx.order.updateMany({ where: { id: order.id, businessId: account.businessId, data: { equals: order.data } }, data: { data: nextOrder } });
       if (!updated.count) throw new ConflictException('Order changed while a Stripe event was being applied.');
       await tx.businessRecord.update({ where: { id: payment.id }, data: { data: { ...paymentData, status, paymentIntentId: paymentIntentId || paymentData.paymentIntentId, updatedAt: now } } });
