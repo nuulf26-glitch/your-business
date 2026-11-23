@@ -38,9 +38,11 @@ export function directChargeHeaders(platformSecretKey: string, verifiedAccountId
 
 export function applyDirectChargeEvent(input: { type: string; id: string; object: any }, orderData: Record<string, any>, amountCents: number) {
   const history = Array.isArray(orderData.paymentHistory) ? orderData.paymentHistory : [];
-  let status: 'paid' | 'processing' | 'failed' | 'refunded' = 'processing';
+  let status: 'paid' | 'processing' | 'failed' | 'refunded' | 'expired' = 'processing';
   if (input.type === 'checkout.session.completed' || input.type === 'checkout.session.async_payment_succeeded') {
     status = input.object?.payment_status === 'paid' || input.type === 'checkout.session.async_payment_succeeded' ? 'paid' : 'processing';
+  } else if (input.type === 'checkout.session.expired') {
+    status = 'expired';
   } else if (input.type === 'checkout.session.async_payment_failed' || input.type === 'payment_intent.payment_failed') {
     status = 'failed';
   } else if (input.type === 'charge.refunded' && ['paid', 'partially refunded'].includes(String(orderData.paymentStatus || '').toLowerCase())) {
@@ -67,6 +69,8 @@ export function applyDirectChargeEvent(input: { type: string; id: string; object
       nextOrder.refundHistory = [...(Array.isArray(orderData.refundHistory) ? orderData.refundHistory : []), { amountCents: delta, status: 'succeeded', recordedAt: now, sourceEventId: input.id }];
       nextOrder.paymentHistory = [...history, { type: 'refund', amountCents: delta, recordedAt: now, sourceEventId: input.id }];
     }
+  } else if (status === 'expired') {
+    nextOrder.paymentStatus = 'Pending';
   } else if (status === 'failed') {
     nextOrder.paymentStatus = String(orderData.paymentStatus || '').toLowerCase() === 'paid' ? orderData.paymentStatus : 'Failed';
   } else {
