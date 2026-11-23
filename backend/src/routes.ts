@@ -850,6 +850,8 @@ export class PublicOrderController {
     const id=String(req.params['id']),row=await this.db.order.findUnique({where:{id}}),storedHash=(row?.data as any)?.customerActionTokenHash;
     if(!row||row.status!=='new'||typeof storedHash!=='string'||!/^[a-f0-9]{64}$/i.test(storedHash)||!timingSafeEqual(Buffer.from(tokenHash(dto.token),'hex'),Buffer.from(storedHash,'hex')))throw new NotFoundException('Order not found');
     const current=row.data as Record<string,any>,payment=String(current.paymentStatus||'Pending').toLowerCase();
+    const activeCardSession=await this.db.businessRecord.findFirst({where:{businessId:row.businessId,type:'stripeConnectPayment',data:{path:['orderId'],equals:row.id}}});
+    if(['creating','pending'].includes(String((activeCardSession?.data as any)?.status||'')))throw new ConflictException('Expire the open card checkout before confirming cash on delivery.');
     if(payment==='cash on delivery')return {ok:true};
     if(payment==='paid'||payment==='refunded')throw new NotFoundException('Order not found');
     const now=new Date().toISOString(),timeline=Array.isArray(current.timeline)?current.timeline:[];
