@@ -58,7 +58,7 @@ export class PublicStripeConnectController {
     const paymentRecordKey = paymentRecordId(order.id);
     const existing = await this.db.businessRecord.findFirst({ where: { id: paymentRecordKey, businessId: order.businessId, type: paymentType } });
     if ((existing?.data as any)?.status === 'paid') throw new BadRequestException('This order has already been paid.');
-    if ((existing?.data as any)?.status === 'pending' && (existing?.data as any)?.checkoutSessionId) {
+    if (existing && (existing.data as any)?.status === 'pending' && (existing.data as any)?.checkoutSessionId) {
       const prior = await this.stripeGet(`/checkout/sessions/${encodeURIComponent((existing.data as any).checkoutSessionId)}`, accountId);
       if (prior.status === 'open' && prior.url) return { url: prior.url };
     }
