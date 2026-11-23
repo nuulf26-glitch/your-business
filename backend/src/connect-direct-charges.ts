@@ -34,3 +34,42 @@ export function directChargeHeaders(platformSecretKey: string, verifiedAccountId
     'Content-Type': 'application/x-www-form-urlencoded',
   };
 }
+
+export function applyDirectChargeEvent(input: { type: string; id: string; object: any }, orderData: Record<string, any>, amountCents: number) {
+  const history = Array.isArray(orderData.paymentHistory) ? orderData.paymentHistory : [];
+  let status: 'paid' | 'processing' | 'failed' | 'refunded' = 'processing';
+  if (input.type === 'checkout.session.completed' || input.type === 'checkout.session.async_payment_succeeded') {
+    status = input.object?.payment_status === 'paid' || input.type === 'checkout.session.async_payment_succeeded' ? 'paid' : 'processing';
+  } else if (input.type === 'checkout.session.async_payment_failed' || input.type === 'payment_intent.payment_failed') {
+    status = 'failed';
+  } else if (input.type === 'charge.refunded' && String(orderData.paymentStatus || '').toLowerCase().includes('paid')) {
+    status = 'refunded';
+  } else if (String(orderData.paymentStatus || '').toLowerCase() === 'refunded') {
+    status = 'refunded';
+  }
+  const now = new Date().toISOString();
+  const nextOrder: Record<string, any> = { ...orderData, paymentMethod: 'stripe_direct' };
+  if (status === 'paid') {
+    nextOrder.paymentStatus = 'Paid';
+    if (!history.some((entry: any) => entry.type === 'collected')) {
+      nextOrder.collectedAmountCents = amountCents;
+      nextOrder.paidAt = now;
+      nextOrder.paymentHistory = [...history, { type: 'collected', amountCents, method: 'stripe_direct', recordedAt: now, sourceEventId: input.id }];
+    }
+  } else if (status === 'refunded') {
+    const alreadyRefunded = (Array.isArray(orderData.refundHistory) ? orderData.refundHistory : []).reduce((sum: number, entry: any) => sum + (Number(entry.amountCents) || 0), 0);
+    const cumulativeRefunded = Math.min(Number(input.object?.amount_refunded || amountCents), amountCents);
+    const delta = Math.max(0, cumulativeRefunded - alreadyRefunded);
+    const refundedAmount = cumulativeRefunded >= amountCents ? 'Refunded' : 'Partially refunded';
+    nextOrder.paymentStatus = refundedAmount;
+    if (delta > 0 && !history.some((entry: any) => entry.type === 'refund' && entry.sourceEventId === input.id)) {
+      nextOrder.refundHistory = [...(Array.isArray(orderData.refundHistory) ? orderData.refundHistory : []), { amountCents: delta, status: 'succeeded', recordedAt: now, sourceEventId: input.id }];
+      nextOrder.paymentHistory = [...history, { type: 'refund', amountCents: delta, recordedAt: now, sourceEventId: input.id }];
+    }
+  } else if (status === 'failed') {
+    nextOrder.paymentStatus = String(orderData.paymentStatus || '').toLowerCase() === 'paid' ? orderData.paymentStatus : 'Failed';
+  } else {
+    nextOrder.paymentStatus = orderData.paymentStatus || 'Processing';
+  }
+  return { status, nextOrder };
+}
