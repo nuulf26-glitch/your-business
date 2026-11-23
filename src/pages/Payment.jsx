@@ -19,6 +19,9 @@ function Payment() {
 
   useEffect(() => {
     if (!order?.backendId || !order?.cashOnDeliveryToken) return;
+    const cancelled = new URLSearchParams(window.location.search).get("stripe_cancelled") === "1";
+    const cancelSession = cancelled ? customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/stripe-cancel`, { method: "POST", body: JSON.stringify({ token: order.cashOnDeliveryToken }) }) : Promise.resolve();
+    cancelSession.then(() => { if (cancelled) { setPaymentMethod("cash"); setError("Card checkout was canceled. You can choose cash on delivery or try card again."); } }).catch(() => { if (cancelled) setError("We could not close the card checkout. Please retry or contact the store before placing another order."); });
     customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/stripe-status?token=${encodeURIComponent(order.cashOnDeliveryToken)}`)
       .then((status) => setCardAvailable(status?.available === true))
       .catch(() => setCardAvailable(false));
