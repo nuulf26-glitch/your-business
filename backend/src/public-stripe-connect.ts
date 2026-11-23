@@ -1,5 +1,6 @@
 import { BadRequestException, Controller, Get, NotFoundException, Post, Req, ServiceUnavailableException } from '@nestjs/common';
 import { Request } from 'express';
+import { createHash } from 'node:crypto';
 import { DbService } from './database';
 import { tokenHash } from './session';
 import { directChargeHeaders, validatedDirectChargeAccount } from './connect-direct-charges';
@@ -7,7 +8,7 @@ import { directChargeHeaders, validatedDirectChargeAccount } from './connect-dir
 const accountType = 'stripeConnectAccount';
 const paymentType = 'stripeConnectPayment';
 const validAccount = (value: unknown): value is string => typeof value === 'string' && /^acct_[A-Za-z0-9]+$/.test(value);
-const paymentRecordId = (orderId: string) => 'scpay_' + require('node:crypto').createHash('sha256').update(orderId).digest('hex').slice(0, 48);
+const paymentRecordId = (orderId: string) => 'scpay_' + createHash('sha256').update(orderId).digest('hex').slice(0, 48);
 function testConnectEnabled() {
   return process.env.STRIPE_CONNECT_DIRECT_CHARGES_TEST_ENABLED === 'true'
     && /^sk_test_[A-Za-z0-9]+$/.test(process.env.STRIPE_SECRET_KEY?.trim() || '');
