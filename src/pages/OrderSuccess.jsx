@@ -15,11 +15,20 @@ function OrderSuccess() {
   useEffect(() => {
     if (!order?.id || !order?.cashOnDeliveryToken) return;
     let active = true;
-    fetch(`/api/v1/public/orders/${encodeURIComponent(order.id)}?token=${encodeURIComponent(order.cashOnDeliveryToken)}`, { credentials: "include" })
-      .then(response => response.ok ? response.json() : null)
-      .then(value => { if (active && value) { setTracking(value); setOrder(current => ({ ...current, status: value.fulfillmentStatus, paymentStatus: value.paymentStatus })); } })
-      .catch(() => {});
-    return () => { active = false; };
+    let timer;
+    const refresh = async () => {
+      try {
+        const response = await fetch(`/api/v1/public/orders/${encodeURIComponent(order.id)}?token=${encodeURIComponent(order.cashOnDeliveryToken)}`, { credentials: "include" });
+        const value = response.ok ? await response.json() : null;
+        if (!active || !value) return;
+        setTracking(value);
+        setOrder(current => ({ ...current, status: value.fulfillmentStatus, paymentStatus: value.paymentStatus }));
+        const payment = String(value.paymentStatus || "").toLowerCase();
+        if (!["paid", "refunded", "failed", "cash on delivery"].includes(payment)) timer = window.setTimeout(refresh, 2000);
+      } catch { if (active) timer = window.setTimeout(refresh, 3000); }
+    };
+    refresh();
+    return () => { active = false; if (timer) window.clearTimeout(timer); };
   }, [order?.id, order?.cashOnDeliveryToken]);
 
   if (!order) {
