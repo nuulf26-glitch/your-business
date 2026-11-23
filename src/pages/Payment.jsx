@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/payment.css";
 import { customBackendRequest } from "../services/customBackendSession";
@@ -12,9 +12,17 @@ function Payment() {
   const navigate = useNavigate();
 
   const [order] = useState(readPendingOrder);
-  const paymentMethod = "cash";
+  const [paymentMethod, setPaymentMethod] = useState("cash");
+  const [cardAvailable, setCardAvailable] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!order?.backendId || !order?.cashOnDeliveryToken) return;
+    customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/stripe-status?token=${encodeURIComponent(order.cashOnDeliveryToken)}`)
+      .then((status) => setCardAvailable(status?.available === true))
+      .catch(() => setCardAvailable(false));
+  }, [order]);
 
   const itemCount = useMemo(() => {
     if (!Array.isArray(order?.items)) {
@@ -66,7 +74,12 @@ if (order.backendId) {
 
     try {
       setLoading(true);
-
+      if (paymentMethod === "card") {
+        const response = await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/stripe-checkout`, { method: "POST", body: JSON.stringify({ token: order.cashOnDeliveryToken }) });
+        if (!response?.url || !response.url.startsWith("https://checkout.stripe.com/")) throw new Error("Stripe did not return a secure checkout URL.");
+        window.location.assign(response.url);
+        return;
+      }
       await completeOrder("Cash on delivery", "New");
 
     } catch (paymentError) {
@@ -132,7 +145,7 @@ if (order.backendId) {
             <div className="payment-card-heading">
               <span>Payment method</span>
 
-              <h2>Cash on delivery</h2>
+              <h2>Choose how to pay</h2>
             </div>
 
             <div className="payment-options">
@@ -165,7 +178,7 @@ if (order.backendId) {
               onClick={handlePayment}
               disabled={loading}
             >
-              {loading ? "Processing..." : "Confirm cash on delivery"}
+              {loading ? "Processing..." : paymentMethod === "card" ? "Continue to secure card payment" : "Confirm cash on delivery"}
             </button>
           </section>
 
