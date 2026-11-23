@@ -13,7 +13,8 @@ const validAccount = (value: unknown): value is string => typeof value === 'stri
 const paymentRecordId = (orderId: string) => 'scpay_' + createHash('sha256').update(orderId).digest('hex').slice(0, 48);
 function testConnectEnabled() {
   return process.env.STRIPE_CONNECT_DIRECT_CHARGES_TEST_ENABLED === 'true'
-    && /^sk_test_[A-Za-z0-9]+$/.test(process.env.STRIPE_SECRET_KEY?.trim() || '');
+    && /^sk_test_[A-Za-z0-9]+$/.test(process.env.STRIPE_SECRET_KEY?.trim() || '')
+    && Boolean(process.env.STRIPE_CONNECT_WEBHOOK_SECRET?.trim());
 }
 
 @Controller('public/orders')
