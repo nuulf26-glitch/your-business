@@ -24,7 +24,7 @@ function OrderSuccess() {
         setTracking(value);
         setOrder(current => ({ ...current, status: value.fulfillmentStatus, paymentStatus: value.paymentStatus }));
         const payment = String(value.paymentStatus || "").toLowerCase();
-        if (!["paid", "refunded", "failed", "cash on delivery"].includes(payment)) timer = window.setTimeout(refresh, 2000);
+        if (!["paid", "refunded", "partially refunded", "failed", "cash on delivery"].includes(payment)) timer = window.setTimeout(refresh, 2000);
       } catch { if (active) timer = window.setTimeout(refresh, 3000); }
     };
     refresh();
