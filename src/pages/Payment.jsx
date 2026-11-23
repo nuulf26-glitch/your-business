@@ -77,6 +77,7 @@ if (order.backendId) {
       if (paymentMethod === "card") {
         const response = await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/stripe-checkout`, { method: "POST", body: JSON.stringify({ token: order.cashOnDeliveryToken }) });
         if (!response?.url || !response.url.startsWith("https://checkout.stripe.com/")) throw new Error("Stripe did not return a secure checkout URL.");
+        localStorage.setItem("completedOrder", JSON.stringify({ ...order, paymentMethod: "stripe_direct", paymentStatus: "Processing", status: "New" }));
         window.location.assign(response.url);
         return;
       }
@@ -149,21 +150,16 @@ if (order.backendId) {
             </div>
 
             <div className="payment-options">
-              <div className="payment-option selected">
+              {cardAvailable && <button type="button" className={`payment-option ${paymentMethod === "card" ? "selected" : ""}`} onClick={() => setPaymentMethod("card")}>
                 <div className="payment-option-icon">C</div>
-
-                <div>
-                  <strong>Cash on delivery</strong>
-
-                  <p>
-                    Pay when your order arrives.
-                  </p>
-                </div>
-
-                <span className="payment-radio">
-                  ✓
-                </span>
-              </div>
+                <div><strong>Card</strong><p>Pay securely through the merchant’s Stripe account.</p></div>
+                <span className="payment-radio">{paymentMethod === "card" ? "✓" : ""}</span>
+              </button>}
+              <button type="button" className={`payment-option ${paymentMethod === "cash" ? "selected" : ""}`} onClick={() => setPaymentMethod("cash")}>
+                <div className="payment-option-icon">C</div>
+                <div><strong>Cash on delivery</strong><p>Pay when your order arrives.</p></div>
+                <span className="payment-radio">{paymentMethod === "cash" ? "✓" : ""}</span>
+              </button>
             </div>
 
             {error && (
