@@ -15,7 +15,8 @@ const safeAccountId = (value: unknown): value is string => typeof value === 'str
 function directChargesEnabled() {
   const key = process.env.STRIPE_SECRET_KEY?.trim() || '';
   return process.env.STRIPE_CONNECT_DIRECT_CHARGES_TEST_ENABLED === 'true'
-    && /^sk_test_[A-Za-z0-9]+$/.test(key);
+    && /^sk_test_[A-Za-z0-9]+$/.test(key)
+    && Boolean(process.env.STRIPE_CONNECT_WEBHOOK_SECRET?.trim());
 }
 function enabledCountries() {
   const raw = process.env.STRIPE_CONNECT_APPROVED_COUNTRIES?.trim() || 'AE';
