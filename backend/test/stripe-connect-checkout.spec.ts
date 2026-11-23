@@ -11,7 +11,7 @@ describe('merchant direct-charge checkout isolation', () => {
   });
 
   it('creates a successful hosted Checkout session in the order owner’s account only', async () => {
-    process.env.STRIPE_SECRET_KEY = 'sk_test_synthetic_key_123';
+    process.env.STRIPE_SECRET_KEY = 'sk_test_synthetickey123';
     process.env.STRIPE_CONNECT_DIRECT_CHARGES_TEST_ENABLED = 'true';
     process.env.STRIPE_CONNECT_APPROVED_COUNTRIES = 'AE';
     const order = { id: 'order-owned', businessId: 'business-owned', status: 'new', amountCents: 1250, currency: 'AED', data: { currency: 'AED', paymentStatus: 'Pending', customerActionTokenHash: tokenHash('synthetic-order-token') } };
@@ -44,7 +44,7 @@ describe('merchant direct-charge checkout isolation', () => {
   });
 
   it('does not create a session when the order has no connected account for its own business', async () => {
-    process.env.STRIPE_SECRET_KEY = 'sk_test_synthetic_key_123';
+    process.env.STRIPE_SECRET_KEY = 'sk_test_synthetickey123';
     process.env.STRIPE_CONNECT_DIRECT_CHARGES_TEST_ENABLED = 'true';
     const order = { id: 'order-owned', businessId: 'business-owned', status: 'new', amountCents: 1250, currency: 'AED', data: { currency: 'AED', paymentStatus: 'Pending', customerActionTokenHash: tokenHash('synthetic-order-token') } };
     const db: any = {
