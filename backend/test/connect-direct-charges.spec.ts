@@ -64,5 +64,8 @@ describe('direct-charge payment accounting', () => {
     expect(first.nextOrder.refundHistory[0].amountCents).toBe(500);
     const duplicate = applyDirectChargeEvent({ id: 'evt_refund', type: 'charge.refunded', object: { amount_refunded: 500 } }, first.nextOrder, 1000);
     expect(duplicate.nextOrder.refundHistory).toHaveLength(1);
+    const lateSuccess = applyDirectChargeEvent({ id: 'evt_late_paid', type: 'checkout.session.completed', object: { payment_status: 'paid' } }, first.nextOrder, 1000);
+    expect(lateSuccess.nextOrder.paymentStatus).toBe('Partially refunded');
+    expect(lateSuccess.nextOrder.refundHistory).toHaveLength(1);
   });
 });
