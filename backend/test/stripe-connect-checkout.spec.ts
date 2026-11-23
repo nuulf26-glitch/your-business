@@ -2,17 +2,19 @@ import { PublicStripeConnectController } from '../src/public-stripe-connect';
 import { tokenHash } from '../src/session';
 
 describe('merchant direct-charge checkout isolation', () => {
-  const originalEnv = { key: process.env.STRIPE_SECRET_KEY, enabled: process.env.STRIPE_CONNECT_DIRECT_CHARGES_TEST_ENABLED, countries: process.env.STRIPE_CONNECT_APPROVED_COUNTRIES };
+  const originalEnv = { key: process.env.STRIPE_SECRET_KEY, enabled: process.env.STRIPE_CONNECT_DIRECT_CHARGES_TEST_ENABLED, countries: process.env.STRIPE_CONNECT_APPROVED_COUNTRIES, webhook: process.env.STRIPE_CONNECT_WEBHOOK_SECRET };
   afterEach(() => {
     jest.restoreAllMocks();
     if (originalEnv.key === undefined) delete process.env.STRIPE_SECRET_KEY; else process.env.STRIPE_SECRET_KEY = originalEnv.key;
     if (originalEnv.enabled === undefined) delete process.env.STRIPE_CONNECT_DIRECT_CHARGES_TEST_ENABLED; else process.env.STRIPE_CONNECT_DIRECT_CHARGES_TEST_ENABLED = originalEnv.enabled;
     if (originalEnv.countries === undefined) delete process.env.STRIPE_CONNECT_APPROVED_COUNTRIES; else process.env.STRIPE_CONNECT_APPROVED_COUNTRIES = originalEnv.countries;
+    if (originalEnv.webhook === undefined) delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET; else process.env.STRIPE_CONNECT_WEBHOOK_SECRET = originalEnv.webhook;
   });
 
   it('creates a successful hosted Checkout session in the order owner’s account only', async () => {
     process.env.STRIPE_SECRET_KEY = 'sk_test_synthetickey123';
     process.env.STRIPE_CONNECT_DIRECT_CHARGES_TEST_ENABLED = 'true';
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = 'whsec_synthetickey123';
     process.env.STRIPE_CONNECT_APPROVED_COUNTRIES = 'AE';
     const order = { id: 'order-owned', businessId: 'business-owned', status: 'new', amountCents: 1250, currency: 'AED', data: { currency: 'AED', paymentStatus: 'Pending', customerActionTokenHash: tokenHash('synthetic-order-token') } };
     const db: any = {
