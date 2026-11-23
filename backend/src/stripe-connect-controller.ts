@@ -70,7 +70,7 @@ export class StripeConnectController {
       const verifiedId = approvedDirectChargeAccount(account, approvedCountries());
       const capabilities = account.capabilities || {};
       await this.db.businessRecord.update({ where: { id: record!.id }, data: { data: { accountId: state.accountId, country: account.country || state.country || 'AE', detailsSubmitted: account.details_submitted === true, chargesEnabled: account.charges_enabled === true, payoutsEnabled: account.payouts_enabled === true, cardPayments: capabilities.card_payments || 'inactive', updatedAt: new Date().toISOString() } as any } });
-      return { enabled: true, connected: true, accountId: state.accountId, country: account.country || state.country || 'AE', chargesEnabled: account.charges_enabled === true, payoutsEnabled: account.payouts_enabled === true, cardPayments: capabilities.card_payments || 'inactive', directChargesReady: !!verifiedId };
+      return { enabled: true, connected: true, country: account.country || state.country || 'AE', chargesEnabled: account.charges_enabled === true, payoutsEnabled: account.payouts_enabled === true, cardPayments: capabilities.card_payments || 'inactive', directChargesReady: !!verifiedId };
     } catch (error) {
       if (error instanceof ServiceUnavailableException) throw error;
       return { enabled: true, connected: true, country: state.country || 'AE', directChargesReady: false, accountStatus: 'needs_attention' };
@@ -109,7 +109,7 @@ export class StripeConnectController {
   async transactions(@Req() req: Request & { user: any }) {
     const business = await this.business(req);
     const rows = await this.db.businessRecord.findMany({ where: { businessId: business.id, type: PAYMENT_RECORD }, orderBy: { createdAt: 'desc' }, take: 100 });
-    return rows.map((row: any) => ({ id: row.id, ...(row.data as object), createdAt: row.createdAt }));
+    return rows.map((row: any) => { const data = row.data as any; return { id: row.id, orderId: data.orderId, amountCents: data.amountCents, currency: data.currency, status: data.status, refundStatus: data.refundStatus || null, createdAt: row.createdAt }; });
   }
 
   @Post('orders/:id/checkout')
