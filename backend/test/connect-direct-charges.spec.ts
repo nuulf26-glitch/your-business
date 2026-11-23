@@ -1,4 +1,4 @@
-import { directChargeHeaders, validatedDirectChargeAccount } from '../src/connect-direct-charges';
+import { applyDirectChargeEvent, directChargeHeaders, validatedDirectChargeAccount } from '../src/connect-direct-charges';
 
 describe('merchant Stripe Connect direct charges', () => {
   const ready = {
@@ -28,5 +28,31 @@ describe('merchant Stripe Connect direct charges', () => {
   it('rejects live keys until provider eligibility and launch approval', () => {
     expect(() => directChargeHeaders('sk_live_1234567890', ready.id)).toThrow('test mode');
     expect(() => directChargeHeaders('sk_test_1234567890', 'not-an-account')).toThrow('verified');
+  });
+});
+
+describe('direct-charge payment accounting', () => {
+  const paidEvent = { id: 'evt_paid', type: 'checkout.session.completed', object: { payment_status: 'paid' } };
+  it('counts a successful payment once and leaves an unpaid checkout out of revenue', () => {
+    const pending = applyDirectChargeEvent({ id: 'evt_open', type: 'checkout.session.completed', object: { payment_status: 'unpaid' } }, { paymentStatus: 'Pending' }, 1200);
+    expect(pending.status).toBe('processing');
+    expect(pending.nextOrder.paymentHistory).toBeUndefined();
+    const paid = applyDirectChargeEvent(paidEvent, { paymentStatus: 'Pending' }, 1200);
+    expect(paid.nextOrder.collectedAmountCents).toBe(1200);
+    const repeated = applyDirectChargeEvent({ ...paidEvent, id: 'evt_paid_again' }, paid.nextOrder, 1200);
+    expect(repeated.nextOrder.paymentHistory.filter((entry: any) => entry.type === 'collected')).toHaveLength(1);
+  });
+  it('records failures without revenue', () => {
+    const result = applyDirectChargeEvent({ id: 'evt_failed', type: 'payment_intent.payment_failed', object: {} }, { paymentStatus: 'Pending' }, 2000);
+    expect(result.status).toBe('failed');
+    expect(result.nextOrder.paymentStatus).toBe('Failed');
+    expect(result.nextOrder.paymentHistory).toBeUndefined();
+  });
+  it('records refund deltas without double-counting duplicate webhook events', () => {
+    const first = applyDirectChargeEvent({ id: 'evt_refund', type: 'charge.refunded', object: { amount_refunded: 500 } }, { paymentStatus: 'Paid', collectedAmountCents: 1000, paymentHistory: [{ type: 'collected', amountCents: 1000 }] }, 1000);
+    expect(first.nextOrder.paymentStatus).toBe('Partially refunded');
+    expect(first.nextOrder.refundHistory[0].amountCents).toBe(500);
+    const duplicate = applyDirectChargeEvent({ id: 'evt_refund', type: 'charge.refunded', object: { amount_refunded: 500 } }, first.nextOrder, 1000);
+    expect(duplicate.nextOrder.refundHistory).toHaveLength(1);
   });
 });
