@@ -5,6 +5,7 @@
  */
 export type ConnectedAccountCapabilities = {
   id?: unknown;
+  country?: unknown;
   charges_enabled?: unknown;
   payouts_enabled?: unknown;
   details_submitted?: unknown;
@@ -72,4 +73,9 @@ export function applyDirectChargeEvent(input: { type: string; id: string; object
     nextOrder.paymentStatus = orderData.paymentStatus || 'Processing';
   }
   return { status, nextOrder };
+}
+
+export function approvedDirectChargeAccount(account: ConnectedAccountCapabilities, countries: string[]): string | null {
+  if (typeof account.country !== 'string' || !countries.map((country) => country.toUpperCase()).includes(account.country.toUpperCase())) return null;
+  return validatedDirectChargeAccount(account);
 }
