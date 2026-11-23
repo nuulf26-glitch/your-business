@@ -46,6 +46,12 @@ describe('direct-charge payment accounting', () => {
     const repeated = applyDirectChargeEvent({ ...paidEvent, id: 'evt_paid_again' }, paid.nextOrder, 1200);
     expect(repeated.nextOrder.paymentHistory.filter((entry: any) => entry.type === 'collected')).toHaveLength(1);
   });
+  it('keeps expired checkout unpaid so COD can be selected again', () => {
+    const result = applyDirectChargeEvent({ id: 'evt_expired', type: 'checkout.session.expired', object: {} }, { paymentStatus: 'Pending' }, 900);
+    expect(result.status).toBe('expired');
+    expect(result.nextOrder.paymentStatus).toBe('Pending');
+    expect(result.nextOrder.paymentHistory).toBeUndefined();
+  });
   it('records failures without revenue', () => {
     const result = applyDirectChargeEvent({ id: 'evt_failed', type: 'payment_intent.payment_failed', object: {} }, { paymentStatus: 'Pending' }, 2000);
     expect(result.status).toBe('failed');
