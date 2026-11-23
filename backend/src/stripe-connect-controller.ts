@@ -166,7 +166,7 @@ export class StripeConnectWebhookController {
     return this.db.$transaction(async (tx: any) => {
       const inserted = await tx.businessRecord.createMany({ data: [{ id: eventId, businessId: account.businessId, type: WEBHOOK_RECORD, data: { eventId: event.id, eventType: event.type, receivedAt: new Date().toISOString() } }], skipDuplicates: true });
       if (!inserted.count) return { received: true, duplicate: true };
-      const supported = ['checkout.session.completed', 'checkout.session.async_payment_succeeded', 'checkout.session.async_payment_failed', 'payment_intent.payment_failed', 'charge.refunded'];
+      const supported = ['checkout.session.completed', 'checkout.session.async_payment_succeeded', 'checkout.session.async_payment_failed', 'checkout.session.expired', 'payment_intent.payment_failed', 'charge.refunded'];
       if (!supported.includes(event.type)) return { received: true };
       const metadata = session.metadata || {};
       const orderId = String(metadata.orderId || '');
