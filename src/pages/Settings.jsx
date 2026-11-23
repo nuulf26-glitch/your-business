@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import DashboardLayout from "../layouts/DashboardLayout";
 import { subscribeAppUser } from "../services/customBackendSession";
 import { getStore, saveStore } from "../services/storeService";
+import { customBackendRequest } from "../services/customBackendSession";
 import "../styles/settings.css";
 
 // قائمة شاملة لكل عملات العالم مع رموزها ومفاتيح الهاتف الخاصة بها
@@ -37,6 +38,10 @@ function Settings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [connectStatus, setConnectStatus] = useState(null);
+  const [connectLoading, setConnectLoading] = useState(false);
+  const [connectMessage, setConnectMessage] = useState("");
+  const [connectTransactions, setConnectTransactions] = useState([]);
 
   // تحديث مفتاح الهاتف تلقائياً عند تغيير العملة
   function handleCurrencyChange(newCurrencyCode) {
@@ -58,6 +63,7 @@ function Settings() {
 
         setUser(currentUser);
         setBusinessEmail(currentUser.email || "");
+        customBackendRequest("/connect/stripe/status").then((status) => { setConnectStatus(status); if (status?.enabled && status?.connected) customBackendRequest("/connect/stripe/transactions").then(setConnectTransactions).catch(() => setConnectTransactions([])); }).catch(() => setConnectStatus({ enabled: false, connected: false, reason: "Payment connection status is unavailable." }));
 
         try {
           const data = await getStore();
@@ -94,6 +100,19 @@ function Settings() {
 
     return () => unsubscribe();
   }, []);
+
+  async function startStripeOnboarding() {
+    setConnectLoading(true); setConnectMessage("");
+    try { const result = await customBackendRequest("/connect/stripe/onboarding", { method: "POST" }); if (!result?.url || !result.url.startsWith("https://connect.stripe.com/")) throw new Error("Stripe did not return a valid onboarding link."); window.location.assign(result.url); }
+    catch (error) { setConnectMessage(error?.message || "Stripe onboarding is unavailable."); }
+    finally { setConnectLoading(false); }
+  }
+
+  async function requestStripeRefund(orderId) {
+    setConnectMessage("");
+    try { await customBackendRequest(`/connect/stripe/refunds/${encodeURIComponent(orderId)}`, { method: "POST" }); const rows = await customBackendRequest("/connect/stripe/transactions"); setConnectTransactions(Array.isArray(rows) ? rows : []); setConnectMessage("Refund submitted to Stripe."); }
+    catch (error) { setConnectMessage(error?.message || "Refund could not be submitted."); }
+  }
 
   async function handleSave(event) {
     event.preventDefault();
@@ -336,6 +355,15 @@ function Settings() {
                 />
               </div>
             </div>
+          </section>
+
+          <section className="settings-card" aria-labelledby="stripe-connect-heading">
+            <div className="settings-card-heading"><div><span>Merchant payments</span><h2 id="stripe-connect-heading">Stripe card payments</h2></div><p>Card payments are available only after Stripe confirms merchant eligibility. Cash on delivery remains available.</p></div>
+            <p role="status">{connectStatus?.connected ? (connectStatus.directChargesReady ? "Connected and verified for card payments." : "Connected, but Stripe has not enabled card payments yet.") : connectStatus?.reason || (connectStatus?.enabled ? "Not connected" : "Stripe test-mode eligibility is pending.")}</p>
+            {connectStatus?.connected && <p>Card payments: {connectStatus.cardPayments || "pending"} · Payouts: {connectStatus.payoutsEnabled ? "enabled" : "pending"}</p>}
+            {connectStatus?.enabled && <button type="button" onClick={startStripeOnboarding} disabled={connectLoading}>{connectLoading ? "Opening Stripe…" : connectStatus?.connected ? "Continue Stripe setup" : "Connect Stripe account"}</button>}
+            {connectMessage && <p role="status">{connectMessage}</p>}
+            {connectTransactions.length > 0 && <div aria-label="Merchant Stripe transactions"><h3>Recent card transactions</h3><ul>{connectTransactions.map((transaction) => <li key={transaction.id}>{transaction.orderId} · {transaction.currency} {(Number(transaction.amountCents || 0) / 100).toFixed(2)} · {transaction.status}{transaction.status === "paid" && <button type="button" onClick={() => requestStripeRefund(transaction.orderId)}>Refund</button>}</li>)}</ul></div>}
           </section>
 
           {message && (

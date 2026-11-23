@@ -13,6 +13,8 @@ import { PlatformRefundController } from './platform-refund';
 import { CrmController } from './crm';
 import { AnalyticsController } from './analytics';
 import { CmsController, PublicCmsController } from './cms';
+import { StripeConnectController, StripeConnectWebhookController } from './stripe-connect-controller';
+import { PublicStripeConnectController } from './public-stripe-connect';
 
 @Module({
   imports: [
@@ -24,7 +26,7 @@ import { CmsController, PublicCmsController } from './cms';
       useFactory: (db: DbService) => ({ throttlers: [{ ttl: 60_000, limit: 100 }], storage: new DatabaseThrottlerStorage(db) }),
     }),
   ],
-  controllers: [HealthController, AuthController, BusinessController, ProductController, PublicProductController, PublicBusinessController, WebsiteController, TrialPreviewController, UploadController, CustomerController, OrderController, PublicOrderController, StripeController, StripeWebhookController, PlatformRefundController, CrmController, AnalyticsController, CmsController, PublicCmsController],
+  controllers: [HealthController, AuthController, BusinessController, ProductController, PublicProductController, PublicBusinessController, WebsiteController, TrialPreviewController, UploadController, CustomerController, OrderController, PublicOrderController, StripeController, StripeWebhookController, StripeConnectController, StripeConnectWebhookController, PublicStripeConnectController, PlatformRefundController, CrmController, AnalyticsController, CmsController, PublicCmsController],
   providers: [MediaStorage, SessionGuard, MailService, { provide: APP_GUARD, useClass: ThrottlerGuard }, { provide: APP_GUARD, useClass: OriginGuard }],
 })
 export class AppModule {}

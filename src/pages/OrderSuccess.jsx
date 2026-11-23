@@ -15,11 +15,20 @@ function OrderSuccess() {
   useEffect(() => {
     if (!order?.id || !order?.cashOnDeliveryToken) return;
     let active = true;
-    fetch(`/api/v1/public/orders/${encodeURIComponent(order.id)}?token=${encodeURIComponent(order.cashOnDeliveryToken)}`, { credentials: "include" })
-      .then(response => response.ok ? response.json() : null)
-      .then(value => { if (active && value) { setTracking(value); setOrder(current => ({ ...current, status: value.fulfillmentStatus, paymentStatus: value.paymentStatus })); } })
-      .catch(() => {});
-    return () => { active = false; };
+    let timer;
+    const refresh = async () => {
+      try {
+        const response = await fetch(`/api/v1/public/orders/${encodeURIComponent(order.id)}?token=${encodeURIComponent(order.cashOnDeliveryToken)}`, { credentials: "include" });
+        const value = response.ok ? await response.json() : null;
+        if (!active || !value) return;
+        setTracking(value);
+        setOrder(current => ({ ...current, status: value.fulfillmentStatus, paymentStatus: value.paymentStatus }));
+        const payment = String(value.paymentStatus || "").toLowerCase();
+        if (!["paid", "refunded", "partially refunded", "failed", "cash on delivery"].includes(payment)) timer = window.setTimeout(refresh, 2000);
+      } catch { if (active) timer = window.setTimeout(refresh, 3000); }
+    };
+    refresh();
+    return () => { active = false; if (timer) window.clearTimeout(timer); };
   }, [order?.id, order?.cashOnDeliveryToken]);
 
   if (!order) {
@@ -52,14 +61,11 @@ function OrderSuccess() {
         <section className="order-success-card">
           <div className="order-success-icon">✓</div>
 
-          <span>Order confirmed</span>
+          <span>{String(order.paymentMethod || "").startsWith("stripe") && String(order.paymentStatus || "").toLowerCase() !== "paid" ? "Payment processing" : "Order confirmed"}</span>
 
-          <h1>Thank you for your order.</h1>
+          <h1>{String(order.paymentMethod || "").startsWith("stripe") && String(order.paymentStatus || "").toLowerCase() !== "paid" ? "We’re confirming your payment." : "Thank you for your order."}</h1>
 
-          <p>
-            Your order has been received. You will receive updates using the
-            contact details you provided.
-          </p>
+          <p>{String(order.paymentMethod || "").startsWith("stripe") && String(order.paymentStatus || "").toLowerCase() !== "paid" ? "Your order is saved. Stripe will confirm the payment status shortly." : "Your order has been received. You will receive updates using the contact details you provided."}</p>
 
           <div className="order-success-number">
             <span>Order number</span>
