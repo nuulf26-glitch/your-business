@@ -158,42 +158,57 @@ export class StripeConnectWebhookController {
     if (!safeAccountId(accountId)) return { received: true };
     const account = await this.db.businessRecord.findFirst({ where: { type: ACCOUNT_RECORD, data: { path: ['accountId'], equals: accountId } } });
     if (!account) return { received: true };
-    const inserted = await this.db.businessRecord.createMany({ data: [{ id: idFor('scevt_', event.id), businessId: account.businessId, type: WEBHOOK_RECORD, data: { eventId: event.id, eventType: event.type, receivedAt: new Date().toISOString() } as any }], skipDuplicates: true });
-    if (!inserted.count) return { received: true, duplicate: true };
     const session = event.data?.object || {};
-    if (['checkout.session.completed', 'checkout.session.async_payment_succeeded', 'checkout.session.async_payment_failed', 'payment_intent.payment_failed', 'charge.refunded'].includes(event.type)) {
+    const eventId = idFor('scevt_', event.id);
+    return this.db.$transaction(async (tx: any) => {
+      const inserted = await tx.businessRecord.createMany({ data: [{ id: eventId, businessId: account.businessId, type: WEBHOOK_RECORD, data: { eventId: event.id, eventType: event.type, receivedAt: new Date().toISOString() } }], skipDuplicates: true });
+      if (!inserted.count) return { received: true, duplicate: true };
+      const supported = ['checkout.session.completed', 'checkout.session.async_payment_succeeded', 'checkout.session.async_payment_failed', 'payment_intent.payment_failed', 'charge.refunded'];
+      if (!supported.includes(event.type)) return { received: true };
       const metadata = session.metadata || {};
       const orderId = String(metadata.orderId || '');
-      const paymentIntentId = String(session.payment_intent || session.id || '');
-      let payment = orderId ? await this.db.businessRecord.findFirst({ where: { businessId: account.businessId, type: PAYMENT_RECORD, data: { path: ['orderId'], equals: orderId } } }) : null;
-      if (!payment && paymentIntentId) payment = await this.db.businessRecord.findFirst({ where: { businessId: account.businessId, type: PAYMENT_RECORD, data: { path: ['paymentIntentId'], equals: paymentIntentId } } });
-      if (payment) {
-        const paymentData = payment.data as any;
-        const order = await this.db.order.findFirst({ where: { id: paymentData.orderId, businessId: account.businessId } });
-        if (order) {
-          const orderData = order.data as any;
-          let status = paymentData.status || 'pending';
-          if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') status = session.payment_status === 'paid' || event.type === 'checkout.session.async_payment_succeeded' ? 'paid' : 'processing';
-          if (event.type === 'checkout.session.async_payment_failed' || event.type === 'payment_intent.payment_failed') status = 'failed';
-          if (event.type === 'charge.refunded') status = 'refunded';
-          const now = new Date().toISOString();
-          const nextOrder = { ...orderData, paymentMethod: 'stripe_direct', paymentStatus: status === 'paid' ? 'Paid' : status === 'refunded' ? 'Refunded' : status === 'failed' ? 'Failed' : 'Processing' };
-          if (status === 'paid' && !Array.isArray(orderData.paymentHistory?.filter((entry: any) => entry.type === 'collected'))?.length) {
-            nextOrder.collectedAmountCents = order.amountCents || 0;
-            nextOrder.paidAt = now;
-            nextOrder.paymentHistory = [...(orderData.paymentHistory || []), { type: 'collected', amountCents: nextOrder.collectedAmountCents, method: 'stripe_direct', recordedAt: now, sourceEventId: event.id }];
-          }
-          if (status === 'refunded') {
-            nextOrder.refundHistory = [...(orderData.refundHistory || []), { amountCents: order.amountCents || 0, status: 'succeeded', recordedAt: now, sourceEventId: event.id }];
-            nextOrder.paymentHistory = [...(orderData.paymentHistory || []), { type: 'refund', amountCents: order.amountCents || 0, recordedAt: now, sourceEventId: event.id }];
-          }
-          await this.db.$transaction(async (tx: any) => {
-            await tx.order.updateMany({ where: { id: order.id, businessId: account.businessId, data: { equals: order.data } }, data: { data: nextOrder } });
-            await tx.businessRecord.update({ where: { id: payment!.id }, data: { data: { ...paymentData, status, paymentIntentId: session.payment_intent || paymentData.paymentIntentId, updatedAt: now } } });
-          });
+      const paymentIntentId = String(session.payment_intent || (session.object === 'payment_intent' ? session.id : '') || '');
+      let payment = orderId ? await tx.businessRecord.findFirst({ where: { businessId: account.businessId, type: PAYMENT_RECORD, data: { path: ['orderId'], equals: orderId } } }) : null;
+      if (!payment && paymentIntentId) payment = await tx.businessRecord.findFirst({ where: { businessId: account.businessId, type: PAYMENT_RECORD, data: { path: ['paymentIntentId'], equals: paymentIntentId } } });
+      if (!payment) return { received: true };
+      const paymentData = payment.data as any;
+      const order = await tx.order.findFirst({ where: { id: paymentData.orderId, businessId: account.businessId } });
+      if (!order) return { received: true };
+      const orderData = order.data as any;
+      const now = new Date().toISOString();
+      let status = String(paymentData.status || 'pending');
+      if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') status = session.payment_status === 'paid' || event.type === 'checkout.session.async_payment_succeeded' ? 'paid' : 'processing';
+      if (event.type === 'checkout.session.async_payment_failed' || event.type === 'payment_intent.payment_failed') status = 'failed';
+      if (event.type === 'charge.refunded' && String(orderData.paymentStatus || '').toLowerCase() === 'paid') status = 'refunded';
+      if (String(orderData.paymentStatus || '').toLowerCase() === 'refunded') status = 'refunded';
+      const nextOrder = { ...orderData, paymentMethod: 'stripe_direct', paymentStatus: status === 'paid' ? 'Paid' : status === 'refunded' ? 'Refunded' : status === 'failed' ? 'Failed' : 'Processing' };
+      const history = Array.isArray(orderData.paymentHistory) ? orderData.paymentHistory : [];
+      if (status === 'paid' && !history.some((entry: any) => entry.type === 'collected')) {
+        nextOrder.collectedAmountCents = order.amountCents || 0;
+        nextOrder.paidAt = now;
+        nextOrder.paymentHistory = [...history, { type: 'collected', amountCents: nextOrder.collectedAmountCents, method: 'stripe_direct', recordedAt: now, sourceEventId: event.id }];
+      }
+      if (status === 'refunded' && !history.some((entry: any) => entry.type === 'refund' && entry.sourceEventId === event.id)) {
+        const refundCents = Math.min(Number(session.amount_refunded || order.amountCents || 0), Number(order.amountCents || 0));
+        nextOrder.refundHistory = [...(Array.isArray(orderData.refundHistory) ? orderData.refundHistory : []), { amountCents: refundCents, status: 'succeeded', recordedAt: now, sourceEventId: event.id }];
+        nextOrder.paymentHistory = [...history, { type: 'refund', amountCents: refundCents, recordedAt: now, sourceEventId: event.id }];
+      }
+      const updated = await tx.order.updateMany({ where: { id: order.id, businessId: account.businessId, data: { equals: order.data } }, data: { data: nextOrder } });
+      if (!updated.count) throw new ConflictException('Order changed while a Stripe event was being applied.');
+      await tx.businessRecord.update({ where: { id: payment.id }, data: { data: { ...paymentData, status, paymentIntentId: paymentIntentId || paymentData.paymentIntentId, updatedAt: now } } });
+      const email = String(orderData.email || '').trim().toLowerCase();
+      if (email) {
+        const customer = await tx.customer.findFirst({ where: { businessId: account.businessId, data: { path: ['email'], equals: email } } });
+        if (customer) {
+          const orders = await tx.order.findMany({ where: { businessId: account.businessId } });
+          const matching = orders.filter((row: any) => String((row.data as any)?.email || '').trim().toLowerCase() === email);
+          const paid = matching.filter((row: any) => String((row.data as any)?.paymentStatus || '').toLowerCase() === 'paid');
+          const collected = paid.reduce((sum: number, row: any) => sum + (Number((row.data as any)?.collectedAmountCents ?? row.amountCents ?? 0) || 0), 0);
+          const refunded = matching.reduce((sum: number, row: any) => sum + (Array.isArray((row.data as any)?.refundHistory) ? (row.data as any).refundHistory.reduce((part: number, entry: any) => part + (Number(entry.amountCents) || 0), 0) : 0), 0);
+          await tx.customer.update({ where: { id: customer.id }, data: { data: { ...(customer.data as any), totalSpent: Math.max(0, collected - refunded) / 100, paidOrders: paid.length, orders: matching.length } } });
         }
       }
-    }
-    return { received: true };
+      return { received: true };
+    });
   }
 }
