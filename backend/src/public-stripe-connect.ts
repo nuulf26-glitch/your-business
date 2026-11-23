@@ -81,11 +81,16 @@ export class PublicStripeConnectController {
     });
     const attempt = Number((existing?.data as any)?.attempt || 0) + 1;
     const idempotencyKey = `cyb-direct-${order.id}-${attempt}`.slice(0, 255);
+    const pendingData = { orderId: order.id, accountId, amountCents: amount, currency: currency.toUpperCase(), status: 'creating', attempt, updatedAt: new Date().toISOString() };
+    await this.db.businessRecord.upsert({
+      where: { id: paymentRecordKey },
+      create: { id: paymentRecordKey, businessId: order.businessId, type: paymentType, status: 'creating', data: pendingData as any },
+      update: { status: 'creating', data: pendingData as any },
+    });
     const session = await this.stripePost('/checkout/sessions', form, accountId, idempotencyKey);
     if (!session.id || !session.url) throw new ServiceUnavailableException('Stripe did not return a checkout link.');
-    const recordData = { orderId: order.id, accountId, checkoutSessionId: session.id, paymentIntentId: session.payment_intent || null, amountCents: amount, currency: currency.toUpperCase(), status: 'pending', attempt, updatedAt: new Date().toISOString() };
-    if (existing) await this.db.businessRecord.update({ where: { id: paymentRecordKey }, data: { data: recordData as any, status: 'pending' } });
-    else await this.db.businessRecord.create({ data: { id: paymentRecordKey, businessId: order.businessId, type: paymentType, status: 'pending', data: recordData as any } });
+    const recordData = { ...pendingData, checkoutSessionId: session.id, paymentIntentId: session.payment_intent || null, status: 'pending', updatedAt: new Date().toISOString() };
+    await this.db.businessRecord.update({ where: { id: paymentRecordKey }, data: { data: recordData as any, status: 'pending' } });
     return { url: session.url };
   }
 
