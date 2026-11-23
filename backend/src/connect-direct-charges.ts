@@ -43,7 +43,7 @@ export function applyDirectChargeEvent(input: { type: string; id: string; object
     status = input.object?.payment_status === 'paid' || input.type === 'checkout.session.async_payment_succeeded' ? 'paid' : 'processing';
   } else if (input.type === 'checkout.session.async_payment_failed' || input.type === 'payment_intent.payment_failed') {
     status = 'failed';
-  } else if (input.type === 'charge.refunded' && String(orderData.paymentStatus || '').toLowerCase().includes('paid')) {
+  } else if (input.type === 'charge.refunded' && ['paid', 'partially refunded'].includes(String(orderData.paymentStatus || '').toLowerCase())) {
     status = 'refunded';
   } else if (String(orderData.paymentStatus || '').toLowerCase() === 'refunded') {
     status = 'refunded';
