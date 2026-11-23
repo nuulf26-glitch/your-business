@@ -3,9 +3,10 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Request } from 'express';
 import { DbService } from './database';
 import { SessionGuard, tokenHash } from './session';
-import { applyDirectChargeEvent, directChargeHeaders, validatedDirectChargeAccount } from './connect-direct-charges';
+import { applyDirectChargeEvent, approvedDirectChargeAccount, directChargeHeaders, validatedDirectChargeAccount } from './connect-direct-charges';
 
 const ACCOUNT_RECORD = 'stripeConnectAccount';
+const approvedCountries = () => (process.env.STRIPE_CONNECT_APPROVED_COUNTRIES?.trim() || 'AE').split(',').map((value) => value.trim().toUpperCase()).filter((value) => /^[A-Z]{2}$/.test(value));
 const PAYMENT_RECORD = 'stripeConnectPayment';
 const WEBHOOK_RECORD = 'stripeConnectWebhook';
 const idFor = (prefix: string, value: string) => prefix + createHash('sha256').update(value).digest('hex').slice(0, 48);
@@ -66,7 +67,7 @@ export class StripeConnectController {
     if (!safeAccountId(state.accountId)) return { enabled: true, connected: false, country: 'AE', supportedCountries: enabledCountries() };
     try {
       const account = await this.stripe(`/accounts/${encodeURIComponent(state.accountId)}`);
-      const verifiedId = validatedDirectChargeAccount(account);
+      const verifiedId = approvedDirectChargeAccount(account, approvedCountries());
       const capabilities = account.capabilities || {};
       await this.db.businessRecord.update({ where: { id: record!.id }, data: { data: { accountId: state.accountId, country: account.country || state.country || 'AE', detailsSubmitted: account.details_submitted === true, chargesEnabled: account.charges_enabled === true, payoutsEnabled: account.payouts_enabled === true, cardPayments: capabilities.card_payments || 'inactive', updatedAt: new Date().toISOString() } as any } });
       return { enabled: true, connected: true, accountId: state.accountId, country: account.country || state.country || 'AE', chargesEnabled: account.charges_enabled === true, payoutsEnabled: account.payouts_enabled === true, cardPayments: capabilities.card_payments || 'inactive', directChargesReady: !!verifiedId };
@@ -125,6 +126,8 @@ export class StripeConnectController {
     const payment = await this.db.businessRecord.findFirst({ where: { businessId: business.id, type: PAYMENT_RECORD, data: { path: ['orderId'], equals: order.id } } });
     if (!payment || !safeAccountId((payment.data as any)?.accountId) || !(payment.data as any)?.paymentIntentId || String(data.paymentStatus).toLowerCase() !== 'paid') throw new ConflictException('Only a collected Stripe merchant payment can be refunded.');
     const accountId = (payment.data as any).accountId, intentId = (payment.data as any).paymentIntentId;
+    const liveAccount = await this.stripe(`/accounts/${encodeURIComponent(accountId)}`);
+    if (!approvedDirectChargeAccount(liveAccount, enabledCountries())) throw new ConflictException('Stripe no longer reports this merchant account as refund-ready.');
     const form = new URLSearchParams({ payment_intent: intentId });
     const result = await this.stripe('/refunds', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form.toString() }, accountId, `cyb-refund-${order.id}`);
     await this.db.businessRecord.update({ where: { id: payment.id }, data: { data: { ...(payment.data as any), refundId: result.id, refundStatus: result.status || 'pending' } as any } });
