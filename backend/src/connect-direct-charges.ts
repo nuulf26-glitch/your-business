@@ -50,6 +50,9 @@ export function applyDirectChargeEvent(input: { type: string; id: string; object
   } else if (String(orderData.paymentStatus || '').toLowerCase() === 'refunded') {
     status = 'refunded';
   }
+  const currentStatus = String(orderData.paymentStatus || '').toLowerCase();
+  if (['refunded', 'partially refunded'].includes(currentStatus) && status !== 'refunded') return { status: 'refunded' as const, nextOrder: { ...orderData } };
+  if (currentStatus === 'paid' && status === 'failed') return { status: 'paid' as const, nextOrder: { ...orderData } };
   const now = new Date().toISOString();
   const nextOrder: Record<string, any> = { ...orderData, paymentMethod: 'stripe_direct' };
   if (status === 'paid') {
