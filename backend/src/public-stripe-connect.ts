@@ -3,10 +3,11 @@ import { Request } from 'express';
 import { createHash } from 'node:crypto';
 import { DbService } from './database';
 import { tokenHash } from './session';
-import { directChargeHeaders, validatedDirectChargeAccount } from './connect-direct-charges';
+import { approvedDirectChargeAccount, directChargeHeaders } from './connect-direct-charges';
 
 const accountType = 'stripeConnectAccount';
 const paymentType = 'stripeConnectPayment';
+const approvedCountries = () => (process.env.STRIPE_CONNECT_APPROVED_COUNTRIES?.trim() || 'AE').split(',').map((value) => value.trim().toUpperCase()).filter((value) => /^[A-Z]{2}$/.test(value));
 const validAccount = (value: unknown): value is string => typeof value === 'string' && /^acct_[A-Za-z0-9]+$/.test(value);
 const paymentRecordId = (orderId: string) => 'scpay_' + createHash('sha256').update(orderId).digest('hex').slice(0, 48);
 function testConnectEnabled() {
@@ -35,7 +36,7 @@ export class PublicStripeConnectController {
     } catch { throw new ServiceUnavailableException('The merchant payment status could not be verified.'); }
     const account = await response.json().catch(() => ({})) as any;
     if (!response.ok) return { order, data, accountId, ready: false };
-    const verified = validatedDirectChargeAccount(account);
+    const verified = approvedDirectChargeAccount(account, approvedCountries());
     return { order, data, accountId: verified, ready: !!verified };
   }
 
