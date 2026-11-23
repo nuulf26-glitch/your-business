@@ -102,9 +102,10 @@ export class PublicStripeConnectController {
     const payment = await this.db.businessRecord.findFirst({ where: { id: recordId, businessId: result.order.businessId, type: paymentType } });
     if (!payment) return { cancelled: true };
     const data = payment.data as any;
-    if (['creating', 'pending'].includes(String(data.status || '')) && !result.accountId) throw new ServiceUnavailableException('The active card checkout cannot be closed right now. COD is still blocked to prevent duplicate payment.');
+    const active = ['creating', 'pending'].includes(String(data.status || ''));
+    if (active && !result.accountId) throw new ServiceUnavailableException('The active card checkout cannot be closed right now. COD is still blocked to prevent duplicate payment.');
     if (data.status === 'paid') throw new BadRequestException('This order has already been paid.');
-    if (data.checkoutSessionId && data.status === 'pending') {
+    if (active && result.accountId && data.checkoutSessionId) {
       const session = await this.stripeGet(`/checkout/sessions/${encodeURIComponent(data.checkoutSessionId)}`, result.accountId);
       if (session.status === 'complete') throw new BadRequestException('Payment is already complete.');
       if (session.status === 'open') await this.stripePost(`/checkout/sessions/${encodeURIComponent(data.checkoutSessionId)}/expire`, new URLSearchParams(), result.accountId, `cyb-expire-${result.order.id}`);
