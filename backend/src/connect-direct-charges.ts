@@ -13,7 +13,7 @@ export type ConnectedAccountCapabilities = {
 
 export function validatedDirectChargeAccount(account: ConnectedAccountCapabilities): string | null {
   if (typeof account.id !== 'string' || !/^acct_[A-Za-z0-9]+$/.test(account.id)) return null;
-  if (account.charges_enabled !== true || account.details_submitted !== true) return null;
+  if (account.charges_enabled !== true || account.payouts_enabled !== true || account.details_submitted !== true) return null;
   if (account.capabilities?.card_payments !== 'active') return null;
   return account.id;
 }
