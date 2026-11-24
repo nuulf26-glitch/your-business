@@ -358,9 +358,10 @@ test("storefront treats the available quantity returned by the server consistent
 
   await page.goto("/store/atelier-preview");
   await expect(page.getByRole("button", { name: "Out of stock" })).toBeDisabled();
+  const previousInventoryRequests = inventoryRequests;
   availableStock = 1;
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect.poll(() => inventoryRequests).toBeGreaterThan(1);
+  await expect.poll(() => inventoryRequests).toBeGreaterThan(previousInventoryRequests);
   await expect(page.getByText("1 available")).toBeVisible();
   await expect(page.getByRole("button", { name: "Add to cart" })).toBeEnabled();
 });
