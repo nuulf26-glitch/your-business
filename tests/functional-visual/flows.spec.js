@@ -341,21 +341,26 @@ test("storefront treats the available quantity returned by the server consistent
   await mockAppApi(page);
   const model = { ...website, sections: [{ id: "inventory", type: "collection", title: "Inventory" }] };
   let availableStock = 0;
+  let inventoryRequests = 0;
   await page.route("**/api/v1/websites/public/atelier-preview", route => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ published: true, website: model, business: { slug: "atelier-preview" } }),
   }));
-  await page.route("**/api/v1/public/products/atelier-preview", route => route.fulfill({
+  await page.route("**/api/v1/public/products/atelier-preview", route => {
+    inventoryRequests += 1;
+    return route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify([{ ...product.data, id: product.id, storeUrl: "atelier-preview", stock: availableStock }]),
-  }));
+    });
+  });
 
   await page.goto("/store/atelier-preview");
   await expect(page.getByRole("button", { name: "Out of stock" })).toBeDisabled();
   availableStock = 1;
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(() => inventoryRequests).toBeGreaterThan(1);
   await expect(page.getByText("1 available")).toBeVisible();
   await expect(page.getByRole("button", { name: "Add to cart" })).toBeEnabled();
 });
