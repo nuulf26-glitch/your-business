@@ -117,15 +117,18 @@ function Orders() {
   }, [orders]);
 
     async function updateStatus(orderId, newStatus) {
+  setActionError("");
   try {
-    await saveOrderStatus(orderId, newStatus);
+    const savedOrder = await saveOrderStatus(orderId, newStatus);
 
     setOrders((currentOrders) =>
       currentOrders.map((item) =>
         item.id === orderId
           ? {
               ...item,
-              status: newStatus,
+              ...savedOrder,
+              status: savedOrder.status || newStatus,
+              fulfillmentStatus: savedOrder.fulfillmentStatus || String(newStatus).toLowerCase(),
             }
           : item
       )
@@ -136,6 +139,7 @@ function Orders() {
       "Could not update order status:",
       error
     );
+    setActionError(error.message || "Could not update order status. Please retry.");
   }
 }
 

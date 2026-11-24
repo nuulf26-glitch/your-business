@@ -39,6 +39,29 @@ function PublicStore() {
 
   useEffect(() => {
     let active = true;
+    const refreshInventory = async () => {
+      if (document.visibilityState === "hidden") return;
+      try {
+        const latest = await getProductsByStore(storeUrl);
+        if (active) setProducts(latest);
+      } catch {
+        // Keep the last known catalog during a transient refresh failure.
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshInventory();
+    };
+    window.addEventListener("focus", refreshInventory);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", refreshInventory);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [storeUrl]);
+
+  useEffect(() => {
+    let active = true;
     async function loadStore() {
       setLoading(true);
       setLoadError(false);

@@ -17,7 +17,7 @@ const product = {
 };
 const order = {
   id: "synthetic-order", status: "new", createdAt: "2026-01-15T09:00:00.000Z",
-  data: { id: "ORD-legacy-display", customerName: "Synthetic QA customer", email: "visual-review@example.test", productName: "Synthetic QA product", total: 80, paymentStatus: "Cash on delivery", items: [{ name: "Synthetic QA product", quantity: 1, price: 80 }] },
+  data: { id: "ORD-legacy-display", customerName: "Synthetic QA customer", email: "visual-review@example.test", productName: "Synthetic QA product", total: 80, fulfillmentStatus: "new", paymentStatus: "Cash on delivery", items: [{ name: "Synthetic QA product", quantity: 1, price: 80 }] },
 };
 const customer = {
   id: "synthetic-customer", data: { name: "Synthetic QA customer", email: "visual-review@example.test", phone: "+971500000000", orders: 1, totalSpent: 80, status: "New", createdAt: "2026-01-15T09:00:00.000Z" },
@@ -27,6 +27,7 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
   const calls = [];
   let authenticated = !cookieAuth;
   let products = [product];
+  let currentOrders = structuredClone(orderFixtures);
   let stores = [{ id: business.id, name: business.name, slug: business.slug, category: business.category, published: true }];
   let draft = structuredClone(website);
   let crmSegments = [{ id: "segment-1", name: "VIPs", filters: { search: "vip" } }];
@@ -74,7 +75,7 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
       const created = { id: "synthetic-created-product", data: input };
       products = [...products, created];
       body = created;
-    } else if (pathname === "/orders" && method === "GET") body = orderFixtures;
+    } else if (pathname === "/orders" && method === "GET") body = currentOrders;
     else if (pathname === "/orders/synthetic-order/payment" && method === "PATCH") {
       const input = request.postDataJSON()?.data || {};
       body = { ...order, data: { ...order.data, paymentStatus: input.status === "paid" ? "Paid" : "Refunded" } };
@@ -99,7 +100,14 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
     else if (pathname === "/crm/pipeline/stages") body = ["Qualification", "Proposal", "Negotiation", "Won"];
     else if (pathname === "/customers" && method === "GET") body = [{ id: customer.id, ...customer.data }];
     else if (pathname.startsWith("/customers/") && pathname.endsWith("/status")) body = { id: "synthetic-customer", data: { ...customer.data, status: request.postDataJSON()?.status || "Active" } };
-    else if (pathname.startsWith("/orders/") && pathname.endsWith("/status")) body = { ok: true };
+    else if (pathname.startsWith("/orders/") && pathname.endsWith("/status") && method === "PATCH") {
+      const id = pathname.split("/")[2];
+      const nextStatus = String(request.postDataJSON()?.status || "").toLowerCase();
+      currentOrders = currentOrders.map(row => row.id === id
+        ? { ...row, status: nextStatus, data: { ...row.data, fulfillmentStatus: nextStatus } }
+        : row);
+      body = currentOrders.find(row => row.id === id) || {};
+    }
     else if (pathname === "/public/products/item/synthetic-product") body = { ...product.data, id: product.id, storeUrl: "atelier-preview" };
     else if (pathname === "/public/orders" && method === "POST") body = { id: "synthetic-created-order", cashOnDeliveryToken: "synthetic-token" };
     else if (pathname === "/public/orders/synthetic-created-order/cash-on-delivery" && method === "POST") body = { ok: true };
@@ -316,6 +324,40 @@ test("merchant payment actions use the database order ID and update from the sav
   await expect.poll(() => calls.some(call => call.pathname === "/orders/synthetic-order/payment" && call.method === "PATCH")).toBeTruthy();
   await expect(page.getByText("Payment: Paid")).toBeVisible();
   expect(calls.some(call => call.pathname === "/orders/ORD-legacy-display/payment")).toBe(false);
+});
+
+test("order fulfillment status reflects the saved cancellation response", async ({ page }) => {
+  await seedProtectedUser(page);
+  const calls = await mockAppApi(page);
+  await page.goto("/orders");
+  const status = page.locator(".order-status-select").first();
+  await expect(status).toHaveValue("New");
+  await status.selectOption("Cancelled");
+  await expect.poll(() => calls.some(call => call.pathname === "/orders/synthetic-order/status" && call.method === "PATCH" && call.body?.status === "cancelled")).toBeTruthy();
+  await expect(status).toHaveValue("Cancelled");
+});
+
+test("storefront treats the available quantity returned by the server consistently", async ({ page }) => {
+  await mockAppApi(page);
+  const model = { ...website, sections: [{ id: "inventory", type: "collection", title: "Inventory" }] };
+  let availableStock = 0;
+  await page.route("**/api/v1/websites/public/atelier-preview", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ published: true, website: model, business: { slug: "atelier-preview" } }),
+  }));
+  await page.route("**/api/v1/public/products/atelier-preview", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify([{ ...product.data, id: product.id, storeUrl: "atelier-preview", stock: availableStock }]),
+  }));
+
+  await page.goto("/store/atelier-preview");
+  await expect(page.getByRole("button", { name: "Out of stock" })).toBeDisabled();
+  availableStock = 1;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(page.getByText("1 available")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add to cart" })).toBeEnabled();
 });
 
 test("storefront variant cards open option selection and persist the chosen variant in cart and COD order", async ({ page }) => {

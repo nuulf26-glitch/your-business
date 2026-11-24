@@ -1,4 +1,4 @@
-import { OrderController } from '../src/routes';
+import { OrderController, ProductController, PublicProductController } from '../src/routes';
 
 describe('OrderController inventory release', () => {
   function fixture(options: { variants?: any[]; stock?: number; line?: any } = {}) {
@@ -19,6 +19,7 @@ describe('OrderController inventory release', () => {
     const tx: any = {
       product: {
         findFirst: jest.fn(async ({ where }: any) => where.businessId === product.businessId && where.id === product.id ? product : null),
+        findMany: jest.fn(async ({ where }: any) => where.businessId === product.businessId ? [product] : []),
         updateMany: jest.fn(async ({ where, data }: any) => {
           if (where.businessId !== product.businessId || where.id !== product.id || JSON.stringify(where.data.equals) !== JSON.stringify(product.data)) return { count: 0 };
           product.data = data.data;
@@ -37,7 +38,11 @@ describe('OrderController inventory release', () => {
     };
     let tail = Promise.resolve();
     const db: any = {
-      business: { findFirst: jest.fn().mockResolvedValue({ id: 'business_1', ownerId: 'merchant_1' }) },
+      business: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'business_1', ownerId: 'merchant_1' }),
+        findUnique: jest.fn().mockResolvedValue({ id: 'business_1', slug: 'test-shop', settings: {}, website: { published: {} } }),
+      },
+      product: { findMany: jest.fn(async ({ where }: any) => where.businessId === product.businessId ? [product] : []) },
       $transaction: jest.fn(async (callback: any) => {
         let release!: () => void;
         const previous = tail;
@@ -46,7 +51,7 @@ describe('OrderController inventory release', () => {
         try { return await callback(tx); } finally { release(); }
       }),
     };
-    return { controller: new OrderController(db), product, order, tx };
+    return { controller: new OrderController(db), product, order, tx, db };
   }
 
   const request: any = { user: { id: 'merchant_1' }, params: { id: 'order_1' } };
@@ -65,8 +70,23 @@ describe('OrderController inventory release', () => {
 
   it('restores non-variant product stock on cancellation', async () => {
     const { controller, product } = fixture({ stock: 2, line: { id: 'product_1', quantity: 1 } });
-    await controller.updateStatus(request, { status: 'cancelled' } as any);
+    const savedOrder = await controller.updateStatus(request, { status: 'cancelled' } as any) as any;
     expect(product.data.stock).toBe(3);
+    expect(savedOrder).toMatchObject({ status: 'cancelled', data: { fulfillmentStatus: 'cancelled' } });
+  });
+
+  it('returns the same post-cancellation available quantity to merchant inventory and storefront', async () => {
+    const { controller, product, db } = fixture({
+      stock: 1,
+      line: { id: 'product_1', quantity: 1 },
+    });
+
+    await controller.updateStatus(request, { status: 'cancelled' } as any);
+
+    const merchantProducts = await new ProductController(db).list({ user: { id: 'merchant_1' } } as any) as any[];
+    const storefrontProducts = await new PublicProductController(db).list({ params: { slug: 'test-shop' } } as any) as any[];
+    expect(merchantProducts[0].data.stock).toBe(2);
+    expect(storefrontProducts[0].stock).toBe(merchantProducts[0].data.stock);
   });
 
   it('does not release variant or parent inventory a second time on retries', async () => {
