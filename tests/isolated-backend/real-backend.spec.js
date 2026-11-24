@@ -372,7 +372,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   await requestFromPage(page, `/orders/${encodeURIComponent(bankOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
   await requestFromPage(page, `/orders/${encodeURIComponent(bankOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
   const bankPaidOrder = await requestFromPage(page, `/orders/${encodeURIComponent(bankOrder.id)}`);
-  expect(bankPaidOrder.data.paymentStatus).toBe("Paid");
+  expect(bankPaidOrder.paymentStatus).toBe("Paid");
   const bankTransactions = await requestFromPage(page, "/payments/providers");
   expect(bankTransactions.transactions.filter((transaction) => transaction.orderId === bankOrder.id && transaction.provider === "bank_transfer")).toHaveLength(1);
   expect(bankTransactions.transactions.find((transaction) => transaction.orderId === bankOrder.id)).toMatchObject({ status: "confirmed", amountCents: bankExpectedAmount, currency: bankOwnerOrder.currency });
