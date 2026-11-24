@@ -363,7 +363,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(bankPayment).toMatchObject({ provider: "bank_transfer", amountCents: bankExpectedAmount, currency: bankOwnerOrder.currency, status: "awaiting_confirmation", bankTransfer: { iban: manualOptions.bankTransfer.iban } });
   expect(await requestFromPage(page, `/public/orders/${encodeURIComponent(bankOrder.id)}/payment/manual`, "POST", { token: bankOrder.cashOnDeliveryToken, method: "bank_transfer" })).toEqual(bankPayment);
   const bankStoredOrder = await requestFromPage(page, `/orders/${encodeURIComponent(bankOrder.id)}`);
-  expect(bankStoredOrder.data.paymentStatus).toBe("Awaiting manual confirmation");
+  expect(bankStoredOrder.paymentStatus).toBe("Awaiting manual confirmation");
   const crossMerchantOrderAccess = await page.evaluate(async ({ id, businessId }) => {
     const response = await fetch(`/api/v1/orders/${encodeURIComponent(id)}`, { credentials: "include", headers: { "x-cyb-business-id": businessId } });
     return response.status;
@@ -388,7 +388,7 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(externalUrl.searchParams.get("order")).toBe(`CYB-${externalOrder.id}`);
   expect(externalUrl.searchParams.get("currency")).toBe(externalOwnerOrder.currency);
   expect(externalPayment.url).not.toContain(bankOrder.id);
-  expect((await requestFromPage(page, `/orders/${encodeURIComponent(externalOrder.id)}`)).data.paymentStatus).toBe("Awaiting manual confirmation");
+  expect((await requestFromPage(page, `/orders/${encodeURIComponent(externalOrder.id)}`)).paymentStatus).toBe("Awaiting manual confirmation");
   await requestFromPage(page, `/orders/${encodeURIComponent(externalOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
   await requestFromPage(page, `/orders/${encodeURIComponent(externalOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
   const externalTransactions = await requestFromPage(page, "/payments/providers");
