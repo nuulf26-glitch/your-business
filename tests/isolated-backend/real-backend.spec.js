@@ -327,5 +327,66 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const storedProducts = await requestFromPage(page, "/products");
   expect(storedProducts.find((item) => item.id === product.id).data.variants[0].stock).toBe(4);
 
+  // Manual collection methods use server-priced orders and remain unpaid until
+  // the authenticated merchant confirms receipt. No external provider is called.
+  const providerStateBefore = await requestFromPage(page, "/payments/providers");
+  expect(providerStateBefore.providers.find((provider) => provider.id === "cash_on_delivery")).toMatchObject({ enabled: true, status: "available" });
+  for (const providerId of ["stripe", "paypal", "tap", "paytabs", "amazon_payment_services", "payd"]) {
+    expect(providerStateBefore.providers.find((provider) => provider.id === providerId)?.enabled).toBe(false);
+  }
+  const manualOptions = {
+    bankTransfer: { enabled: true, bankName: "Synthetic Test Bank", accountName: "Synthetic Merchant", iban: "AE070331234567890123456", swift: "SYNTAEAD" },
+    externalPaymentLink: { enabled: true, urlTemplate: "https://payments.example.org/checkout?amount={amount}&order={order}&currency={currency}" },
+  };
+  await requestFromPage(page, "/payments/providers/manual-options", "POST", manualOptions);
+  const configuredProviders = await requestFromPage(page, "/payments/providers");
+  expect(configuredProviders.providers.find((provider) => provider.id === "bank_transfer")).toMatchObject({ enabled: true, status: "connected" });
+  expect(configuredProviders.providers.find((provider) => provider.id === "external_payment_link")).toMatchObject({ enabled: true, status: "connected" });
+  const secondaryProviders = await requestFromPage(page, "/payments/providers", "GET", undefined, secondStore.id);
+  expect(secondaryProviders.providers.find((provider) => provider.id === "bank_transfer")).toMatchObject({ enabled: false, status: "not_configured" });
+  expect(secondaryProviders.providers.find((provider) => provider.id === "external_payment_link")).toMatchObject({ enabled: false, status: "not_configured" });
+
+  const createManualOrder = async (label) => requestFromPage(page, "/public/orders", "POST", {
+    idempotencyKey: `${label}-${randomUUID().replaceAll("-", "")}`,
+    customerActionToken: `action-${randomUUID().replaceAll("-", "")}`,
+    data: { storeUrl: slug, customerName: `Synthetic ${label} Customer`, email: `${label}-${process.env.GITHUB_RUN_ID || "local"}@example.test`, items: [{ id: product.id, variantId: "synthetic-small", quantity: 1 }] },
+  });
+
+  const bankOrder = await createManualOrder("bank-transfer");
+  const bankMethods = await requestFromPage(page, `/public/orders/${encodeURIComponent(bankOrder.id)}/payment-methods?token=${encodeURIComponent(bankOrder.cashOnDeliveryToken)}`);
+  expect(bankMethods.methods.map((method) => method.id)).toEqual(expect.arrayContaining(["cash_on_delivery", "bank_transfer", "external_payment_link"]));
+  const bankPayment = await requestFromPage(page, `/public/orders/${encodeURIComponent(bankOrder.id)}/payment/manual`, "POST", { token: bankOrder.cashOnDeliveryToken, method: "bank_transfer" });
+  expect(bankPayment).toMatchObject({ provider: "bank_transfer", amountCents: 1800, currency: "USD", status: "awaiting_confirmation", bankTransfer: { iban: manualOptions.bankTransfer.iban } });
+  expect(await requestFromPage(page, `/public/orders/${encodeURIComponent(bankOrder.id)}/payment/manual`, "POST", { token: bankOrder.cashOnDeliveryToken, method: "bank_transfer" })).toEqual(bankPayment);
+  const bankStoredOrder = await requestFromPage(page, `/orders/${encodeURIComponent(bankOrder.id)}`);
+  expect(bankStoredOrder.data.paymentStatus).toBe("Awaiting manual confirmation");
+  const crossMerchantOrderAccess = await page.evaluate(async ({ id, businessId }) => {
+    const response = await fetch(`/api/v1/orders/${encodeURIComponent(id)}`, { credentials: "include", headers: { "x-cyb-business-id": businessId } });
+    return response.status;
+  }, { id: bankOrder.id, businessId: secondStore.id });
+  expect(crossMerchantOrderAccess).toBe(404);
+  await requestFromPage(page, `/orders/${encodeURIComponent(bankOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
+  await requestFromPage(page, `/orders/${encodeURIComponent(bankOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
+  const bankPaidOrder = await requestFromPage(page, `/orders/${encodeURIComponent(bankOrder.id)}`);
+  expect(bankPaidOrder.data.paymentStatus).toBe("Paid");
+  const bankTransactions = await requestFromPage(page, "/payments/providers");
+  expect(bankTransactions.transactions.filter((transaction) => transaction.orderId === bankOrder.id && transaction.provider === "bank_transfer")).toHaveLength(1);
+  expect(bankTransactions.transactions.find((transaction) => transaction.orderId === bankOrder.id)).toMatchObject({ status: "confirmed", amountCents: 1800, currency: "USD" });
+
+  const externalOrder = await createManualOrder("external-link");
+  const externalPayment = await requestFromPage(page, `/public/orders/${encodeURIComponent(externalOrder.id)}/payment/manual`, "POST", { token: externalOrder.cashOnDeliveryToken, method: "external_payment_link" });
+  expect(externalPayment).toMatchObject({ provider: "external_payment_link", amountCents: 1800, currency: "USD", status: "awaiting_confirmation" });
+  const externalUrl = new URL(externalPayment.url);
+  expect(externalUrl.searchParams.get("amount")).toBe("18.00");
+  expect(externalUrl.searchParams.get("order")).toBe(`CYB-${externalOrder.id}`);
+  expect(externalUrl.searchParams.get("currency")).toBe("USD");
+  expect(externalPayment.url).not.toContain(bankOrder.id);
+  expect((await requestFromPage(page, `/orders/${encodeURIComponent(externalOrder.id)}`)).data.paymentStatus).toBe("Awaiting manual confirmation");
+  await requestFromPage(page, `/orders/${encodeURIComponent(externalOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
+  await requestFromPage(page, `/orders/${encodeURIComponent(externalOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
+  const externalTransactions = await requestFromPage(page, "/payments/providers");
+  expect(externalTransactions.transactions.filter((transaction) => transaction.orderId === externalOrder.id && transaction.provider === "external_payment_link")).toHaveLength(1);
+  expect(externalTransactions.transactions.find((transaction) => transaction.orderId === externalOrder.id)).toMatchObject({ status: "confirmed", amountCents: 1800, currency: "USD" });
+
   await secondTab.close();
 });
