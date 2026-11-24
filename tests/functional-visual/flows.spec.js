@@ -358,12 +358,16 @@ test("storefront treats the available quantity returned by the server consistent
 
   await page.goto("/store/atelier-preview");
   await expect(page.getByRole("button", { name: "Out of stock" })).toBeDisabled();
+  const backgroundPage = await page.context().newPage();
+  await backgroundPage.goto("about:blank");
+  await expect.poll(() => page.evaluate(() => document.visibilityState)).toBe("hidden");
   const previousInventoryRequests = inventoryRequests;
   availableStock = 1;
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await page.bringToFront();
   await expect.poll(() => inventoryRequests).toBeGreaterThan(previousInventoryRequests);
   await expect(page.getByText("1 available")).toBeVisible();
   await expect(page.getByRole("button", { name: "Add to cart" })).toBeEnabled();
+  await backgroundPage.close();
 });
 
 test("storefront variant cards open option selection and persist the chosen variant in cart and COD order", async ({ page }) => {
