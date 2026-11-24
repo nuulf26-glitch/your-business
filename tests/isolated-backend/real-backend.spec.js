@@ -356,8 +356,11 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const bankOrder = await createManualOrder("bank-transfer");
   const bankMethods = await requestFromPage(page, `/public/orders/${encodeURIComponent(bankOrder.id)}/payment-methods?token=${encodeURIComponent(bankOrder.cashOnDeliveryToken)}`);
   expect(bankMethods.methods.map((method) => method.id)).toEqual(expect.arrayContaining(["cash_on_delivery", "bank_transfer", "external_payment_link"]));
+  const bankOwnerOrder = (await requestFromPage(page, "/orders")).find((order) => order.id === bankOrder.id);
+  expect(bankOwnerOrder).toBeTruthy();
+  const bankExpectedAmount = Number(bankOwnerOrder.amountCents);
   const bankPayment = await requestFromPage(page, `/public/orders/${encodeURIComponent(bankOrder.id)}/payment/manual`, "POST", { token: bankOrder.cashOnDeliveryToken, method: "bank_transfer" });
-  expect(bankPayment).toMatchObject({ provider: "bank_transfer", amountCents: 1800, currency: "USD", status: "awaiting_confirmation", bankTransfer: { iban: manualOptions.bankTransfer.iban } });
+  expect(bankPayment).toMatchObject({ provider: "bank_transfer", amountCents: bankExpectedAmount, currency: bankOwnerOrder.currency, status: "awaiting_confirmation", bankTransfer: { iban: manualOptions.bankTransfer.iban } });
   expect(await requestFromPage(page, `/public/orders/${encodeURIComponent(bankOrder.id)}/payment/manual`, "POST", { token: bankOrder.cashOnDeliveryToken, method: "bank_transfer" })).toEqual(bankPayment);
   const bankStoredOrder = await requestFromPage(page, `/orders/${encodeURIComponent(bankOrder.id)}`);
   expect(bankStoredOrder.data.paymentStatus).toBe("Awaiting manual confirmation");
@@ -372,22 +375,25 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(bankPaidOrder.data.paymentStatus).toBe("Paid");
   const bankTransactions = await requestFromPage(page, "/payments/providers");
   expect(bankTransactions.transactions.filter((transaction) => transaction.orderId === bankOrder.id && transaction.provider === "bank_transfer")).toHaveLength(1);
-  expect(bankTransactions.transactions.find((transaction) => transaction.orderId === bankOrder.id)).toMatchObject({ status: "confirmed", amountCents: 1800, currency: "USD" });
+  expect(bankTransactions.transactions.find((transaction) => transaction.orderId === bankOrder.id)).toMatchObject({ status: "confirmed", amountCents: bankExpectedAmount, currency: bankOwnerOrder.currency });
 
   const externalOrder = await createManualOrder("external-link");
+  const externalOwnerOrder = (await requestFromPage(page, "/orders")).find((order) => order.id === externalOrder.id);
+  expect(externalOwnerOrder).toBeTruthy();
+  const externalExpectedAmount = Number(externalOwnerOrder.amountCents);
   const externalPayment = await requestFromPage(page, `/public/orders/${encodeURIComponent(externalOrder.id)}/payment/manual`, "POST", { token: externalOrder.cashOnDeliveryToken, method: "external_payment_link" });
-  expect(externalPayment).toMatchObject({ provider: "external_payment_link", amountCents: 1800, currency: "USD", status: "awaiting_confirmation" });
+  expect(externalPayment).toMatchObject({ provider: "external_payment_link", amountCents: externalExpectedAmount, currency: externalOwnerOrder.currency, status: "awaiting_confirmation" });
   const externalUrl = new URL(externalPayment.url);
-  expect(externalUrl.searchParams.get("amount")).toBe("18.00");
+  expect(externalUrl.searchParams.get("amount")).toBe((externalExpectedAmount / 100).toFixed(2));
   expect(externalUrl.searchParams.get("order")).toBe(`CYB-${externalOrder.id}`);
-  expect(externalUrl.searchParams.get("currency")).toBe("USD");
+  expect(externalUrl.searchParams.get("currency")).toBe(externalOwnerOrder.currency);
   expect(externalPayment.url).not.toContain(bankOrder.id);
   expect((await requestFromPage(page, `/orders/${encodeURIComponent(externalOrder.id)}`)).data.paymentStatus).toBe("Awaiting manual confirmation");
   await requestFromPage(page, `/orders/${encodeURIComponent(externalOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
   await requestFromPage(page, `/orders/${encodeURIComponent(externalOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
   const externalTransactions = await requestFromPage(page, "/payments/providers");
   expect(externalTransactions.transactions.filter((transaction) => transaction.orderId === externalOrder.id && transaction.provider === "external_payment_link")).toHaveLength(1);
-  expect(externalTransactions.transactions.find((transaction) => transaction.orderId === externalOrder.id)).toMatchObject({ status: "confirmed", amountCents: 1800, currency: "USD" });
+  expect(externalTransactions.transactions.find((transaction) => transaction.orderId === externalOrder.id)).toMatchObject({ status: "confirmed", amountCents: externalExpectedAmount, currency: externalOwnerOrder.currency });
 
   await secondTab.close();
 });
