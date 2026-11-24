@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/payment.css";
 import { customBackendRequest } from "../services/customBackendSession";
@@ -12,9 +12,36 @@ function Payment() {
   const navigate = useNavigate();
 
   const [order] = useState(readPendingOrder);
-  const paymentMethod = "cash";
+  const [paymentMethod, setPaymentMethod] = useState("cash_on_delivery");
+  const [methods, setMethods] = useState([{ id: "cash_on_delivery", label: "Cash on delivery", enabled: true }]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const returnMismatch = Boolean(new URLSearchParams(window.location.search).get("tap_order") && new URLSearchParams(window.location.search).get("tap_order") !== order?.backendId);
+
+  useEffect(() => {
+    let active = true;
+    const params = new URLSearchParams(window.location.search);
+    if (returnMismatch) return () => { active = false; };
+    if (order?.backendId && order?.cashOnDeliveryToken) {
+      customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/payment-methods?token=${encodeURIComponent(order.cashOnDeliveryToken)}`)
+        .then((result) => { if (active && Array.isArray(result?.methods)) setMethods(result.methods.filter((method) => method.enabled)); })
+        .catch(() => {});
+    }
+    const tapId = params.get("tap_id");
+    if (params.get("tap_order") && tapId && order?.backendId && order?.cashOnDeliveryToken) {
+      customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/payment/tap/verify`, { method: "POST", body: JSON.stringify({ token: order.cashOnDeliveryToken, chargeId: tapId }) })
+        .then((result) => {
+          if (!active) return;
+          if (!result.verified) { setError("Tap has not confirmed this payment yet. You can retry checking the payment status."); return; }
+          const completedOrder = { ...order, paymentMethod: "tap", paymentStatus: "Paid", status: "New", completedAt: new Date().toISOString() };
+          localStorage.setItem("completedOrder", JSON.stringify(completedOrder));
+          localStorage.removeItem("pendingOrder"); localStorage.removeItem("businessCart");
+          navigate("/order-success", { replace: true });
+        })
+        .catch((paymentError) => { if (active) setError(paymentError.message || "Tap could not verify the payment yet."); });
+    }
+    return () => { active = false; };
+  }, [order, navigate, returnMismatch]);
 
   const itemCount = useMemo(() => {
     if (!Array.isArray(order?.items)) {
@@ -38,8 +65,7 @@ async function completeOrder(paymentStatus, orderStatus) {
       completedAt: new Date().toISOString(),
     };
 if (order.backendId) {
-  if (paymentMethod === 'cash') await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/cash-on-delivery`, { method: 'POST', body: JSON.stringify({ token: order.cashOnDeliveryToken }) });
-  else await customBackendRequest(`/orders/${encodeURIComponent(order.backendId)}`, { method: 'PATCH', body: JSON.stringify({ data: { paymentMethod, paymentStatus, completedAt: new Date().toISOString() } }) });
+      if (paymentMethod === 'cash_on_delivery') await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/cash-on-delivery`, { method: 'POST', body: JSON.stringify({ token: order.cashOnDeliveryToken }) });
 } else {
   throw new Error('This order is not connected to the custom backend.');
 }
@@ -67,6 +93,14 @@ if (order.backendId) {
     try {
       setLoading(true);
 
+      if (paymentMethod === "tap") {
+        let idempotencyKey = localStorage.getItem(`cyb_tap_checkout:${order.backendId}`);
+        if (!idempotencyKey) { idempotencyKey = crypto.randomUUID().replaceAll("-", ""); localStorage.setItem(`cyb_tap_checkout:${order.backendId}`, idempotencyKey); }
+        const result = await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/payment/tap`, { method: "POST", body: JSON.stringify({ token: order.cashOnDeliveryToken, idempotencyKey }) });
+        if (!result?.url || !result.url.startsWith("https://")) throw new Error("Tap did not provide a secure hosted checkout link.");
+        window.location.assign(result.url);
+        return;
+      }
       await completeOrder("Cash on delivery", "New");
 
     } catch (paymentError) {
@@ -123,7 +157,7 @@ if (order.backendId) {
           <h1>Complete your payment</h1>
 
           <p>
-              Pay cash on delivery and review your order.
+              Select a payment method offered by this store.
           </p>
         </div>
 
@@ -132,30 +166,20 @@ if (order.backendId) {
             <div className="payment-card-heading">
               <span>Payment method</span>
 
-              <h2>Cash on delivery</h2>
+              <h2>Payment method</h2>
             </div>
 
             <div className="payment-options">
-              <div className="payment-option selected">
-                <div className="payment-option-icon">C</div>
-
-                <div>
-                  <strong>Cash on delivery</strong>
-
-                  <p>
-                    Pay when your order arrives.
-                  </p>
-                </div>
-
-                <span className="payment-radio">
-                  ✓
-                </span>
-              </div>
+              {methods.map((method) => <button type="button" className={`payment-option ${paymentMethod === method.id ? "selected" : ""}`} key={method.id} onClick={() => setPaymentMethod(method.id)}>
+                <span className="payment-option-icon">{method.id === "tap" ? "T" : "C"}</span>
+                <span><strong>{method.label}</strong><small>{method.id === "tap" ? "Secure hosted checkout · Test mode" : "Pay when your order arrives."}</small></span>
+                <span className="payment-radio">{paymentMethod === method.id ? "✓" : ""}</span>
+              </button>)}
             </div>
 
-            {error && (
+            {(returnMismatch || error) && (
               <p className="payment-error">
-                {error}
+                {returnMismatch ? "This payment return does not match the order on this device." : error}
               </p>
             )}
 
@@ -165,7 +189,7 @@ if (order.backendId) {
               onClick={handlePayment}
               disabled={loading}
             >
-              {loading ? "Processing..." : "Confirm cash on delivery"}
+              {loading ? "Processing..." : paymentMethod === "tap" ? "Continue to Tap checkout" : "Confirm cash on delivery"}
             </button>
           </section>
 

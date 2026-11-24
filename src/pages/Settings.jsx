@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import DashboardLayout from "../layouts/DashboardLayout";
-import { subscribeAppUser } from "../services/customBackendSession";
+import { customBackendRequest, subscribeAppUser } from "../services/customBackendSession";
 import { getStore, saveStore } from "../services/storeService";
 import "../styles/settings.css";
 
@@ -366,9 +366,32 @@ function Settings() {
             </button>
           </div>
         </form>
+
+        <PaymentProvidersPanel />
       </div>
     </DashboardLayout>
   );
+}
+
+function PaymentProvidersPanel() {
+  const [state, setState] = useState(null);
+  const [secretKey, setSecretKey] = useState("");
+  const [country, setCountry] = useState("AE");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  async function reload() { setState(await customBackendRequest("/payments/providers")); }
+  useEffect(() => { let active = true; customBackendRequest("/payments/providers").then((value) => { if (active) setState(value); }).catch((error) => { if (active) setNotice(error.message || "Payment provider settings are unavailable."); }); return () => { active = false; }; }, []);
+  async function action(callback, success) { setBusy(true); setNotice(""); try { const result = await callback(); setNotice(success(result)); await reload(); } catch (error) { setNotice(error.message || "The provider request failed."); } finally { setBusy(false); } }
+  const tap = state?.providers?.find((provider) => provider.id === "tap");
+  return <section className="payment-providers-card" aria-labelledby="payment-providers-title">
+    <header><div><span>Merchant payments</span><h2 id="payment-providers-title">Payment providers</h2><p>Each provider account belongs to you. Customer card payments settle directly under your provider agreement. CYB commission is 0%.</p></div><strong>0% commission</strong></header>
+    <article className="payment-provider-row"><div><h3>Tap Payments <span className={`provider-state ${tap?.status === "connected" ? "is-connected" : ""}`}>{tap?.status === "connected" ? "Test key saved" : "Not connected"}</span></h3><p>Enabled for UAE merchant test accounts in AED. Hosted Tap checkout shows only payment methods enabled for your Tap account.</p>{tap?.status === "connected" && <p>Test mode · {tap.country} · key ending {tap.secretLastFour || "••••"}{tap.connectionVerified ? " · API key verified" : " · connection not verified"}</p>}</div>
+      {tap?.status === "connected" ? <div className="provider-actions"><button type="button" disabled={busy || tap.connectionVerified} onClick={() => action(() => customBackendRequest("/payments/providers/tap/verify-credentials", { method: "POST" }), (result) => result.verified ? "Tap test key verified without creating a payment." : "Tap key could not be verified.")}>{tap.connectionVerified ? "Test key verified" : "Verify test key"}</button><button type="button" className="provider-danger" disabled={busy} onClick={() => action(() => customBackendRequest("/payments/providers/tap/disconnect", { method: "POST" }), () => "Tap disconnected.")}>Disconnect</button></div> : <form className="provider-connect-form" onSubmit={(event) => { event.preventDefault(); void action(() => customBackendRequest("/payments/providers/connect", { method: "POST", body: JSON.stringify({ provider: "tap", country, secretKey }) }), () => "Tap test key saved. Verify it before running a sandbox checkout.").then(() => setSecretKey("")); }}><label>Merchant country<select value={country} onChange={(event) => setCountry(event.target.value)}><option value="AE">United Arab Emirates</option></select></label><label>Tap test secret key<input type="password" autoComplete="off" value={secretKey} onChange={(event) => setSecretKey(event.target.value)} placeholder="sk_test_…" required /></label><button type="submit" disabled={busy || !secretKey.startsWith("sk_test_")}>{busy ? "Saving…" : "Connect test account"}</button><small>Only test keys are accepted. Credentials are encrypted on the server and never returned to this page. Test checkout is limited to AED until additional country and currency eligibility is confirmed.</small></form>}</article>
+    {tap?.platformAuthorization !== "approved" && <p className="payment-provider-notice">Tap requires CYB to obtain e-commerce platform authorization before sandbox merchant checkout is enabled. A saved key alone does not enable customer payments.</p>}
+    <div className="payment-provider-disabled"><h3>Other providers</h3>{(state?.providers || []).filter((provider) => provider.id !== "tap").map((provider) => <div key={provider.id}><strong>{provider.name}</strong><span>{provider.status === "approval_required" ? "Approval or eligibility check required" : "Not enabled yet"}</span></div>)}</div>
+    <div className="payment-history"><h3>Transaction history <small>Test mode</small></h3>{!state?.transactions?.length ? <p>No Tap transactions yet.</p> : <div className="payment-history-scroll"><table><thead><tr><th>Order</th><th>Status</th><th>Amount</th><th>Provider reference</th><th>Refund</th></tr></thead><tbody>{state.transactions.map((transaction) => <tr key={transaction.id}><td>{transaction.orderId || "—"}</td><td>{transaction.status}</td><td>{transaction.amountCents == null ? "—" : `${(transaction.amountCents / 100).toFixed(2)} ${transaction.currency}`}</td><td>{transaction.providerPaymentId || "—"}</td><td>{transaction.status === "CAPTURED" && transaction.orderId ? <button type="button" disabled={busy} onClick={() => { if (window.confirm("Issue a full refund through your Tap test account?")) void action(() => customBackendRequest(`/payments/providers/tap/orders/${encodeURIComponent(transaction.orderId)}/refund`, { method: "POST", body: JSON.stringify({ reason: "requested_by_customer" }) }), (result) => `Refund status: ${result.status}`); }}>Full refund</button> : transaction.refunds?.length ? transaction.refunds.at(-1).status : "—"}</td></tr>)}</tbody></table></div>}</div>
+    {notice && <p role="status" className="payment-provider-notice">{notice}</p>}
+  </section>;
 }
 
 export default Settings;

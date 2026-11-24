@@ -637,6 +637,7 @@ export class OrderController {
       const current=await tx.order.findFirst({where:{id,businessId:business.id}});
       if(!current)throw new NotFoundException('Order not found');
       const data={...(current.data as Record<string,any>)},prior=String(data.paymentStatus||'Pending').toLowerCase();
+      if(data.gatewayProvider==='tap')throw new ConflictException('Tap payments can only be marked paid or refunded after Tap confirms the transaction. Use the provider refund action for refunds.');
       if(status==='paid'&&prior==='paid')return current;
       if(status==='refunded'&&prior==='refunded')return current;
       if(status==='paid'&&prior==='refunded')throw new ConflictException('A refunded order cannot be marked paid again without a new collection record.');
@@ -673,6 +674,10 @@ export class OrderController {
       const current=await tx.order.findFirst({where:{id,businessId:business.id}});
       if(!current)throw new NotFoundException('Order not found');
       const data={...(current.data as Record<string,any>)},prior=String(data.fulfillmentStatus||current.status||'new').toLowerCase();
+      if(['cancelled','returned'].includes(status)){
+        if(data.gatewayProvider==='tap'&&String(data.paymentStatus||'').toLowerCase()==='paid')throw new ConflictException('Refund the Tap payment before cancelling or returning this paid order.');
+        if(!(data.gatewayProvider==='tap'&&String(data.paymentStatus||'').toLowerCase()==='refunded')&&tx.businessRecord?.findFirst){const attempt=await tx.businessRecord.findFirst({where:{businessId:business.id,type:'merchantPayment',data:{path:['orderId'],equals:id}}});if(attempt&&!['failed','DECLINED','FAILED','CANCELLED','EXPIRED','REFUNDED'].includes(String(attempt.status||'')))throw new ConflictException('A Tap payment is still in progress. Wait for Tap to confirm or fail it before cancelling this order.');}
+      }
       if(prior===status&&trackingNumber===undefined&&carrier===undefined&&trackingUrl===undefined)return current;
       const transitions:Record<string,string[]>={new:['processing','cancelled'],pending:['processing','cancelled'],processing:['packed','cancelled'],packed:['shipped','cancelled'],shipped:['delivered','returned'],delivered:['returned'],cancelled:[],returned:[]};
       if(prior!==status&&!(transitions[prior]||[]).includes(status))throw new ConflictException(`Cannot move fulfillment from ${prior} to ${status}.`);
@@ -852,6 +857,8 @@ export class PublicOrderController {
     const current=row.data as Record<string,any>,payment=String(current.paymentStatus||'Pending').toLowerCase();
     if(payment==='cash on delivery')return {ok:true};
     if(payment==='paid'||payment==='refunded')throw new NotFoundException('Order not found');
+    const paymentAttempt=await this.db.businessRecord?.findFirst?.({where:{businessId:row.businessId,type:'merchantPayment',data:{path:['orderId'],equals:id}}});
+    if(paymentAttempt&&!['failed','DECLINED','FAILED','CANCELLED','EXPIRED'].includes(String(paymentAttempt.status||'')))throw new ConflictException('A card payment is still in progress. Wait for Tap to confirm or fail it before selecting cash on delivery.');
     const now=new Date().toISOString(),timeline=Array.isArray(current.timeline)?current.timeline:[];
     const data={...current,fulfillmentStatus:current.fulfillmentStatus||'new',paymentMethod:'cash',paymentStatus:'Cash on delivery',completedAt:now,timeline:[...timeline,{type:'payment-method',status:'Cash on delivery',recordedAt:now}]};
     const result=await this.db.order.updateMany({where:{id,status:'new',data:{equals:row.data as any}},data:{data:data as any}});

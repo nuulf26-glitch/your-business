@@ -21,7 +21,17 @@ test("platform activation loads and offers Stripe only", async () => {
 });
 
 test("store checkout presents cash on delivery without unavailable payment providers", async () => {
-  const paymentPage = await read("../src/pages/Payment.jsx");
-  assert.doesNotMatch(paymentPage, /paypal/i);
+  const [paymentPage, settingsPage, payments] = await Promise.all([
+    read("../src/pages/Payment.jsx"),
+    read("../src/pages/Settings.jsx"),
+    read("../backend/src/merchant-payments.ts"),
+  ]);
   assert.match(paymentPage, /Cash on delivery/);
+  assert.match(paymentPage, /payment\/tap/);
+  assert.match(settingsPage, /Payment providers/);
+  assert.match(settingsPage, /0% commission/);
+  assert.match(payments, /TAP_PLATFORM_TEST_APPROVED==='true'/);
+  assert.match(payments, /sk_test_/);
+  assert.match(payments, /encryptMerchantPaymentSecret/);
+  assert.match(payments, /id:'paypal',name:'PayPal',enabled:false/);
 });
