@@ -16,6 +16,7 @@ function Payment() {
   const [methods, setMethods] = useState([{ id: "cash_on_delivery", label: "Cash on delivery", enabled: true }]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [manualPayment, setManualPayment] = useState(null);
   const returnMismatch = Boolean(new URLSearchParams(window.location.search).get("tap_order") && new URLSearchParams(window.location.search).get("tap_order") !== order?.backendId);
 
   useEffect(() => {
@@ -53,6 +54,7 @@ function Payment() {
       0
     );
   }, [order]);
+  const currency = String(order?.currency || order?.items?.[0]?.currency || "USD").toUpperCase();
 
 
 
@@ -99,6 +101,11 @@ if (order.backendId) {
         const result = await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/payment/tap`, { method: "POST", body: JSON.stringify({ token: order.cashOnDeliveryToken, idempotencyKey }) });
         if (!result?.url || !result.url.startsWith("https://")) throw new Error("Tap did not provide a secure hosted checkout link.");
         window.location.assign(result.url);
+        return;
+      }
+      if (paymentMethod === "bank_transfer" || paymentMethod === "external_payment_link") {
+        const result = await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/payment/manual`, { method: "POST", body: JSON.stringify({ token: order.cashOnDeliveryToken, method: paymentMethod }) });
+        setManualPayment(result);
         return;
       }
       await completeOrder("Cash on delivery", "New");
@@ -172,10 +179,17 @@ if (order.backendId) {
             <div className="payment-options">
               {methods.map((method) => <button type="button" className={`payment-option ${paymentMethod === method.id ? "selected" : ""}`} key={method.id} onClick={() => setPaymentMethod(method.id)}>
                 <span className="payment-option-icon">{method.id === "tap" ? "T" : "C"}</span>
-                <span><strong>{method.label}</strong><small>{method.id === "tap" ? "Secure hosted checkout · Test mode" : "Pay when your order arrives."}</small></span>
+                <span><strong>{method.label}</strong><small>{method.id === "tap" ? "Secure hosted checkout · Test mode" : method.id === "bank_transfer" ? "Transfer directly to the merchant" : method.id === "external_payment_link" ? "Pay through the merchant’s external link" : "Pay when your order arrives."}</small></span>
                 <span className="payment-radio">{paymentMethod === method.id ? "✓" : ""}</span>
               </button>)}
             </div>
+
+            {manualPayment && <div className="payment-manual-instructions" role="status">
+              <h3>Payment is awaiting merchant confirmation</h3>
+              <p>Order {manualPayment.reference} · Pay exactly {manualPayment.currency} {(manualPayment.amountCents / 100).toFixed(2)}. The order will remain unpaid until the merchant confirms receipt.</p>
+              {manualPayment.bankTransfer && <dl><dt>Bank</dt><dd>{manualPayment.bankTransfer.bankName}</dd><dt>Account holder</dt><dd>{manualPayment.bankTransfer.accountName}</dd><dt>IBAN</dt><dd>{manualPayment.bankTransfer.iban}</dd>{manualPayment.bankTransfer.swift && <><dt>SWIFT / BIC</dt><dd>{manualPayment.bankTransfer.swift}</dd></>}</dl>}
+              {manualPayment.url && <a href={manualPayment.url} target="_blank" rel="noopener noreferrer">Open merchant payment link</a>}
+            </div>}
 
             {(returnMismatch || error) && (
               <p className="payment-error">
@@ -189,7 +203,7 @@ if (order.backendId) {
               onClick={handlePayment}
               disabled={loading}
             >
-              {loading ? "Processing..." : paymentMethod === "tap" ? "Continue to Tap checkout" : "Confirm cash on delivery"}
+              {loading ? "Processing..." : paymentMethod === "tap" ? "Continue to Tap checkout" : paymentMethod === "bank_transfer" ? "Show bank transfer details" : paymentMethod === "external_payment_link" ? "Continue to payment link" : "Confirm cash on delivery"}
             </button>
           </section>
 
@@ -232,13 +246,13 @@ if (order.backendId) {
                     <strong>{item.name}</strong>
 
                     <span>
-                      {item.quantity} × USD{" "}
+                      {item.quantity} × {currency}{" "}
                       {Number(item.price || 0).toFixed(2)}
                     </span>
                   </div>
 
                   <strong>
-                    USD{" "}
+                    {currency}{" "}
                     {(
                       Number(item.price || 0) *
                       Number(item.quantity || 0)
@@ -257,7 +271,7 @@ if (order.backendId) {
               <span>Subtotal</span>
 
               <strong>
-                USD {Number(order.subtotal || 0).toFixed(2)}
+                {currency} {Number(order.subtotal || 0).toFixed(2)}
               </strong>
             </div>
 
@@ -267,7 +281,7 @@ if (order.backendId) {
               <strong>
                 {Number(order.shipping || 0) === 0
                   ? "Free"
-                  : `USD ${Number(order.shipping).toFixed(2)}`}
+                  : `${currency} ${Number(order.shipping).toFixed(2)}`}
               </strong>
             </div>
 
@@ -275,7 +289,7 @@ if (order.backendId) {
               <span>Total</span>
 
               <strong>
-                USD {Number(order.total || 0).toFixed(2)}
+                {currency} {Number(order.total || 0).toFixed(2)}
               </strong>
             </div>
           </aside>

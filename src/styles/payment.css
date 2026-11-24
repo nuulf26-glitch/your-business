@@ -234,6 +234,14 @@
   line-height: 1.5;
 }
 
+.payment-manual-instructions { margin-top: 18px; padding: 16px; border: 1px solid #d8e5d7; border-radius: 12px; background: #f4faf2; }
+.payment-manual-instructions h3 { margin: 0 0 8px; font-size: 15px; }
+.payment-manual-instructions p { margin: 0 0 12px; color: #536052; font-size: 12px; line-height: 1.6; }
+.payment-manual-instructions dl { display: grid; grid-template-columns: 130px minmax(0,1fr); gap: 8px 12px; margin: 12px 0; font-size: 12px; }
+.payment-manual-instructions dt { color: #777772; }
+.payment-manual-instructions dd { margin: 0; overflow-wrap: anywhere; font-weight: 700; }
+.payment-manual-instructions a { color: #1c5a31; font-weight: 700; overflow-wrap: anywhere; }
+
 .payment-submit-button {
   width: 100%;
   min-height: 54px;

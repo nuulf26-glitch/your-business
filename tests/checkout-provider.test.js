@@ -34,4 +34,9 @@ test("store checkout presents cash on delivery without unavailable payment provi
   assert.match(payments, /sk_test_/);
   assert.match(payments, /encryptMerchantPaymentSecret/);
   assert.match(payments, /id:'paypal',name:'PayPal',enabled:false/);
+  assert.match(payments, /id:'payd',name:'Payd',enabled:false/);
+  assert.match(payments, /bank_transfer/);
+  assert.match(payments, /external_payment_link/);
+  assert.match(paymentPage, /payment\/manual/);
+  assert.match(settingsPage, /manual-options/);
 });

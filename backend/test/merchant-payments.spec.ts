@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { MerchantPaymentSettingsController, PublicMerchantPaymentController, TapGatewayAdapter, decryptMerchantPaymentSecret, encryptMerchantPaymentSecret, tapWebhookHash } from '../src/merchant-payments';
+import { MerchantPaymentSettingsController, PublicMerchantPaymentController, TapGatewayAdapter, decryptMerchantPaymentSecret, encryptMerchantPaymentSecret, tapWebhookHash, validateExternalPaymentTemplate } from '../src/merchant-payments';
 
 const encryptionKey=Buffer.alloc(32,7);
 const token='cyb_customer_action_token_for_unit_tests_0001';
@@ -92,5 +92,27 @@ describe('merchant BYOG payment foundations',()=>{
     const order={id:'order_1',businessId:'biz_1',data:{customerActionTokenHash:tokenHash}};
     const controller=new PublicMerchantPaymentController({order:{findUnique:jest.fn().mockResolvedValue(order)}} as any);
     await expect(controller.methods({query:{token:'wrong_customer_token_that_is_long_enough_123'}} as any,'order_1')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('accepts only HTTPS order-specific payment-link templates',()=>{
+    expect(validateExternalPaymentTemplate('https://pay.example.com/?amount={amount}&order={order}&currency={currency}')).toBe(true);
+    expect(validateExternalPaymentTemplate('http://pay.example.com/?amount={amount}&order={order}')).toBe(false);
+    expect(validateExternalPaymentTemplate('https://pay.example.com/')).toBe(false);
+    expect(validateExternalPaymentTemplate('https://localhost/pay?amount={amount}&order={order}')).toBe(false);
+    expect(validateExternalPaymentTemplate('https://user:pass@pay.example.com/?amount={amount}&order={order}')).toBe(false);
+  });
+
+  it('creates an order-specific external payment instruction and never records it as paid',async()=>{
+    const data={customerActionTokenHash:tokenHash,paymentStatus:'Pending',total:123.45};
+    const order={id:'order_2',businessId:'biz_1',status:'new',amountCents:12345,currency:'AED',data};
+    const manual={externalPaymentLink:{enabled:true,urlTemplate:'https://pay.example.com/?amount={amount}&reference={order}&currency={currency}'}};
+    const prior:any={};const saved:any[]=[];
+    const tx:any={businessRecord:{findUnique:jest.fn(async()=>prior.value||null),create:jest.fn(async({data}:any)=>{prior.value={data:data.data};saved.push(data);return data;})},order:{updateMany:jest.fn().mockResolvedValue({count:1})}};
+    const db:any={order:{findUnique:jest.fn().mockResolvedValue(order)},business:{findUnique:jest.fn().mockResolvedValue({id:'biz_1'})},businessRecord:{findFirst:jest.fn().mockResolvedValue({data:manual})},$transaction:jest.fn(async(callback:any)=>callback(tx))};
+    const controller=new PublicMerchantPaymentController(db),input={token,method:'external_payment_link'};
+    const result=await controller.startManualPayment('order_2',input as any);
+    expect(result).toMatchObject({provider:'external_payment_link',amountCents:12345,currency:'AED',reference:'CYB-order_2',status:'awaiting_confirmation',url:'https://pay.example.com/?amount=123.45&reference=CYB-order_2&currency=AED'});
+    expect(tx.order.updateMany).toHaveBeenCalledWith(expect.objectContaining({where:expect.objectContaining({businessId:'biz_1'}),data:expect.objectContaining({data:expect.objectContaining({paymentStatus:'Awaiting manual confirmation'})})}));
+    expect(saved[0].data.status).toBe('awaiting_confirmation');
   });
 });

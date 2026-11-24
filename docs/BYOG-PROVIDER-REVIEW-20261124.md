@@ -14,6 +14,7 @@ No provider is represented as approved or operational for CYB. The adapter and s
 | PayPal | PayPal documents first-party direct merchant calls for a business's own account. Its third-party calls for multiple merchants are a multiparty/partner integration and use platform headers/merchant consent. | The direct merchant docs do not approve CYB's multi-merchant use. Multiparty seller onboarding requires PayPal partner/platform review. | Disabled pending written confirmation of permitted direct merchant credential use for CYB or partner approval. |
 | PayTabs | Merchant Profile ID and profile Server Key are issued in the merchant dashboard and used for the merchant's integration. Keys/endpoints are region-scoped. | Public docs reviewed describe merchant credentials and hosted forms, but did not establish that an SaaS website builder may collect/store/process multiple merchants' keys. Need PayTabs account-manager confirmation of this use and permitted countries. | Disabled; no sandbox adapter yet. |
 | Amazon Payment Services | APS gives each merchant an access code, merchant identifier, request phrase and response phrase. Hosted Checkout and test accounts are documented. | Public API documentation does not establish CYB's authorization to store and use credentials for many merchant accounts. Test account and merchant approval are required. | Disabled pending APS confirmation and test account access. |
+| Payd UAE | Payd markets UAE merchant accounts, API, sandbox, hosted/payment links, Visa/Mastercard, Apple Pay and Google Pay. Its public merchant page says funds reach the merchant's bank account. | Public terms require merchant account approval and KYC, say fees are set in each merchant onboarding form and charged to merchants, and restrict use to the merchant's own business transactions / prohibit unauthorized third-party processing. Payd's developer page says full API docs, credentials and support require connecting with its team. Public sources do not explicitly authorize a website builder to collect merchant API credentials and initiate payments for many merchants without platform approval. | Disabled; no adapter until the account/developer model is explicitly authorized. The public statements do not establish eligibility for CYB's BYOG model, exact settlement controls, or CYB's 0% setting. |
 | Stripe | Individual businesses may have their own Stripe accounts; platform use is a separate Connect/platform product. | CYB's UAE platform eligibility, account model, connected-account countries and direct-charge approval remain account-specific. PR #101 is preserved and untouched. | Disabled; do not infer approval from the standalone Stripe account country list. |
 
 ### Official references checked
@@ -27,6 +28,7 @@ No provider is represented as approved or operational for CYB. The adapter and s
 - PayTabs merchant Profile ID and Server Key: https://docs.paytabs.com/manuals/Backend-Web-Packages/Laravel/Laravel-Configure-the-integration-method/
 - Amazon Payment Services credentials, test account and signature: https://paymentservices.amazon.com/docs/api and https://paymentservices.amazon.com/docs/developer-resources/signature
 - Stripe UAE Connect availability: https://support.stripe.com/questions/connect-availability-in-the-uae
+- Payd Payment API, developer access, account page and terms: https://payd.ae/payment-api, https://payd.ae/developers, https://payd.ae/merchant-account-uae, https://payd.ae/home/layout/footer/Payd_Terms_and_Conditions_v3.pdf
 
 ## Implemented test foundations
 
@@ -38,6 +40,9 @@ No provider is represented as approved or operational for CYB. The adapter and s
 - Refunds are submitted to the connected merchant's Tap account; duplicate refund requests use a stable idempotency reference. A paid Tap order cannot be manually refunded or cancelled before a provider-confirmed refund.
 - COD and the existing $246 platform checkout remain separate. Existing Stripe platform code and PR #101 are not edited.
 - Merchant configuration, transaction records, webhooks and order mutations are scoped by `businessId`.
+- The dashboard includes the complete provider inventory (Stripe, PayPal, Tap, PayTabs, Amazon Payment Services, Payd, bank transfer, external payment link and COD). Unapproved gateways remain disabled. Configured Tap methods come from the merchant's enabled hosted-checkout methods; CYB does not claim a wallet or card method unsupported by that merchant account.
+- Bank-transfer instructions and secure HTTPS order-link templates are merchant-configured. `{amount}` and `{order}` placeholders are mandatory and `{currency}` is optional. Amount/currency/order reference come from the server-side order. Selection writes an `awaiting_confirmation` record and leaves order revenue unpaid. A signed-in merchant confirms receipt after checking their bank/provider; existing order accounting applies the paid transition once.
+- CYB does not verify payment-link settlement automatically. Orders paid externally remain unpaid until merchant confirmation; external-link configuration does not guarantee the payment provider will honor the dynamic amount/reference parameters.
 
 ## Owner/provider actions before sandbox QA
 
@@ -45,6 +50,7 @@ No provider is represented as approved or operational for CYB. The adapter and s
 2. Obtain a Tap test merchant account/key and configure `PAYMENT_CREDENTIALS_ENCRYPTION_KEY` on an isolated development/staging API. Do not configure live credentials.
 3. Only after Tap's confirmation set `TAP_PLATFORM_TEST_APPROVED=true` in the isolated sandbox environment. Then run authenticated Tap success, decline, webhook replay, duplicate-click, COD exclusion, refund and merchant-isolation QA.
 4. For UAE live readiness, obtain Tap's written merchant account, payment-method, settlement, refund and platform authorization details. Do not set any live-mode capability through this branch.
+5. For Payd, the merchant must complete Payd's account approval and KYC; CYB must obtain the full API documentation/credentials and explicit written confirmation that appointed-developer / SaaS BYOG use is allowed, settlement is directly to the merchant, and CYB can use a zero-fee configuration. The public docs do not establish these requirements, so no Payd adapter is enabled.
 
 ## Open technical verification
 

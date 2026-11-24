@@ -2,6 +2,7 @@ import { BadRequestException, Body, ConflictException, Controller, Get, Headers,
 import { IsIn, IsString, MaxLength, Matches } from 'class-validator';
 import { Request } from 'express';
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { isIP } from 'node:net';
 import { DbService } from './database';
 import { SessionGuard } from './session';
 
@@ -11,6 +12,7 @@ const TAP_COUNTRIES = ['AE'];
 const TAP_CURRENCIES: Record<string,string[]> = { AE:['AED'] };
 const ENABLED = ['CAPTURED','AUTHORIZED'];
 const PAYMENT_COMPLETE = ['CAPTURED'];
+const MANUAL_OPTIONS_TYPE = 'merchantPaymentManualOptions';
 
 class TapCredentialInput {
   @IsString() @IsIn(['tap']) provider!: string;
@@ -23,6 +25,21 @@ class PublicPaymentInput {
 }
 class VerifyPaymentInput { @IsString() @MaxLength(200) token!: string; @IsString() @MaxLength(120) chargeId!: string; }
 class RefundInput { @IsString() @MaxLength(40) reason!: string; }
+class ManualPaymentInput { @IsString() @MaxLength(200) token!: string; @IsString() @IsIn(['bank_transfer','external_payment_link']) method!: string; }
+
+export function validateExternalPaymentTemplate(value: string) {
+  const template=String(value||'').trim();
+  if(template.length>500||!template.includes('{amount}')||!template.includes('{order}'))return false;
+  try {
+    const url=new URL(template.replaceAll('{amount}','12.34').replaceAll('{currency}','AED').replaceAll('{order}','CYB-ORDER-123'));
+    return url.protocol==='https:'&&!url.username&&!url.password&&url.hostname.includes('.')&&!/^localhost$|\.(localhost|local|internal|test|example)$/i.test(url.hostname)&&!isIP(url.hostname);
+  } catch { return false; }
+}
+function buildExternalPaymentUrl(template: string, amountCents: number, currency: string, orderId: string) {
+  if(!validateExternalPaymentTemplate(template))throw new BadRequestException('External payment URL must be HTTPS and include {amount} and {order} placeholders.');
+  const encode=(value:string)=>encodeURIComponent(value);
+  return template.replaceAll('{amount}',encode((amountCents/100).toFixed(2))).replaceAll('{currency}',encode(currency)).replaceAll('{order}',encode(orderId));
+}
 
 type TapConfiguration = { provider: 'tap'; country: string; mode: 'test'; credentialCiphertext: string; credentialIv: string; credentialTag: string; connectedAt: string; secretLastFour?:string; connectionVerifiedAt?:string };
 type TapCharge = { id?: string; status?: string; amount?: number; currency?: string; live_mode?: boolean; transaction?: { created?: string }; reference?: { order?: string; gateway?: string; payment?: string }; redirect?: { url?: string }; response?: { message?: string }; }
@@ -88,6 +105,7 @@ export class MerchantPaymentSettingsController {
   private async config(businessId:string,status:any='connected'):Promise<any|null>{return this.db.businessRecord.findFirst({where:{businessId,type:CREDENTIAL_TYPE,status}}).then(row=>row?.data||null);}
   @Get() async list(@Req() req:Request & {user:any}){
     const business=await this.business(req),config=await this.config(business.id);
+    const manualRecord=await this.db.businessRecord.findFirst({where:{businessId:business.id,type:MANUAL_OPTIONS_TYPE,status:'active'}}),manual=(manualRecord?.data||{}) as any;
     const records=await this.db.businessRecord.findMany({where:{businessId:business.id,type:'merchantPayment'},orderBy:{createdAt:'desc'},take:100});
     return {commissionPercent:0,providers:[
       {id:'tap',name:'Tap Payments',enabled:true,status:config?'connected':'not_connected',mode:config?.mode||null,country:config?.country||null,currencies:config?TAP_CURRENCIES[config.country]||[]:[],secretConfigured:!!config,secretLastFour:config?.secretLastFour||null,connectionVerified:!!config?.connectionVerifiedAt,platformAuthorization:process.env.TAP_PLATFORM_TEST_APPROVED==='true'?'approved':'required',liveEnabled:false,methods:'Tap hosted checkout displays the methods enabled on the merchant account.'},
@@ -95,7 +113,22 @@ export class MerchantPaymentSettingsController {
       {id:'paypal',name:'PayPal',enabled:false,status:'approval_required',reason:'Direct merchant integration may be possible; CYB platform eligibility and merchant country rollout are not yet verified.'},
       {id:'paytabs',name:'PayTabs',enabled:false,status:'not_implemented',reason:'Merchant API keys are supported by the provider; CYB platform integration and required approvals still need confirmation.'},
       {id:'amazon_payment_services',name:'Amazon Payment Services',enabled:false,status:'not_implemented',reason:'Merchant hosted checkout is documented; CYB platform onboarding and account eligibility still need confirmation.'},
-    ],transactions:records.map(row=>{const d=row.data as any;return {id:row.id,orderId:d.orderId||null,provider:'tap',providerPaymentId:d.tapChargeId||null,status:d.status||row.status,amountCents:d.amountCents??null,currency:d.currency||null,createdAt:row.createdAt.toISOString(),refundStatus:d.refundStatus||null,refunds:Array.isArray(d.refunds)?d.refunds:(d.refundId?[{id:d.refundId,status:d.refundStatus,amountCents:d.refundAmountCents}]:[]),mode:'test'};})};
+      {id:'payd',name:'Payd',enabled:false,status:'approval_required',reason:'Merchant accounts are separately approved. API documentation and credentials require contacting Payd; platform and appointed-developer use is not explicitly authorized.'},
+      {id:'bank_transfer',name:'Bank transfer',enabled:!!manual.bankTransfer?.enabled,status:manual.bankTransfer?.enabled?'connected':'not_configured',mode:'manual',methods:manual.bankTransfer?.enabled?['Bank transfer']:[]},
+      {id:'external_payment_link',name:'External payment link',enabled:!!manual.externalPaymentLink?.enabled,status:manual.externalPaymentLink?.enabled?'connected':'not_configured',mode:'manual',methods:manual.externalPaymentLink?.enabled?['Merchant-provided link']:[]},
+      {id:'cash_on_delivery',name:'Cash on delivery',enabled:true,status:'available',mode:'manual',methods:['Cash on delivery']},
+    ],manualOptions:{bankTransfer:{enabled:!!manual.bankTransfer?.enabled,bankName:manual.bankTransfer?.bankName||'',accountName:manual.bankTransfer?.accountName||'',iban:manual.bankTransfer?.iban||'',swift:manual.bankTransfer?.swift||''},externalPaymentLink:{enabled:!!manual.externalPaymentLink?.enabled,urlTemplate:manual.externalPaymentLink?.urlTemplate||''}},transactions:records.map(row=>{const d=row.data as any;return {id:row.id,orderId:d.orderId||null,provider:d.provider||'tap',providerPaymentId:d.tapChargeId||null,status:d.status||row.status,amountCents:d.amountCents??null,currency:d.currency||null,createdAt:row.createdAt.toISOString(),refundStatus:d.refundStatus||null,refunds:Array.isArray(d.refunds)?d.refunds:(d.refundId?[{id:d.refundId,status:d.refundStatus,amountCents:d.refundAmountCents}]:[]),mode:d.mode||'test'};})};
+  }
+  @Post('manual-options') async saveManualOptions(@Req() req:Request & {user:any},@Body() dto:any){
+    const business=await this.business(req),bank=dto?.bankTransfer||{},external=dto?.externalPaymentLink||{};
+    const bankTransfer={enabled:bank.enabled===true,bankName:String(bank.bankName||'').trim().slice(0,100),accountName:String(bank.accountName||'').trim().slice(0,100),iban:String(bank.iban||'').replace(/\s+/g,'').slice(0,34).toUpperCase(),swift:String(bank.swift||'').trim().slice(0,20).toUpperCase()};
+    if(bankTransfer.enabled&&(!bankTransfer.bankName||!bankTransfer.accountName||!/^([A-Z]{2}\d{2}[A-Z0-9]{11,30})$/.test(bankTransfer.iban)))throw new BadRequestException('Enter a bank name, account name, and valid IBAN before enabling bank transfer.');
+    const urlTemplate=String(external.urlTemplate||'').trim();
+    if(external.enabled===true&&!validateExternalPaymentTemplate(urlTemplate))throw new BadRequestException('Use an HTTPS payment-link template containing {amount} and {order}; {currency} is optional.');
+    const externalPaymentLink={enabled:external.enabled===true,urlTemplate:external.enabled===true?urlTemplate:''};
+    const data={bankTransfer,externalPaymentLink,updatedAt:new Date().toISOString()};
+    await this.db.businessRecord.upsert({where:{legacyFirebasePath:`payment-manual-options:${business.id}`},create:{legacyFirebasePath:`payment-manual-options:${business.id}`,businessId:business.id,type:MANUAL_OPTIONS_TYPE,status:'active',data:data as any},update:{status:'active',data:data as any}});
+    return {saved:true,manualOptions:{...data,bankTransfer:{...bankTransfer,enabled:bankTransfer.enabled},externalPaymentLink:{enabled:externalPaymentLink.enabled,urlTemplate:externalPaymentLink.urlTemplate}}};
   }
   @Post('connect') async connect(@Req() req:Request & {user:any},@Body() dto:TapCredentialInput){
     const business=await this.business(req),credential=encryptMerchantPaymentSecret(dto.secretKey);
@@ -140,9 +173,30 @@ export class PublicMerchantPaymentController {
   }
   private async tapConfig(businessId:string){const record=await this.db.businessRecord.findFirst({where:{businessId,type:CREDENTIAL_TYPE,status:{in:['connected','disconnected']}}});const config=record?.data as any;if(!record||!config||config.provider!=='tap'||config.mode!=='test')return null;return {...config,_connectionStatus:record.status} as TapConfiguration & {secretLastFour?:string;_connectionStatus:string};}
   @Get(':id/payment-methods') async methods(@Req() req:Request,@Param('id') id:string){
-    const token=String(req.query.token||'');if(token.length<32)throw new NotFoundException('Order not found');const {order,business,data}=await this.ownedOrder(id,token),config=await this.tapConfig(business.id);
+    const token=String(req.query.token||'');if(token.length<32)throw new NotFoundException('Order not found');const {order,business,data}=await this.ownedOrder(id,token),config=await this.tapConfig(business.id),manualRecord=await this.db.businessRecord.findFirst({where:{businessId:business.id,type:MANUAL_OPTIONS_TYPE,status:'active'}}),manual=(manualRecord?.data||{}) as any;
     const supported=process.env.TAP_PLATFORM_TEST_APPROVED==='true'&&config?._connectionStatus==='connected'&&!!config?.connectionVerifiedAt&&String(data.paymentStatus||'').toLowerCase()!=='paid'&&TAP_CURRENCIES[config.country]?.includes(String(order.currency).toUpperCase());
-    return {methods:[{id:'cash_on_delivery',label:'Cash on delivery',enabled:true},...(supported?[{id:'tap',label:'Card and wallets via Tap',enabled:true,mode:'test',country:config?.country}]:[])]};
+    const bankEnabled=manual.bankTransfer?.enabled===true,linkEnabled=manual.externalPaymentLink?.enabled===true&&validateExternalPaymentTemplate(manual.externalPaymentLink?.urlTemplate);
+    return {methods:[{id:'cash_on_delivery',label:'Cash on delivery',enabled:true},...(bankEnabled?[{id:'bank_transfer',label:'Bank transfer',enabled:true,bankName:manual.bankTransfer.bankName,accountName:manual.bankTransfer.accountName,iban:manual.bankTransfer.iban,swift:manual.bankTransfer.swift||null}]:[]),...(linkEnabled?[{id:'external_payment_link',label:'Pay with external link',enabled:true}]:[]),...(supported?[{id:'tap',label:'Card and wallets via Tap',enabled:true,mode:'test',country:config?.country}]:[])]};
+  }
+  @Post(':id/payment/manual') async startManualPayment(@Param('id') id:string,@Body() dto:ManualPaymentInput){
+    const {order,business,data}=await this.ownedOrder(id,dto.token),manualRecord=await this.db.businessRecord.findFirst({where:{businessId:business.id,type:MANUAL_OPTIONS_TYPE,status:'active'}}),manual=(manualRecord?.data||{}) as any;
+    if(String(data.paymentStatus||'').toLowerCase()==='paid')throw new ConflictException('This order has already been paid.');
+    if(['cancelled','returned'].includes(String(data.fulfillmentStatus||'').toLowerCase()))throw new ConflictException('This order is cancelled.');
+    const amountCents=Number(order.amountCents??Math.round(Number(data.total||0)*100)),currency=String(order.currency||data.currency||'USD').toUpperCase();
+    if(!Number.isSafeInteger(amountCents)||amountCents<=0)throw new BadRequestException('This order has no valid amount.');
+    const isBank=dto.method==='bank_transfer',option=isBank?manual.bankTransfer:manual.externalPaymentLink;
+    if(option?.enabled!==true)throw new BadRequestException('This manual payment method is not configured for this store.');
+    const reference=`CYB-${order.id}`.slice(0,64),url=isBank?null:buildExternalPaymentUrl(String(option.urlTemplate),amountCents,currency,reference);
+    const legacyFirebasePath=`manual-payment:${business.id}:${order.id}`;
+    const output={provider:dto.method,orderId:order.id,amountCents,currency,reference,status:'awaiting_confirmation',...(isBank?{bankTransfer:{bankName:option.bankName,accountName:option.accountName,iban:option.iban,swift:option.swift||null}}:{url})};
+    return this.db.$transaction(async tx=>{
+      const prior=await tx.businessRecord.findUnique({where:{legacyFirebasePath}});
+      if(prior){const saved=prior.data as any;if(saved.provider!==dto.method)throw new ConflictException('A different manual payment method is already pending for this order.');return saved;}
+      const changed=await tx.order.updateMany({where:{id:order.id,businessId:business.id,status:order.status,data:{equals:order.data as any}},data:{data:{...data,paymentMethod:dto.method,paymentStatus:'Awaiting manual confirmation',manualPaymentReference:reference,manualPaymentProvider:dto.method} as any}});
+      if(!changed.count)throw new ConflictException('Order changed while this payment option was being selected.');
+      await tx.businessRecord.create({data:{legacyFirebasePath,businessId:business.id,type:'merchantPayment',status:'awaiting_confirmation',data:output as any}});
+      return output;
+    });
   }
   @Post(':id/payment/tap') async startTap(@Req() req:Request,@Param('id') id:string,@Body() dto:PublicPaymentInput){
     const {order,business,data}=await this.ownedOrder(id,dto.token),config=await this.tapConfig(business.id);

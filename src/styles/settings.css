@@ -316,6 +316,17 @@
 .provider-actions { display: flex; gap: 10px; }
 .provider-actions .provider-danger { background: #f6e9e6; color: #8b3d31; }
 .payment-provider-disabled, .payment-history { margin-top: 24px; }
+.payment-provider-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 12px; margin-top: 22px; }
+.payment-provider-tile { padding: 16px; border: 1px solid #e8e1d8; border-radius: 12px; background: #fff; }
+.payment-provider-tile > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.payment-provider-tile p, .payment-manual-options > p { margin: 10px 0 0; color: #776f66; line-height: 1.5; font-size: 13px; }
+.payment-manual-options { margin-top: 25px; padding: 22px; border: 1px solid #e8e1d8; border-radius: 14px; background: #fff; }
+.payment-manual-options h3 { margin: 0; }
+.manual-options-form { grid-template-columns: repeat(2,minmax(0,1fr)); margin: 15px 0 24px; }
+.manual-options-form .manual-url-field { grid-column: 1 / -1; }
+.manual-options-form .provider-toggle { display: flex; align-items: center; gap: 9px; }
+.manual-options-form .provider-toggle input { width: 18px; min-height: 18px; }
+.payment-manual-options > button { min-height: 40px; padding: 9px 14px; border: 0; border-radius: 8px; background: #28231f; color: white; cursor: pointer; }
 .payment-provider-disabled > div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #eee9e3; }
 .payment-provider-disabled span, .payment-history small { color: #8a8178; }
 .payment-history h3 small { margin-left: 8px; font-weight: 500; }
@@ -325,4 +336,4 @@
 .payment-history th { color: #777067; font-weight: 600; }
 .payment-history button { min-height: 32px; padding: 6px 9px; font-size: 12px; }
 .payment-provider-notice { margin: 18px 0 0; color: #554b41; }
-@media (max-width: 800px) { .payment-providers-card { padding: 20px; } .payment-provider-row { flex-direction: column; } .provider-connect-form { min-width: 0; width: 100%; grid-template-columns: 1fr; } .provider-connect-form small { grid-column: auto; } .payment-providers-card > header { flex-direction: column; } }
+@media (max-width: 800px) { .payment-providers-card { padding: 20px; } .payment-provider-row { flex-direction: column; } .provider-connect-form { min-width: 0; width: 100%; grid-template-columns: 1fr; } .provider-connect-form small { grid-column: auto; } .manual-options-form .manual-url-field { grid-column: auto; } .payment-providers-card > header { flex-direction: column; } }
