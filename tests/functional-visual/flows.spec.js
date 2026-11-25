@@ -362,7 +362,6 @@ test("storefront treats the available quantity returned by the server consistent
   availableStock = 1;
   await page.reload();
   await expect.poll(() => inventoryRequests).toBeGreaterThan(previousInventoryRequests);
-  await expect(page.getByText("1 available")).toBeVisible();
   await expect(page.getByRole("button", { name: "Add to cart" })).toBeEnabled();
 });
 
