@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "../layouts/DashboardLayout";
 import { customBackendRequest } from "../services/customBackendSession";
+import { canMarkOrderCollected } from "../business/orderPaymentPolicy";
 import "../styles/orderDetails.css";
 
 function OrderDetails() {
@@ -224,7 +225,7 @@ function OrderDetails() {
 
         <div className="order-payment-summary" style={{ margin: "12px 0 20px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <strong>Payment: {order.paymentStatus || "Pending"}</strong>
-          {String(order.paymentStatus || "").toLowerCase() !== "paid" && String(order.paymentStatus || "").toLowerCase() !== "refunded" && <button type="button" disabled={updating} onClick={() => handlePaymentChange("paid")}>Mark collected</button>}
+          {canMarkOrderCollected(order) && !["paid", "refunded"].includes(String(order.paymentStatus || "").toLowerCase()) && <button type="button" disabled={updating} onClick={() => handlePaymentChange("paid")}>Mark collected</button>}
           {String(order.paymentStatus || "").toLowerCase() === "paid" && <button type="button" disabled={updating} onClick={() => handlePaymentChange("refunded")}>Record full refund</button>}
         </div>
         {error && <div style={styles.errorMessage}>{error}</div>}
@@ -896,3 +897,4 @@ const styles = {
 };
 
 export default OrderDetails;
+

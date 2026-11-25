@@ -4,6 +4,7 @@ import DashboardLayout from "../layouts/DashboardLayout";
 import { getOrders, updateOrderStatus as saveOrderStatus, updatePaymentStatus as savePaymentStatus, deleteOrder as removeOrder } from "../services/orderService";
 import { InlineState } from "../components/ui/DesignPrimitives";
 import { orderMetrics } from "../business/metrics";
+import { canMarkOrderCollected } from "../business/orderPaymentPolicy";
 const statuses = [
   "New",
   "Processing",
@@ -332,7 +333,7 @@ function Orders() {
                       {statuses.map(status => <option key={status} value={status}>{status}</option>)}
                     </select>
                     <small>Payment: {order.paymentStatus || "Pending"}</small>
-                    {String(order.paymentStatus || "").toLowerCase() !== "paid" && String(order.paymentStatus || "").toLowerCase() !== "refunded" && <button type="button" disabled={!!paymentUpdates[order.id]} onClick={() => updatePaymentStatus(order.id, "paid")}>{paymentUpdates[order.id] ? "Saving…" : "Mark collected"}</button>}
+                    {canMarkOrderCollected(order) && !["paid", "refunded"].includes(String(order.paymentStatus || "").toLowerCase()) && <button type="button" disabled={!!paymentUpdates[order.id]} onClick={() => updatePaymentStatus(order.id, "paid")}>{paymentUpdates[order.id] ? "Saving…" : "Mark collected"}</button>}
                     {String(order.paymentStatus || "").toLowerCase() === "paid" && <button type="button" disabled={!!paymentUpdates[order.id]} onClick={() => updatePaymentStatus(order.id, "refunded")}>{paymentUpdates[order.id] ? "Saving…" : "Record refund"}</button>}
                   </div>
 
@@ -355,3 +356,4 @@ function Orders() {
 }
 
 export default Orders;
+

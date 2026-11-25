@@ -80,7 +80,10 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
       const input = request.postDataJSON()?.data || {};
       body = { ...order, data: { ...order.data, paymentStatus: input.status === "paid" ? "Paid" : "Refunded" } };
     }
-    else if (pathname === "/orders/synthetic-order") body = { id: order.id, ...order.data, status: order.status, createdAt: order.createdAt };
+    else if (pathname.startsWith("/orders/") && method === "GET") {
+      const record = currentOrders.find((candidate) => candidate.id === pathname.slice("/orders/".length));
+      body = record ? { id: record.id, ...record.data, status: record.status, createdAt: record.createdAt } : {};
+    }
     else if (pathname === "/crm/leads" && method === "GET") body = [{ id: "lead-1", name: "Lead One", email: "lead@example.test", status: "new" }];
     else if (pathname === "/crm/deals" && method === "GET") body = [{ id: "deal-1", title: "Deal One", amount: 25, currency: "AED", stage: "Qualification", status: "open" }];
     else if (pathname === "/crm/tasks" && method === "GET") body = [{ id: "task-1", title: "Follow up", dueAt: "2026-11-19T10:00:00.000Z", priority: "high", status: "open" }];
@@ -326,6 +329,23 @@ test("merchant payment actions use the database order ID and update from the sav
   expect(calls.some(call => call.pathname === "/orders/ORD-legacy-display/payment")).toBe(false);
 });
 
+test("cancelled and returned orders cannot be marked collected in list or details", async ({ page }) => {
+  await seedProtectedUser(page);
+  const closedOrders = [
+    { ...order, status: "cancelled", data: { ...order.data, fulfillmentStatus: "Cancelled", paymentStatus: "Cancelled" } },
+    { ...order, id: "returned-order", status: "returned", data: { ...order.data, fulfillmentStatus: "Returned", paymentStatus: "unpaid" } },
+  ];
+  await mockAppApi(page, { orders: closedOrders });
+
+  await page.goto("/orders");
+  await expect(page.getByText("#ORD-legacy-display")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Mark collected" })).toHaveCount(0);
+
+  await page.goto("/orders/synthetic-order");
+  await expect(page.getByText("Order Status")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Mark collected" })).toHaveCount(0);
+});
+
 test("order fulfillment status reflects the saved cancellation response", async ({ page }) => {
   await seedProtectedUser(page);
   const calls = await mockAppApi(page);
@@ -476,3 +496,4 @@ test('analytics dashboard shows real report fields, saves a range, and stays res
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `Analytics overflow at ${viewport.width}px`).toBeTruthy();
   }
 });
+
