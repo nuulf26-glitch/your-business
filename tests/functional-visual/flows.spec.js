@@ -338,7 +338,7 @@ test("cancelled and returned orders cannot be marked collected in list or detail
   await mockAppApi(page, { orders: closedOrders });
 
   await page.goto("/orders");
-  await expect(page.getByText("#ORD-legacy-display")).toBeVisible();
+  await expect(page.getByText("#ORD-legacy-display").first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Mark collected" })).toHaveCount(0);
 
   await page.goto("/orders/synthetic-order");
