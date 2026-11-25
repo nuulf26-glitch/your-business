@@ -395,5 +395,19 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(externalTransactions.transactions.filter((transaction) => transaction.orderId === externalOrder.id && transaction.provider === "external_payment_link")).toHaveLength(1);
   expect(externalTransactions.transactions.find((transaction) => transaction.orderId === externalOrder.id)).toMatchObject({ status: "confirmed", amountCents: externalExpectedAmount, currency: externalOwnerOrder.currency });
 
+  const cancelledManualOrder = await createManualOrder("cancelled-external-link");
+  await requestFromPage(page, `/public/orders/${encodeURIComponent(cancelledManualOrder.id)}/payment/manual`, "POST", { token: cancelledManualOrder.cashOnDeliveryToken, method: "external_payment_link" });
+  await requestFromPage(page, `/orders/${encodeURIComponent(cancelledManualOrder.id)}/fulfillment`, "PATCH", { data: { status: "cancelled" } });
+  const cancelledPaymentAttempt = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/v1/orders/${encodeURIComponent(id)}/payment`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: { status: "paid" } }) });
+    return { status: response.status, body: await response.json().catch(() => null) };
+  }, cancelledManualOrder.id);
+  expect(cancelledPaymentAttempt.status).toBe(409);
+  const cancelledStoredOrder = await requestFromPage(page, `/orders/${encodeURIComponent(cancelledManualOrder.id)}`);
+  expect(cancelledStoredOrder).toMatchObject({ status: "cancelled", fulfillmentStatus: "cancelled" });
+  expect(cancelledStoredOrder.paymentStatus).toBe("Cancelled");
+  const cancelledTransactions = await requestFromPage(page, "/payments/providers");
+  expect(cancelledTransactions.transactions.find((transaction) => transaction.orderId === cancelledManualOrder.id && transaction.provider === "external_payment_link")).toMatchObject({ status: "cancelled" });
+
   await secondTab.close();
 });

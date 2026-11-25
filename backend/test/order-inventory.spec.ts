@@ -19,6 +19,7 @@ describe('OrderController inventory release', () => {
     const tx: any = {
       businessRecord: {
         findFirst: jest.fn(async () => options.paymentAttempt || null),
+        updateMany: jest.fn(async () => ({ count: 1 })),
       },
       product: {
         findFirst: jest.fn(async ({ where }: any) => where.businessId === product.businessId && where.id === product.id ? product : null),
@@ -79,7 +80,7 @@ describe('OrderController inventory release', () => {
   });
 
   it('allows cancellation of an awaiting bank-transfer order and restores its inventory', async () => {
-    const { controller, product, order } = fixture({
+    const { controller, product, order, tx } = fixture({
       stock: 1,
       line: { id: 'product_1', quantity: 1 },
       paymentAttempt: {
@@ -87,12 +88,45 @@ describe('OrderController inventory release', () => {
         data: { provider: 'bank_transfer', orderId: 'order_1', status: 'awaiting_confirmation' },
       },
     });
+    order.data.manualPaymentProvider = 'bank_transfer';
+    order.data.paymentStatus = 'Awaiting manual confirmation';
 
     const savedOrder = await controller.updateStatus(request, { status: 'cancelled' } as any) as any;
 
     expect(savedOrder).toMatchObject({ status: 'cancelled', data: { fulfillmentStatus: 'cancelled' } });
+    expect(savedOrder.data.paymentStatus).toBe('Cancelled');
     expect(order.data.inventoryHistory).toHaveLength(1);
     expect(product.data.stock).toBe(2);
+    expect(tx.businessRecord.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ businessId: 'business_1', type: 'merchantPayment' }),
+      data: expect.objectContaining({ status: 'cancelled', data: expect.objectContaining({ status: 'cancelled' }) }),
+    }));
+  });
+
+  it('does not allow a cancelled manual-payment order to be marked collected', async () => {
+    const { controller, order, tx } = fixture({
+      paymentAttempt: {
+        status: 'awaiting_confirmation',
+        data: { provider: 'external_payment_link', orderId: 'order_1', status: 'awaiting_confirmation' },
+      },
+    });
+    order.status = 'cancelled';
+    order.data.fulfillmentStatus = 'cancelled';
+    order.data.manualPaymentProvider = 'external_payment_link';
+
+    await expect(controller.updatePayment(request, { data: { status: 'paid' } } as any)).rejects.toThrow('cancelled or returned order cannot be marked paid');
+    expect(order.data.paymentStatus).toBe('Cash on delivery');
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('requires a collected payment to be refunded before cancellation', async () => {
+    const { controller, order, tx } = fixture();
+    order.data.paymentStatus = 'Paid';
+    order.data.paidAt = new Date().toISOString();
+
+    await expect(controller.updateStatus(request, { status: 'cancelled' } as any)).rejects.toThrow('Refund the collected payment before cancelling');
+    expect(order.status).toBe('new');
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
   });
 
   it('keeps inventory reserved while a Tap payment attempt is still active', async () => {
