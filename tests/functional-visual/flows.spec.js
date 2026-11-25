@@ -22,8 +22,11 @@ const order = {
 const customer = {
   id: "synthetic-customer", data: { name: "Synthetic QA customer", email: "visual-review@example.test", phone: "+971500000000", orders: 1, totalSpent: 80, status: "New", createdAt: "2026-01-15T09:00:00.000Z" },
 };
+const switchedUser = { id: "synthetic-user-a", email: "merchant-a@example.test", emailVerified: true, role: "owner", paid: true };
+const switchedBusiness = { id: "synthetic-business-a", ownerId: switchedUser.id, name: "Merchant A", slug: "merchant-a", category: "general", settings: { businessName: "Merchant A", storeName: "Merchant A", storeUrl: "merchant-a", currency: "USD" } };
+const switchedProduct = { id: "merchant-a-product", data: { name: "Merchant A only product", category: "QA", sellingPrice: 1, stock: 1, status: "active" } };
 
-async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [order] } = {}) {
+async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [order], accountSwitch = false } = {}) {
   const calls = [];
   let authenticated = !cookieAuth;
   let products = [product];
@@ -37,23 +40,33 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
     const url = new URL(request.url());
     const pathname = url.pathname.replace(/^\/api\/v1/, "");
     const method = request.method();
-    calls.push({ method, pathname, searchParams: url.searchParams, body: request.postDataJSON?.(), businessId: request.headers()["x-cyb-business-id"] || "" });
+    calls.push({ method, pathname, searchParams: url.searchParams, body: request.postDataJSON?.(), businessId: request.headers()["x-cyb-business-id"] || "", account: (request.headers().cookie || "").includes("cyb-visual-session=merchant-a") ? "merchant-a" : "merchant-h" });
+
+    const cookie = request.headers().cookie || "";
+    const merchantA = accountSwitch && cookie.includes("cyb-visual-session=merchant-a");
+    const requestUser = merchantA ? switchedUser : user;
+    const requestBusiness = merchantA ? switchedBusiness : business;
+    const requestProduct = merchantA ? switchedProduct : product;
 
     if (pathname === "/auth/login" && method === "POST") {
       authenticated = true;
       return route.fulfill({ status: 200, headers: { "Set-Cookie": "cyb-visual-session=synthetic; Path=/; HttpOnly; SameSite=Lax" }, contentType: "application/json", body: JSON.stringify(user) });
     }
     if (pathname === "/auth/me") {
-      const hasCookie = (request.headers().cookie || "").includes("cyb-visual-session=synthetic");
+      const hasCookie = accountSwitch ? cookie.includes("cyb-visual-session=") : cookie.includes("cyb-visual-session=synthetic");
       const allowed = cookieAuth ? hasCookie : authenticated;
-      return route.fulfill({ status: allowed ? 200 : 401, contentType: "application/json", body: JSON.stringify(allowed ? user : { message: "No synthetic session" }) });
+      if (accountSwitch && merchantA) await new Promise(resolve => setTimeout(resolve, 180));
+      return route.fulfill({ status: allowed ? 200 : 401, contentType: "application/json", body: JSON.stringify(allowed ? requestUser : { message: "No synthetic session" }) });
     }
 
     let status = 200;
     let body = {};
     if (pathname === "/auth/logout") body = { ok: true };
-    else if (pathname === "/businesses/mine") body = business;
-    else if (pathname === "/businesses/mine/stores" && method === "GET") body = stores;
+    else if (pathname === "/businesses/mine") body = requestBusiness;
+    else if (pathname === "/businesses/mine/stores" && method === "GET") {
+      if (accountSwitch && merchantA) await new Promise(resolve => setTimeout(resolve, 250));
+      body = merchantA ? [{ id: switchedBusiness.id, name: switchedBusiness.name, slug: switchedBusiness.slug, category: switchedBusiness.category, published: true }] : stores;
+    }
     else if (pathname === "/businesses/mine/stores" && method === "POST") {
       const input = request.postDataJSON() || {};
       const created = { id: "synthetic-second-store", name: input.name, slug: input.slug, category: input.category, published: false };
@@ -69,7 +82,7 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
     else if (pathname === "/websites/publication-diagnostic") body = { published: false, status: "draft" };
     else if (pathname === "/websites/versions") body = [];
     else if (pathname === "/websites/publish") body = { slug: "atelier-preview" };
-    else if (pathname === "/products" && method === "GET") body = products;
+    else if (pathname === "/products" && method === "GET") body = accountSwitch ? [requestProduct] : products;
     else if (pathname === "/products" && method === "POST") {
       const input = request.postDataJSON()?.data || {};
       const created = { id: "synthetic-created-product", data: input };
@@ -137,6 +150,30 @@ test("synthetic login keeps the cookie-backed session after reload and opens das
   await expect(page.locator(".workspace-navigation")).toBeVisible({ timeout: 15000 });
   expect(calls.some((call) => call.pathname === "/auth/login" && call.method === "POST")).toBeTruthy();
   expect(calls.filter((call) => call.pathname === "/auth/me").length).toBeGreaterThan(1);
+});
+
+test("switching authenticated merchant accounts immediately clears the previous merchant UI state", async ({ page }) => {
+  const calls = await mockAppApi(page, { cookieAuth: true, accountSwitch: true });
+  await page.addInitScript(({ cachedUser, accountId, businessId }) => {
+    sessionStorage.setItem("getcyb_session_user", JSON.stringify(cachedUser));
+    localStorage.setItem("getcyb_account_id", accountId);
+    localStorage.setItem("cyb_active_business_id", businessId);
+    document.cookie = "cyb-visual-session=merchant-h; Path=/; SameSite=Lax";
+  }, { cachedUser: user, accountId: user.id, businessId: business.id });
+  await page.goto("/products");
+  await expect(page.getByRole("heading", { name: product.data.name, exact: true })).toBeVisible();
+
+  await page.evaluate(({ accountId }) => {
+    localStorage.setItem("getcyb_account_id", accountId);
+    localStorage.setItem("getcyb_auth_sync", "switch-to-merchant-a");
+    document.cookie = "cyb-visual-session=merchant-a; Path=/; SameSite=Lax";
+    window.dispatchEvent(new StorageEvent("storage", { key: "getcyb_auth_sync", newValue: "switch-to-merchant-a" }));
+  }, { accountId: switchedUser.id });
+
+  await expect(page.getByRole("heading", { name: product.data.name, exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: switchedProduct.data.name, exact: true })).toBeVisible();
+  await expect(page.getByLabel("Active store")).toHaveValue(switchedBusiness.id);
+  expect(calls.some(call => call.account === "merchant-a" && call.pathname === "/businesses/mine/stores" && call.businessId === "")).toBeTruthy();
 });
 
 test("editor draft save and publish use the existing API contracts", async ({ page }) => {

@@ -23,21 +23,23 @@ function DashboardLayout({ children }) {
       async (currentUser) => {
         if (!currentUser) {
           setStoreUrl("");
+          setStores([]);
+          setActiveBusinessIdState("");
+          setActiveBusinessId("");
           setLoadingStore(false);
           return;
         }
 
+        setLoadingStore(true);
+        setStoreUrl("");
+        setStores([]);
+        setActiveBusinessIdState("");
         try {
-          setLoadingStore(true);
           const rows = await listStores();
           setStores(rows);
           const savedId = getActiveBusinessId();
           const selected = rows.find(store => store.id === savedId) || rows[0] || null;
-          if (selected && selected.id !== savedId) {
-            setActiveBusinessId(selected.id);
-            window.location.reload();
-            return;
-          }
+          if (selected && selected.id !== savedId) setActiveBusinessId(selected.id);
           setActiveBusinessIdState(selected?.id || "");
           setStoreUrl(selected?.storeUrl || "");
         } catch (error) {
@@ -67,7 +69,6 @@ function DashboardLayout({ children }) {
     if (!nextId || nextId === activeBusinessId) return;
     setActiveBusinessId(nextId);
     setActiveBusinessIdState(nextId);
-    window.location.reload();
   }
 
   async function handleCreateStore(event) {
@@ -175,7 +176,7 @@ function DashboardLayout({ children }) {
       </aside>
 
       <main className="workspace-main">
-        {children}
+        {loadingStore ? <div className="workspace-loading" role="status">Loading workspace…</div> : <div key={`${getActiveBusinessId()}:${storeUrl}`}>{children}</div>}
       </main>
     </div>
   );

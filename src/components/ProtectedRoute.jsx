@@ -8,7 +8,15 @@ function ProtectedRoute({ children }) {
   const [checkingUser, setCheckingUser] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = subscribeAppUser((currentUser) => { setUser(currentUser); setCheckingUser(false); });
+    const unsubscribe = subscribeAppUser((currentUser) => {
+      if (currentUser === undefined) {
+        setUser(null);
+        setCheckingUser(true);
+        return;
+      }
+      setUser(currentUser);
+      setCheckingUser(false);
+    });
     return unsubscribe;
   }, []);
 
@@ -32,7 +40,7 @@ function ProtectedRoute({ children }) {
     return <Navigate to="/login" replace />;
   }
 
-  return <>{children}<AiHelpWidget /></>;
+  return <><div key={user.id}>{children}</div><AiHelpWidget key={user.id} /></>;
 }
 
 export default ProtectedRoute;
