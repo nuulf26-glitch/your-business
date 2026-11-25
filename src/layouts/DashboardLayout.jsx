@@ -19,8 +19,11 @@ function DashboardLayout({ children }) {
   const [storeError, setStoreError] = useState("");
 
   useEffect(() => {
+    let active = true;
+    let requestVersion = 0;
     const unsubscribe = subscribeAppUser(
       async (currentUser) => {
+        const version = ++requestVersion;
         if (!currentUser) {
           setStoreUrl("");
           setStores([]);
@@ -36,6 +39,7 @@ function DashboardLayout({ children }) {
         setActiveBusinessIdState("");
         try {
           const rows = await listStores();
+          if (!active || version !== requestVersion) return;
           setStores(rows);
           const savedId = getActiveBusinessId();
           const selected = rows.find(store => store.id === savedId) || rows[0] || null;
@@ -43,16 +47,21 @@ function DashboardLayout({ children }) {
           setActiveBusinessIdState(selected?.id || "");
           setStoreUrl(selected?.storeUrl || "");
         } catch (error) {
+          if (!active || version !== requestVersion) return;
           console.error("Error loading stores:", error);
           setStoreUrl("");
           setStores([]);
         } finally {
-          setLoadingStore(false);
+          if (active && version === requestVersion) setLoadingStore(false);
         }
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+      active = false;
+      requestVersion += 1;
+      unsubscribe();
+    };
   }, []);
 
   async function handleLogout() {

@@ -44,6 +44,7 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
 
     const cookie = request.headers().cookie || "";
     const merchantA = accountSwitch && cookie.includes("cyb-visual-session=merchant-a");
+    const call = calls.at(-1);
     const requestUser = merchantA ? switchedUser : user;
     const requestBusiness = merchantA ? switchedBusiness : business;
     const requestProduct = merchantA ? switchedProduct : product;
@@ -64,7 +65,7 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
     if (pathname === "/auth/logout") body = { ok: true };
     else if (pathname === "/businesses/mine") body = requestBusiness;
     else if (pathname === "/businesses/mine/stores" && method === "GET") {
-      if (accountSwitch && merchantA) await new Promise(resolve => setTimeout(resolve, 250));
+      if (accountSwitch) await new Promise(resolve => setTimeout(resolve, merchantA ? 200 : 500));
       body = merchantA ? [{ id: switchedBusiness.id, name: switchedBusiness.name, slug: switchedBusiness.slug, category: switchedBusiness.category, published: true }] : stores;
     }
     else if (pathname === "/businesses/mine/stores" && method === "POST") {
@@ -128,7 +129,8 @@ async function mockAppApi(page, { cookieAuth = false, orders: orderFixtures = [o
     else if (pathname === "/public/orders" && method === "POST") body = { id: "synthetic-created-order", cashOnDeliveryToken: "synthetic-token" };
     else if (pathname === "/public/orders/synthetic-created-order/cash-on-delivery" && method === "POST") body = { ok: true };
     else if (pathname.startsWith("/public/") || pathname.startsWith("/websites/public/") || pathname.startsWith("/businesses/public/")) body = {};
-    return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+    await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+    call.responseComplete = true;
   });
   return calls;
 }
@@ -161,7 +163,7 @@ test("switching authenticated merchant accounts immediately clears the previous 
     document.cookie = "cyb-visual-session=merchant-h; Path=/; SameSite=Lax";
   }, { cachedUser: user, accountId: user.id, businessId: business.id });
   await page.goto("/products");
-  await expect(page.getByRole("heading", { name: product.data.name, exact: true })).toBeVisible();
+  await expect.poll(() => calls.some(call => call.account === "merchant-h" && call.pathname === "/businesses/mine/stores")).toBeTruthy();
 
   await page.evaluate(({ accountId }) => {
     localStorage.setItem("getcyb_account_id", accountId);
@@ -170,10 +172,12 @@ test("switching authenticated merchant accounts immediately clears the previous 
     window.dispatchEvent(new StorageEvent("storage", { key: "getcyb_auth_sync", newValue: "switch-to-merchant-a" }));
   }, { accountId: switchedUser.id });
 
-  await expect(page.getByRole("heading", { name: product.data.name, exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: switchedProduct.data.name, exact: true })).toBeVisible();
   await expect(page.getByLabel("Active store")).toHaveValue(switchedBusiness.id);
+  await expect.poll(() => calls.some(call => call.account === "merchant-h" && call.pathname === "/businesses/mine/stores" && call.responseComplete)).toBeTruthy();
   expect(calls.some(call => call.account === "merchant-a" && call.pathname === "/businesses/mine/stores" && call.businessId === "")).toBeTruthy();
+  await expect(page.getByRole("heading", { name: product.data.name, exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: switchedProduct.data.name, exact: true })).toBeVisible();
 });
 
 test("editor draft save and publish use the existing API contracts", async ({ page }) => {
