@@ -1,7 +1,7 @@
 import { OrderController, ProductController, PublicProductController } from '../src/routes';
 
 describe('OrderController inventory release', () => {
-  function fixture(options: { variants?: any[]; stock?: number; line?: any } = {}) {
+  function fixture(options: { variants?: any[]; stock?: number; line?: any; paymentAttempt?: any } = {}) {
     const product: any = {
       id: 'product_1', businessId: 'business_1',
       data: {
@@ -17,6 +17,9 @@ describe('OrderController inventory release', () => {
       },
     };
     const tx: any = {
+      businessRecord: {
+        findFirst: jest.fn(async () => options.paymentAttempt || null),
+      },
       product: {
         findFirst: jest.fn(async ({ where }: any) => where.businessId === product.businessId && where.id === product.id ? product : null),
         findMany: jest.fn(async ({ where }: any) => where.businessId === product.businessId ? [product] : []),
@@ -73,6 +76,40 @@ describe('OrderController inventory release', () => {
     const savedOrder = await controller.updateStatus(request, { status: 'cancelled' } as any) as any;
     expect(product.data.stock).toBe(3);
     expect(savedOrder).toMatchObject({ status: 'cancelled', data: { fulfillmentStatus: 'cancelled' } });
+  });
+
+  it('allows cancellation of an awaiting bank-transfer order and restores its inventory', async () => {
+    const { controller, product, order } = fixture({
+      stock: 1,
+      line: { id: 'product_1', quantity: 1 },
+      paymentAttempt: {
+        status: 'awaiting_confirmation',
+        data: { provider: 'bank_transfer', orderId: 'order_1', status: 'awaiting_confirmation' },
+      },
+    });
+
+    const savedOrder = await controller.updateStatus(request, { status: 'cancelled' } as any) as any;
+
+    expect(savedOrder).toMatchObject({ status: 'cancelled', data: { fulfillmentStatus: 'cancelled' } });
+    expect(order.data.inventoryHistory).toHaveLength(1);
+    expect(product.data.stock).toBe(2);
+  });
+
+  it('keeps inventory reserved while a Tap payment attempt is still active', async () => {
+    const { controller, product, order, tx } = fixture({
+      stock: 1,
+      line: { id: 'product_1', quantity: 1 },
+      paymentAttempt: {
+        status: 'starting',
+        data: { provider: 'tap', orderId: 'order_1', status: 'starting' },
+      },
+    });
+
+    await expect(controller.updateStatus(request, { status: 'cancelled' } as any)).rejects.toThrow('A Tap payment is still in progress');
+
+    expect(order.status).toBe('new');
+    expect(product.data.stock).toBe(1);
+    expect(tx.product.updateMany).not.toHaveBeenCalled();
   });
 
   it('returns the same post-cancellation available quantity to merchant inventory and storefront', async () => {
