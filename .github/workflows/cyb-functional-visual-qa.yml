@@ -52,6 +52,7 @@ jobs:
       - name: Render functional routes at four viewport sizes
         run: |
           npx playwright test tests/functional-visual/flows.spec.js --grep "editor page management"
+          npx playwright test tests/functional-visual/flows.spec.js --grep "switching authenticated merchant accounts"
           npm run test:functional-visual
         env:
           CI: "true"
