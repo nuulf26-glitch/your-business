@@ -43,6 +43,25 @@ describe('merchant BYOG payment foundations',()=>{
     expect(db.business.findFirst).toHaveBeenCalledWith({where:{id:'biz_1',ownerId:'owner_1'}});
   });
 
+  it('projects canceled manual payments as terminal without changing stored payment records',async()=>{
+    const records=[
+      {id:'manual_cancelled',status:'awaiting_confirmation',createdAt:new Date('2026-11-25T00:00:00Z'),data:{provider:'external_payment_link',orderId:'order_cancelled',status:'awaiting_confirmation',amountCents:2600,currency:'USD'}},
+      {id:'manual_pending',status:'awaiting_confirmation',createdAt:new Date('2026-11-25T00:01:00Z'),data:{provider:'bank_transfer',orderId:'order_pending',status:'awaiting_confirmation',amountCents:2600,currency:'USD'}},
+    ];
+    const db:any={
+      business:{findFirst:jest.fn().mockResolvedValue({id:'biz_1',ownerId:'owner_1'})},
+      businessRecord:{findFirst:jest.fn().mockResolvedValue(null),findMany:jest.fn().mockResolvedValue(records)},
+      order:{findMany:jest.fn().mockResolvedValue([{id:'order_cancelled',status:'new',data:{fulfillmentStatus:'cancelled'}}])},
+    };
+    const result=await new MerchantPaymentSettingsController(db).list({user:{id:'owner_1'},get:()=> 'biz_1'} as any);
+    expect(db.order.findMany).toHaveBeenCalledWith({where:{businessId:'biz_1',id:{in:['order_cancelled','order_pending']}},select:{id:true,status:true,data:true}});
+    expect(result.transactions).toEqual(expect.arrayContaining([
+      expect.objectContaining({id:'manual_cancelled',status:'cancelled'}),
+      expect.objectContaining({id:'manual_pending',status:'awaiting_confirmation'}),
+    ]));
+    expect(records[0].data.status).toBe('awaiting_confirmation');
+  });
+
   it('does not expose Tap checkout until platform authorization and test-key verification are present',async()=>{
     const data={customerActionTokenHash:tokenHash,paymentStatus:'Pending'};
     const order={id:'order_1',businessId:'biz_1',amountCents:4000,currency:'AED',data};
