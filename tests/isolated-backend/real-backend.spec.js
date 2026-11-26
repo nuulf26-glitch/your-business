@@ -332,7 +332,8 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const providerStateBefore = await requestFromPage(page, "/payments/providers");
   expect(providerStateBefore.providers.find((provider) => provider.id === "cash_on_delivery")).toMatchObject({ enabled: true, status: "available" });
   expect(providerStateBefore.providers.find((provider) => provider.id === "tap")).toMatchObject({ enabled: false, status: "approval_required", liveEnabled: false });
-  for (const providerId of ["stripe", "paypal", "tap", "paytabs", "amazon_payment_services", "payd"]) {
+  expect(providerStateBefore.providers.find((provider) => provider.id === "stripe")).toMatchObject({ enabled: true, status: "not_connected", secretConfigured: false, connectionVerified: false, liveEnabled: false, methods: [] });
+  for (const providerId of ["paypal", "tap", "paytabs", "amazon_payment_services", "payd"]) {
     expect(providerStateBefore.providers.find((provider) => provider.id === providerId)?.enabled).toBe(false);
   }
   const manualOptions = {
