@@ -25,3 +25,5 @@ jobs:
         env:
           CONTEXT: production
           URL: https://getcyb.fit
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/check-seo-browser.mjs

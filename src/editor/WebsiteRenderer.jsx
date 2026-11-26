@@ -1,5 +1,3 @@
-import {customerPage} from '../seo/metadata';
-import {setDocumentSeo} from '../seo/document';
 import { productPrice } from "../services/productPolicy";
 import { useEffect, useRef, useState } from 'react';
 import { safeHref, websitePages, websiteNavigation } from './pages';
@@ -98,11 +96,6 @@ export default function WebsiteRenderer({ model, products = [], addToCart, baseU
   const pages = websitePages(model);
   const navigation = websiteNavigation(model);
   const page = pages.find(item => item.slug === slug);
-  useEffect(() => {
-    if (baseUrl && page && location.pathname.startsWith('/store/')) {
-      setDocumentSeo(customerPage(model,page,baseUrl + (page.slug ? '/' + encodeURIComponent(page.slug) : '')));
-    }
-  }, [baseUrl, page, model]);
   return <div ref={rootRef} className={`cyb-site cyb-device-${actualDevice} ${className}`.trim()} style={{ background: model.backgroundColor || '#f5f2ea', color: model.textColor || '#25231f', '--cyb-primary': model.primaryColor || '#18243a', '--cyb-button-radius': model.buttonRadius || '0', fontFamily: model.bodyFont || 'Arial, sans-serif', ...style }}>
     <header className="cyb-nav"><a href={baseUrl || '#'} className="cyb-logo" onClick={onPageChange ? event => { event.preventDefault(); onPageChange(pages[0]); } : undefined}>{model.logo ? <Image src={model.logo} alt={model.brandName} /> : model.brandName}</a><button className="cyb-menu-toggle" aria-label="Toggle navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>Menu {menuOpen ? '−' : '+'}</button><nav className={menuOpen ? 'open' : ''} aria-label="Website pages">{navigation.map(item => { const target = item.type === 'page' ? pages.find(candidate => candidate.id === item.pageId) : null; if (item.type === 'page' && !target) return null; const href = target ? `${baseUrl}${target.slug ? `/${target.slug}` : ''}` || '#' : safeHref(item.href); return <a key={item.id || `${item.type}:${item.pageId || item.href}`} href={href || '#'} target={item.type === 'external' ? '_blank' : undefined} rel={item.type === 'external' ? 'noopener noreferrer' : undefined} aria-current={target && page?.id === target.id ? 'page' : undefined} onClick={target && onPageChange ? event => { event.preventDefault(); onPageChange(target); setMenuOpen(false); } : undefined}>{item.label || target?.title}</a>; })}</nav>{addToCart && <a href="/cart" className="cyb-cart">Cart ↗</a>}</header>
     <main>{page ? page.sections.map(section => {

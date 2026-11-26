@@ -1,3 +1,6 @@
+import {customerPage} from './seo/metadata';
+import {setDocumentSeo} from './seo/document';
+import {websitePages} from './editor/pages';
 import { readCart, appendCart } from "./services/cartPolicy";
 import PickupWidget from "./business/PickupWidget";
 import { productPrice } from "./services/productPolicy";
@@ -114,6 +117,15 @@ function PublicStore() {
 
     return websiteSetup.storeUrl === storeUrl;
   }, [websiteSetup, storeUrl]);
+  useEffect(() => {
+    if (!storeMatches || loading || loadError || !editorData) return;
+    const page = websitePages(editorData).find(item => item.slug === pageSlug.replace(/\/+$/, ''));
+    if (page) {
+      const path = '/store/' + encodeURIComponent(storeUrl) + (page.slug ? '/' + encodeURIComponent(page.slug) : '');
+      setDocumentSeo(customerPage(editorData, page, path));
+    }
+  }, [storeMatches, loading, loadError, editorData, pageSlug, storeUrl]);
+
 function addToCart(product) {
   if (Array.isArray(product?.variants) && product.variants.length > 0) {
     openProduct(product.id);
@@ -175,7 +187,7 @@ function addToCart(product) {
       <><WebsiteRenderer
         model={{ ...editorData, editorVersion: 2 }}
         baseUrl={`/store/${storeUrl}`}
-        slug={pageSlug}
+        slug={pageSlug.replace(/\/+$/, '')}
         catalog={catalog}
         pickup={catalog ? <PickupWidget storeUrl={storeUrl} catalog={catalog} /> : null}
         booking={catalog ? <BookingWidget storeUrl={storeUrl} catalog={catalog} /> : null}
