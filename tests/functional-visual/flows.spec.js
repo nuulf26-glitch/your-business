@@ -429,3 +429,58 @@ test('analytics dashboard shows real report fields, saves a range, and stays res
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `Analytics overflow at ${viewport.width}px`).toBeTruthy();
   }
 });
+
+test("beginner draft dashboard, setup retry and keyboard publishing", async ({page}) => {
+  await seedProtectedUser(page);
+  await mockAppApi(page);
+  await page.goto("/dashboard");
+  await expect(page.getByRole("button", {name:"View live website"})).toHaveCount(0);
+  await page.getByRole("button",{name:"Continue editing draft"}).click();
+  await expect(page).toHaveURL(/\/editor$/);
+  await page.goto("/create-website");
+  await page.getByLabel("Business Name", {exact:true}).fill("Studio");
+  await page.getByLabel("Website Address").fill("studio");
+  await page.getByRole("button",{name:"Save and open editor"}).click();
+  const category = page.getByRole("group",{name:"What type of business do you run?"}).getByRole("button").first();
+  await expect(category).toBeFocused();
+  await category.press("Space");
+  await expect(category).toHaveAttribute("aria-pressed","true");
+  await page.route("**/api/v1/businesses/mine", route => route.request().method() === "PUT" ? route.fulfill({status:409,json:{message:"Conflict"}}) : route.fallback(), {times:1});
+  await page.getByRole("button",{name:"Save and open editor"}).click();
+  await expect(page.getByRole("alert")).toContainText("already in use");
+  await expect(page.getByLabel("Business Name",{exact:true})).toHaveValue("Studio");
+  await page.getByLabel("Website Address").fill("studio-new");
+  await page.getByLabel("Website Address").press("Enter");
+  await expect(page).toHaveURL(/\/editor$/);
+  await page.getByRole("button",{name:"Publish",exact:true}).click();
+  const dialog = page.getByRole("dialog",{name:"Your website is live."});
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+});
+
+test("beginner preview preserves the homepage prompt after generation fails", async ({page}) => {
+  await page.route("**/api/v1/try/session", route => route.fulfill({json:{generated:false}}));
+  await page.route("**/api/v1/try/generate", route => route.fulfill({status:503,json:{message:"Service unavailable."}}));
+  await page.goto("/");
+  await page.getByLabel("Describe your business").fill("A flower shop in Al Ain");
+  await page.getByRole("button",{name:"Build my free preview"}).click();
+  await expect(page.getByLabel("What are you building?")).toHaveValue("A flower shop in Al Ain");
+  await page.getByRole("button",{name:"Build my free preview"}).click();
+  await expect(page.getByRole("alert")).toContainText("Your description is still here");
+  await expect(page.getByLabel("What are you building?")).toHaveValue("A flower shop in Al Ain");
+});
+
+test("beginner journey screenshots", async ({page}, testInfo) => {
+  test.setTimeout(120_000);
+  await seedProtectedUser(page);
+  await mockAppApi(page);
+  for (const width of [390,768,1440]) {
+    await page.setViewportSize({width,height:900});
+    for (const [path,ready] of [["dashboard",".dashboard-header"],["create-website",".wizard-card"],["editor",".editor-page-picker"]]) {
+      await page.goto("/"+path);
+      await expect(page.locator(ready)).toBeVisible();
+      await page.screenshot({path:testInfo.outputPath(path+"-"+width+".png"),animations:"disabled"});
+    }
+  }
+});

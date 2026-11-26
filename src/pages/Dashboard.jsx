@@ -98,6 +98,7 @@ const [userProfile, setUserProfile] = useState(null);
   }
 
   const websiteSetup = store;
+  const liveWebsite = Boolean(websiteRecord?.published && websiteSetup?.storeUrl);
   const isStaging = window.location.hostname === "getcyb-staging-web.onrender.com";
   const editorData = websiteRecord?.draft || store?.draftEditorData || store?.editorData;
   const businessName = editorData?.brandName || store?.businessName || store?.storeName || 'Your Business';
@@ -175,8 +176,7 @@ const [userProfile, setUserProfile] = useState(null);
             <span>Business dashboard</span>
             <h1>Welcome back, {businessName}</h1>
             <p>
-              Manage your website, products, orders, and
-              customers from one place.
+              {liveWebsite ? "Manage your published website, orders, and customers." : editorData ? "Continue your private draft. Preview your changes in the editor, then publish when you’re ready." : websiteSetup?.storeUrl ? "Open the editor to customize your first page, save a draft, and preview your website." : "Start with your business details, then customize your first page in the editor."}
             </p>
           </div>
 
@@ -187,28 +187,12 @@ const [userProfile, setUserProfile] = useState(null);
               </button>
               {notificationsOpen && <div className="dashboard-notification-popover" role="status"><strong>You’re all caught up</strong><p>New account and store updates will appear here.</p></div>}
             </div>
-            <button
-              type="button"
-              className="dashboard-secondary-button"
-              onClick={() => navigate("/editor")}
-            >
-              Edit website
+            <button type="button" className={liveWebsite ? "dashboard-secondary-button" : "dashboard-primary-button"}
+              onClick={() => navigate(editorData || websiteSetup?.storeUrl ? "/editor" : "/create-website")}>
+              {liveWebsite ? "Edit website" : editorData ? "Continue editing draft" : "Create your website"}
             </button>
-
-            <button
-              type="button"
-              className="dashboard-primary-button"
-              onClick={() =>
-                navigate(
-                  websiteSetup?.storeUrl
-  ? `/store/${websiteSetup.storeUrl}`
-  : "/editor"
-  
-                )
-              }
-            >
-              View website
-            </button>
+            {liveWebsite && <button type="button" className="dashboard-primary-button"
+              onClick={() => navigate(`/store/${websiteSetup.storeUrl}`)}>View live website</button>}
           </div>
         </header>
 <section className="dashboard-payment-card">
@@ -315,7 +299,7 @@ const [userProfile, setUserProfile] = useState(null);
             <p>
               {lowStockProducts > 0
                 ? `${lowStockProducts} low in stock`
-                : "No low-stock products"}
+                : products.length ? "No low-stock products" : "Add your first product from Products"}
             </p>
           </article>
         </section>

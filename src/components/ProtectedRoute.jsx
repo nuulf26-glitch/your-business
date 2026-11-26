@@ -14,7 +14,7 @@ function ProtectedRoute({ children }) {
 
   if (checkingUser) {
     return (
-      <div
+      <div role="status"
         style={{
           minHeight: "100vh",
           display: "flex",
@@ -23,7 +23,7 @@ function ProtectedRoute({ children }) {
           fontSize: "18px",
         }}
       >
-        Loading...
+        Opening your workspace…
       </div>
     );
   }

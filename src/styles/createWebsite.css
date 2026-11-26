@@ -754,3 +754,10 @@
     flex: 1;
   }
 }
+.wizard-card :is(input, textarea, button):focus-visible {
+  outline: 3px solid #513d2e;
+  outline-offset: 2px;
+}
+.wizard-card .wizard-next-button:focus-visible {
+  box-shadow: 0 0 0 2px white;
+}

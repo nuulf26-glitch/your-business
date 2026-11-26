@@ -14,7 +14,7 @@ export default function Hero() {
       <p className="approved-home-hero__description">Describe your business, preview your website, and see what CYB can create before you pay.</p>
       <div className="approved-home-hero__form">
         <input aria-label="Describe your business" value={idea} onChange={event=>setIdea(event.target.value)} onKeyDown={event=>{if(event.key==='Enter')start();}} placeholder="e.g. A minimalist beige skincare store…"/>
-        <button type="button" onClick={start}>Build Your Website for Free <span aria-hidden="true">→</span></button>
+        <button type="button" onClick={start}>Build my free preview <span aria-hidden="true">→</span></button>
       </div>
       <p className="approved-home-hero__note">No account or payment required to preview. <button type="button" onClick={()=>navigate('/design-preview')}>Explore sample designs</button></p>
     </div>
