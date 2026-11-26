@@ -96,19 +96,6 @@ export default function WebsiteRenderer({ model, products = [], addToCart, baseU
   const pages = websitePages(model);
   const navigation = websiteNavigation(model);
   const page = pages.find(item => item.slug === slug);
-  useEffect(() => {
-    const previousTitle = document.title;
-    document.title = page?.seoTitle || `${page?.title || 'Page'} — ${model.brandName}`;
-    const fields = [['name','description',page?.description || model.description || ''],['property','og:title',page?.seoTitle || `${page?.title || 'Page'} — ${model.brandName}`],['property','og:description',page?.description || model.description || ''],['property','og:image',page?.socialImage || '']];
-    const previous = fields.map(([attribute,value,content]) => {
-      let node = document.querySelector(`meta[${attribute}="${value}"]`);
-      const created = !node;
-      if (!node) { node = document.createElement('meta'); node.setAttribute(attribute,value); document.head.append(node); }
-      const old = node.content; node.content = content;
-      return { node, created, old };
-    });
-    return () => { document.title = previousTitle; previous.forEach(({node,created,old}) => { if(created) node.remove(); else node.content=old; }); };
-  }, [page?.seoTitle, page?.title, page?.description, page?.socialImage, model.brandName, model.description]);
   return <div ref={rootRef} className={`cyb-site cyb-device-${actualDevice} ${className}`.trim()} style={{ background: model.backgroundColor || '#f5f2ea', color: model.textColor || '#25231f', '--cyb-primary': model.primaryColor || '#18243a', '--cyb-button-radius': model.buttonRadius || '0', fontFamily: model.bodyFont || 'Arial, sans-serif', ...style }}>
     <header className="cyb-nav"><a href={baseUrl || '#'} className="cyb-logo" onClick={onPageChange ? event => { event.preventDefault(); onPageChange(pages[0]); } : undefined}>{model.logo ? <Image src={model.logo} alt={model.brandName} /> : model.brandName}</a><button className="cyb-menu-toggle" aria-label="Toggle navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>Menu {menuOpen ? '−' : '+'}</button><nav className={menuOpen ? 'open' : ''} aria-label="Website pages">{navigation.map(item => { const target = item.type === 'page' ? pages.find(candidate => candidate.id === item.pageId) : null; if (item.type === 'page' && !target) return null; const href = target ? `${baseUrl}${target.slug ? `/${target.slug}` : ''}` || '#' : safeHref(item.href); return <a key={item.id || `${item.type}:${item.pageId || item.href}`} href={href || '#'} target={item.type === 'external' ? '_blank' : undefined} rel={item.type === 'external' ? 'noopener noreferrer' : undefined} aria-current={target && page?.id === target.id ? 'page' : undefined} onClick={target && onPageChange ? event => { event.preventDefault(); onPageChange(target); setMenuOpen(false); } : undefined}>{item.label || target?.title}</a>; })}</nav>{addToCart && <a href="/cart" className="cyb-cart">Cart ↗</a>}</header>
     <main>{page ? page.sections.map(section => {

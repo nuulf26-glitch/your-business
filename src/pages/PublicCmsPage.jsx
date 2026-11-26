@@ -1,3 +1,5 @@
+import {origin} from '../seo/metadata';
+import {setDocumentSeo} from '../seo/document';
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { getPublicCmsCollection } from '../services/cmsService';
@@ -23,6 +25,12 @@ export default function PublicCmsPage() {
   const current = state.key === key;
   const selected = result?.entries?.find(entry => entry.slug === entrySlug);
   const base = `/store/${encodeURIComponent(storeUrl)}/content/${encodeURIComponent(collectionSlug)}`;
+  useEffect(() => {
+    if (current && result && !state.error && (!entrySlug || selected) && path.split('/').filter(Boolean).length <= 1) {
+      setDocumentSeo({title:selected?.title || result.collection.name, description:selected?.content?.summary || result.collection.description,
+        url:origin + base + (entrySlug ? '/' + encodeURIComponent(entrySlug) : ''), type:selected ? 'Article' : 'CollectionPage'});
+    }
+  }, [current,result,state.error,entrySlug,selected,path,base]);
   if (!current || state.loading) return <main className="public-cms-state" role="status">Loading content…</main>;
   if (state.error || !result) return <main className="public-cms-state"><h1>Content unavailable</h1><p>{state.error || 'This published collection could not be found.'}</p><Link to={`/store/${encodeURIComponent(storeUrl)}`}>Return to website</Link></main>;
 

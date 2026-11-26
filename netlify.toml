@@ -19,5 +19,8 @@
 
 [[redirects]]
   from = "/*"
-  to = "/index.html"
+  to = "/app-shell.html"
   status = 200
+
+[functions."store-seo"]
+  included_files = ["dist/app-shell.html"]

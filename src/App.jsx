@@ -1,9 +1,9 @@
 const DesignPreview = lazy(() => import("./pages/DesignPreview"));
 const TryWebsite = lazy(() => import("./pages/TryWebsite"));
 import AppErrorBoundary from "./components/AppErrorBoundary";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useLayoutEffect } from "react";
 const BusinessWorkspace = lazy(() => import("./business/BusinessWorkspace"));
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 const PlatformPayment = lazy(() => import("./pages/PlatformPayment"));
 const LandingPage = lazy(() => import("./landing/LandingPage"));
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -41,7 +41,11 @@ const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const StagingMailDiagnostics = lazy(() => import("./pages/StagingMailDiagnostics"));
 const VerifyEmail = lazy(() => import("./pages/VerifyEmail"));
 const ResetCustomPassword = lazy(() => import("./pages/ResetCustomPassword"));
+import {platform} from './seo/metadata';
+import {setDocumentSeo} from './seo/document';
 function App() {
+  const {pathname} = useLocation();
+  useLayoutEffect(() => { setDocumentSeo(platform(pathname)); }, [pathname]);
   return (
     <AppErrorBoundary><Suspense fallback={<main role="status" style={{ padding: 40 }}>Loading CYB…</main>}>
     <Routes>
