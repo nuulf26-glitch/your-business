@@ -466,3 +466,4 @@
   }
 }
 .payment-option:disabled{opacity:.62;cursor:not-allowed;background:#f5f3ef}
+.stripe-payment-element{margin:18px 0;padding:20px;border:1px solid #e4dfd7;border-radius:12px;background:#fff}.stripe-payment-element small{display:block;margin-top:12px;color:#766e64;line-height:1.45}

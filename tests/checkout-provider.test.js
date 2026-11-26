@@ -40,3 +40,29 @@ test("store checkout presents cash on delivery without unavailable payment provi
   assert.match(paymentPage, /payment\/manual/);
   assert.match(settingsPage, /manual-options/);
 });
+
+test("Stripe merchant checkout is test-only, direct-account, and mounts Stripe Payment Element", async () => {
+  const [paymentPage, settingsPage, payments, routes] = await Promise.all([
+    read("../src/pages/Payment.jsx"),
+    read("../src/pages/Settings.jsx"),
+    read("../backend/src/merchant-payments.ts"),
+    read("../backend/src/routes.ts"),
+  ]);
+  assert.doesNotMatch(payments, /STRIPE_BYOG_TEST_APPROVED/);
+  assert.match(payments, /Only UAE Stripe sandbox credentials are accepted/);
+  assert.match(payments, /rk_test_/);
+  assert.match(payments, /pk_test_/);
+  assert.match(payments, /payment_method_types\[0\]/);
+  assert.match(payments, /payment_intents/);
+  assert.match(payments, /stripeByogWebhookValid/);
+  assert.match(payments, /merchantPaymentLock/);
+  assert.match(paymentPage, /https:\/\/js\.stripe\.com\/v3\//);
+  assert.match(paymentPage, /paymentElement\.mount/);
+  assert.match(paymentPage, /elements\.create\("expressCheckout"/);
+  assert.match(paymentPage, /applePay: "auto", googlePay: "auto"/);
+  assert.match(paymentPage, /confirmPayment\(/);
+  assert.match(settingsPage, /Visa and Mastercard/);
+  assert.match(settingsPage, /Apple Pay or Google Pay/);
+  assert.match(settingsPage, /Connect restricted test account/);
+  assert.match(routes, /cancelPayment\(secret/);
+});

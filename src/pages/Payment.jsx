@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/payment.css";
 import { customBackendRequest } from "../services/customBackendSession";
@@ -6,6 +6,20 @@ import { customBackendRequest } from "../services/customBackendSession";
 function readPendingOrder() {
   try { const savedOrder = localStorage.getItem("pendingOrder"); return savedOrder ? JSON.parse(savedOrder) : null; }
   catch (error) { console.error("Could not load pending order:", error); return null; }
+}
+
+function loadStripeJs() {
+  if (window.Stripe) return Promise.resolve(window.Stripe);
+  if (window.__cybStripeJsPromise) return window.__cybStripeJsPromise;
+  window.__cybStripeJsPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://js.stripe.com/v3/";
+    script.async = true;
+    script.onload = () => window.Stripe ? resolve(window.Stripe) : reject(new Error("Stripe.js could not be initialized."));
+    script.onerror = () => reject(new Error("Stripe.js could not be loaded."));
+    document.head.appendChild(script);
+  });
+  return window.__cybStripeJsPromise;
 }
 
 function Payment() {
@@ -17,7 +31,17 @@ function Payment() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [manualPayment, setManualPayment] = useState(null);
-  const returnMismatch = Boolean(new URLSearchParams(window.location.search).get("tap_order") && new URLSearchParams(window.location.search).get("tap_order") !== order?.backendId);
+  const [stripePayment, setStripePayment] = useState(null);
+  const [availableWallets, setAvailableWallets] = useState(null);
+  const expressMountRef = useRef(null);
+  const expressElementRef = useRef(null);
+  const stripeMountRef = useRef(null);
+  const stripeRef = useRef(null);
+  const stripeElementsRef = useRef(null);
+  const stripeElementRef = useRef(null);
+  const returnParams = new URLSearchParams(window.location.search);
+  const returnOrder = returnParams.get("tap_order") || returnParams.get("stripe_order");
+  const returnMismatch = Boolean(returnOrder && returnOrder !== order?.backendId);
 
   useEffect(() => {
     let active = true;
@@ -41,8 +65,52 @@ function Payment() {
         })
         .catch((paymentError) => { if (active) setError(paymentError.message || "Tap could not verify the payment yet."); });
     }
+    const stripeIntentId = params.get("payment_intent");
+    if (params.get("stripe_order") && stripeIntentId && order?.backendId && order?.cashOnDeliveryToken) {
+      customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/payment/stripe/verify`, { method: "POST", body: JSON.stringify({ token: order.cashOnDeliveryToken, chargeId: stripeIntentId }) })
+        .then((result) => {
+          if (!active) return;
+          if (!result.verified) { setError("Stripe has not confirmed this payment yet. The order remains unpaid; you can retry by returning to checkout."); return; }
+          const completedOrder = { ...order, paymentMethod: "stripe", paymentStatus: "Paid", status: "New", completedAt: new Date().toISOString() };
+          localStorage.setItem("completedOrder", JSON.stringify(completedOrder));
+          localStorage.removeItem("pendingOrder"); localStorage.removeItem("businessCart");
+          navigate("/order-success", { replace: true });
+        })
+        .catch((paymentError) => { if (active) setError(paymentError.message || "Stripe could not verify the payment yet."); });
+    }
     return () => { active = false; };
   }, [order, navigate, returnMismatch]);
+
+  useEffect(() => {
+    if (!stripePayment || !stripeMountRef.current) return undefined;
+    let active = true;
+    loadStripeJs().then((Stripe) => {
+      if (!active || !stripeMountRef.current) return;
+      const stripe = Stripe(stripePayment.publishableKey);
+      const elements = stripe.elements({ clientSecret: stripePayment.clientSecret, appearance: { theme: "stripe" } });
+      const expressElement = elements.create("expressCheckout", { paymentMethods: { applePay: "auto", googlePay: "auto", link: "never", paypal: "never" } });
+      expressElement.on("ready", (event) => { if (active) setAvailableWallets(event.availablePaymentMethods || null); });
+      expressElement.on("confirm", async (event) => {
+        try {
+          const submitted = await elements.submit();
+          if (submitted.error) { event.paymentFailed({ reason: "fail" }); setError(submitted.error.message || "Wallet payment details could not be submitted."); return; }
+          const confirmed = await stripe.confirmPayment({ elements, confirmParams: { return_url: `${window.location.origin}/payment?stripe_order=${encodeURIComponent(order.backendId)}` }, redirect: "if_required" });
+          if (confirmed.error) { event.paymentFailed({ reason: "fail" }); setError(confirmed.error.message || "The wallet payment could not be confirmed."); return; }
+          const paymentIntentId = confirmed.paymentIntent?.id;
+          if (confirmed.paymentIntent?.status !== "succeeded" || !paymentIntentId) return;
+          const result = await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/payment/stripe/verify`, { method: "POST", body: JSON.stringify({ token: order.cashOnDeliveryToken, chargeId: paymentIntentId }) });
+          if (!result.verified) { setError("Stripe has not verified this payment yet. The order remains unpaid."); return; }
+          localStorage.setItem("completedOrder", JSON.stringify({ ...order, paymentMethod: "stripe", paymentStatus: "Paid", status: "New", completedAt: new Date().toISOString() }));
+          localStorage.removeItem("pendingOrder"); localStorage.removeItem("businessCart"); navigate("/order-success", { replace: true });
+        } catch (paymentError) { event.paymentFailed({ reason: "fail" }); setError(paymentError.message || "Wallet payment could not be completed."); }
+      });
+      expressElement.mount(expressMountRef.current);
+      const paymentElement = elements.create("payment", { layout: "accordion" });
+      paymentElement.mount(stripeMountRef.current);
+      stripeRef.current = stripe; stripeElementsRef.current = elements; stripeElementRef.current = paymentElement; expressElementRef.current = expressElement;
+    }).catch((error) => { if (active) setError(error.message || "Stripe secure payment form could not be loaded."); });
+    return () => { active = false; stripeElementRef.current?.destroy?.(); expressElementRef.current?.destroy?.(); stripeElementRef.current = null; expressElementRef.current = null; stripeElementsRef.current = null; stripeRef.current = null; };
+  }, [stripePayment, order, navigate]);
 
   const itemCount = useMemo(() => {
     if (!Array.isArray(order?.items)) {
@@ -101,6 +169,27 @@ if (order.backendId) {
         const result = await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/payment/tap`, { method: "POST", body: JSON.stringify({ token: order.cashOnDeliveryToken, idempotencyKey }) });
         if (!result?.url || !result.url.startsWith("https://")) throw new Error("Tap did not provide a secure hosted checkout link.");
         window.location.assign(result.url);
+        return;
+      }
+      if (paymentMethod === "stripe") {
+        if (!stripePayment) {
+          let idempotencyKey = localStorage.getItem(`cyb_stripe_checkout:${order.backendId}`);
+          if (!idempotencyKey) { idempotencyKey = crypto.randomUUID().replaceAll("-", ""); localStorage.setItem(`cyb_stripe_checkout:${order.backendId}`, idempotencyKey); }
+          const result = await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/payment/stripe`, { method: "POST", body: JSON.stringify({ token: order.cashOnDeliveryToken, idempotencyKey }) });
+          if (!result?.clientSecret || !result?.publishableKey?.startsWith("pk_test_")) throw new Error("Stripe did not provide a valid sandbox payment form.");
+          setStripePayment(result);
+          return;
+        }
+        if (!stripeRef.current || !stripeElementsRef.current) throw new Error("Stripe secure payment form is still loading.");
+        const confirmed = await stripeRef.current.confirmPayment({ elements: stripeElementsRef.current, confirmParams: { return_url: `${window.location.origin}/payment?stripe_order=${encodeURIComponent(order.backendId)}` }, redirect: "if_required" });
+        if (confirmed.error) throw new Error(confirmed.error.message || "Stripe could not confirm this payment.");
+        const paymentIntentId = confirmed.paymentIntent?.id;
+        if (confirmed.paymentIntent?.status === "succeeded" && paymentIntentId) {
+          const result = await customBackendRequest(`/public/orders/${encodeURIComponent(order.backendId)}/payment/stripe/verify`, { method: "POST", body: JSON.stringify({ token: order.cashOnDeliveryToken, chargeId: paymentIntentId }) });
+          if (!result.verified) throw new Error("Stripe has not verified this payment yet. The order remains unpaid.");
+          localStorage.setItem("completedOrder", JSON.stringify({ ...order, paymentMethod: "stripe", paymentStatus: "Paid", status: "New", completedAt: new Date().toISOString() }));
+          localStorage.removeItem("pendingOrder"); localStorage.removeItem("businessCart"); navigate("/order-success", { replace: true });
+        }
         return;
       }
       if (paymentMethod === "bank_transfer" || paymentMethod === "external_payment_link") {
@@ -178,11 +267,13 @@ if (order.backendId) {
 
             <div className="payment-options">
               {methods.map((method) => <button type="button" className={`payment-option ${paymentMethod === method.id ? "selected" : ""}`} key={method.id} onClick={() => setPaymentMethod(method.id)}>
-                <span className="payment-option-icon">{method.id === "tap" ? "T" : "C"}</span>
-                <span><strong>{method.label}</strong><small>{method.id === "tap" ? "Secure hosted checkout · Test mode" : method.id === "bank_transfer" ? "Transfer directly to the merchant" : method.id === "external_payment_link" ? "Pay through the merchant’s external link" : "Pay when your order arrives."}</small></span>
+                <span className="payment-option-icon">{method.id === "tap" ? "T" : method.id === "stripe" ? "S" : "C"}</span>
+                <span><strong>{method.label}</strong><small>{["tap", "stripe"].includes(method.id) ? "Secure hosted checkout · Test mode" : method.id === "bank_transfer" ? "Transfer directly to the merchant" : method.id === "external_payment_link" ? "Pay through the merchant’s external link" : "Pay when your order arrives."}</small></span>
                 <span className="payment-radio">{paymentMethod === method.id ? "✓" : ""}</span>
               </button>)}
             </div>
+
+            {paymentMethod === "stripe" && stripePayment && <div className="stripe-payment-element"><div ref={expressMountRef} aria-label="Available wallet payment methods" style={{ display: availableWallets && Object.values(availableWallets).some(Boolean) ? "block" : "none" }} /><div ref={stripeMountRef} /><small>Secure Stripe test payment. Card, Apple Pay, and Google Pay options appear only when Stripe confirms they are enabled and available for this account and device.</small></div>}
 
             {manualPayment && <div className="payment-manual-instructions" role="status">
               <h3>Payment is awaiting merchant confirmation</h3>
@@ -203,7 +294,7 @@ if (order.backendId) {
               onClick={handlePayment}
               disabled={loading}
             >
-              {loading ? "Processing..." : paymentMethod === "tap" ? "Continue to Tap checkout" : paymentMethod === "bank_transfer" ? "Show bank transfer details" : paymentMethod === "external_payment_link" ? "Continue to payment link" : "Confirm cash on delivery"}
+              {loading ? "Processing..." : paymentMethod === "tap" ? "Continue to Tap checkout" : paymentMethod === "stripe" ? stripePayment ? "Pay securely with Stripe" : "Load secure Stripe payment form" : paymentMethod === "bank_transfer" ? "Show bank transfer details" : paymentMethod === "external_payment_link" ? "Continue to payment link" : "Confirm cash on delivery"}
             </button>
           </section>
 

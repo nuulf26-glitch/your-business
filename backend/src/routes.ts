@@ -19,6 +19,7 @@ import { calculateStoreOrderTotals, validateStoreCommerceSettings } from './stor
 import { hasStagingTestPublishingEntitlement } from './staging-test-entitlement';
 import { findPublishedContactForm, validatePublishedFormAnswers } from './form-policy';
 import { orderPaymentStatus } from './order-payment-status';
+import { decryptMerchantPaymentSecret, StripeGatewayAdapter } from './merchant-payments';
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 function stagingDiagnosticsEnabled(){
@@ -556,6 +557,7 @@ export class CustomerController {
 @Controller('orders')
 @UseGuards(SessionGuard)
 export class OrderController {
+  private stripeGateway=new StripeGatewayAdapter();
   constructor(private db:DbService){}
   private async business(req:Request & {user:any}){const business=await selectedBusiness(this.db,req);if(!business)throw new NotFoundException('Business not found');return business;}
   @Get() async list(@Req() req:Request & {user:any}) {
@@ -673,6 +675,19 @@ export class OrderController {
     const valid=['new','processing','packed','shipped','delivered','cancelled','returned'];
     if(!valid.includes(status))throw new BadRequestException('Invalid fulfillment status');
     const business=await this.business(req);
+    if(status==='cancelled'){
+      const attempt=await this.db.businessRecord.findFirst({where:{businessId:business.id,type:'merchantPayment',data:{path:['orderId'],equals:id}}}),attemptData=attempt?.data as any;
+      if(attempt&&attemptData?.provider==='stripe'&&attemptData?.stripePaymentIntentId&&!['failed','FAILED','canceled','CANCELED','cancelled','succeeded','SUCCEEDED'].includes(String(attempt.status||''))){
+        const credential=await this.db.businessRecord.findFirst({where:{legacyFirebasePath:`payment-provider:${business.id}:stripe`,businessId:business.id,type:'merchantPaymentProvider',status:{in:['connected','disconnected']}}}),encrypted=credential?.data as any;
+        if(!encrypted||encrypted.provider!=='stripe'||encrypted.mode!=='test')throw new ConflictException('Stripe test credentials are unavailable to cancel the pending payment.');
+        let secret='';try{secret=String(JSON.parse(decryptMerchantPaymentSecret(encrypted)).restrictedTestKey||'');}catch{throw new ConflictException('Stripe test credentials could not be decrypted to cancel the pending payment.');}
+        const currentIntent=await this.stripeGateway.retrievePayment(secret,String(attemptData.stripePaymentIntentId));
+        if(currentIntent.status==='succeeded')throw new ConflictException('This Stripe payment has already succeeded. Refund it before cancelling the order.');
+        if(!['canceled','requires_payment_method','requires_confirmation','requires_action','requires_capture'].includes(String(currentIntent.status)))throw new ConflictException('Stripe is still processing this payment. Wait for its final status before cancelling the order.');
+        if(currentIntent.status!=='canceled')await this.stripeGateway.cancelPayment(secret,String(attemptData.stripePaymentIntentId),`cyb-cancel-${createHash('sha256').update(`${business.id}:${id}`).digest('hex').slice(0,40)}`);
+        await this.db.businessRecord.update({where:{id:attempt.id},data:{status:'CANCELED',data:{...attemptData,status:'canceled',cancelledAt:new Date().toISOString()}}});
+      }
+    }
     const trackingNumber=input.trackingNumber===undefined?undefined:String(input.trackingNumber||'').trim();
     const carrier=input.carrier===undefined?undefined:String(input.carrier||'').trim();
     let trackingUrl=input.trackingUrl===undefined?undefined:String(input.trackingUrl||'').trim();
