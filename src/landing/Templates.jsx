@@ -242,7 +242,7 @@ function Templates() {
 
                 <img
 
-                  src={template.image}
+                  loading="lazy" decoding="async" src={template.image}
 
                   alt={template.title}
 
