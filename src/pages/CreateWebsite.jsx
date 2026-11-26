@@ -15,7 +15,11 @@ function CreateWebsite() {
   const [storeUrl, setStoreUrl] = useState("");
   const [error, setError] = useState("");
 
-  async function handleFinish() {
+  const [saving, setSaving] = useState(false);
+
+  async function handleFinish(event) {
+    event.preventDefault();
+    if (saving) return;
     setError("");
 
     if (!businessName.trim()) {
@@ -23,7 +27,8 @@ function CreateWebsite() {
       return;
     }
     if (!businessGoal) {
-      setError("Please select your business goal.");
+      setError("Choose a business type to continue.");
+      document.querySelector(".template-choice-card")?.focus();
       return;
     }
     if (!storeUrl.trim()) {
@@ -43,9 +48,16 @@ function CreateWebsite() {
         .replace(/\s+/g, "-"),
     };
 
-localStorage.setItem("websiteSetup", JSON.stringify(websiteData));
-
-try { await saveStore(websiteData); navigate("/dashboard"); } catch { setError("Could not save your website. Please try again."); }
+    setSaving(true);
+    try {
+      const store = await saveStore(websiteData);
+      try { localStorage.setItem("websiteSetup", JSON.stringify(store || websiteData)); } catch { /* The server saved the setup. */ }
+      navigate("/editor");
+    } catch (error) {
+      setError(error.status === 409 ? "That website address is already in use. Choose another address and try again." : "We couldn’t save your setup. Your details are still here. Try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -59,20 +71,20 @@ try { await saveStore(websiteData); navigate("/dashboard"); } catch { setError("
           <div className="wizard-sidebar-content">
             <span className="wizard-eyebrow">Website Setup</span>
             <h1>Create your business website</h1>
-            <p>Complete these details to prepare your online presence in one single step.</p>
+            <p>Choose a name and address. Next, you’ll edit your first page before publishing.</p>
           </div>
           <p className="wizard-sidebar-footer">You can customize everything inside the editor later.</p>
         </aside>
 
         <main className="wizard-main">
-          <div className="wizard-card">
+          <form className="wizard-card" onSubmit={handleFinish} aria-busy={saving}>
             <div className="wizard-step-content">
               
               {/* 1. Business Name */}
               <div className="wizard-field">
                 <label htmlFor="businessName">Business Name</label>
                 <input
-                  id="businessName"
+                  id="businessName" required autoComplete="organization"
                   type="text"
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
@@ -82,7 +94,7 @@ try { await saveStore(websiteData); navigate("/dashboard"); } catch { setError("
 
               {/* 2. Business Description */}
               <div className="wizard-field" style={{ marginTop: "25px" }}>
-                <label htmlFor="businessDescription">Business Description</label>
+                <label htmlFor="businessDescription">Business description (optional)</label>
                 <textarea
                   id="businessDescription"
                   value={description}
@@ -94,12 +106,13 @@ try { await saveStore(websiteData); navigate("/dashboard"); } catch { setError("
 
               {/* 3. The 6 Original Generic Options */}
               <div className="wizard-field" style={{ marginTop: "30px" }}>
-                <label>What type of business do you run?</label>
-                <div className="template-choice-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "12px", marginTop: "10px" }}>
+                <span id="business-type-label">What type of business do you run?</span>
+                <div role="group" aria-labelledby="business-type-label" className="template-choice-grid" style={{ gap: "12px", marginTop: "10px" }}>
                   {businessGoals.map((item) => (
                     <button
                       type="button"
                       key={item.id}
+                      aria-pressed={businessGoal === item.id}
                       className={`template-choice-card ${businessGoal === item.id ? "selected" : ""}`}
                       onClick={() => setBusinessGoal(item.id)}
                       style={{ padding: "15px", textAlign: "left", display: "block", height: "auto" }}
@@ -117,7 +130,7 @@ try { await saveStore(websiteData); navigate("/dashboard"); } catch { setError("
                 <div className="wizard-url-field">
                   <span>store/</span>
                   <input
-                    id="storeUrl"
+                    id="storeUrl" required
                     type="text"
                     value={storeUrl}
                     onChange={(e) => setStoreUrl(e.target.value)}
@@ -128,15 +141,15 @@ try { await saveStore(websiteData); navigate("/dashboard"); } catch { setError("
 
             </div>
 
-            {error && <p className="wizard-error">{error}</p>}
+            {error && <p className="wizard-error" role="alert">{error}</p>}
 
             <div className="wizard-actions" style={{ marginTop: "30px", justifyContent: "flex-end" }}>
-              <button type="button" className="wizard-next-button" onClick={handleFinish}>
-                Create Website
+              <button type="submit" disabled={saving} className="wizard-next-button">
+                {saving ? "Saving setup…" : "Save and open editor"}
               </button>
             </div>
 
-          </div>
+          </form>
         </main>
 
       </div>

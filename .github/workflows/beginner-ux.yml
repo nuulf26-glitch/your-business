@@ -1,0 +1,39 @@
+name: Beginner journey verification
+on:
+  pull_request:
+    branches: [codex/v1-seo-readiness]
+permissions:
+  contents: read
+jobs:
+  journey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - run: npm run lint && npm run build && node --test --test-force-exit tests/*.test.*
+      - name: Capture baseline in the disposable checkout
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git restore --source="$BASE" -- src
+          npx playwright test --grep 'beginner journey screenshots' --output=artifacts/before
+          git restore --source=HEAD -- src
+      - name: Check the updated journey and responsive editor
+        run: npx playwright test --grep 'beginner|editor draft save and publish|editor page management' --output=artifacts/after
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: beginner-journey-comparison
+          path: |
+            artifacts/before/**/*.png
+            artifacts/after/**/*.png
+            artifacts/functional-visual/results.json
+          retention-days: 7

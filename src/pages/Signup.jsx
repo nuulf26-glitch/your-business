@@ -177,6 +177,7 @@ async function handleSignup(event) {
 
                 <button
                   type="button"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                   onClick={() => setShowPassword((current) => !current)}
                 >
                   {showPassword ? "Hide" : "Show"}
@@ -194,7 +195,7 @@ async function handleSignup(event) {
               </span>
             </label>
 
-            {error && <p className="auth-error">{error}</p>}
+            {error && <p className="auth-error" role="alert">{error}</p>}
 
             <GoogleSignInButton acceptedTerms={acceptedTerms} />
 
