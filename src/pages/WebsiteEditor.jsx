@@ -6,17 +6,19 @@ import WebsiteRenderer from "../editor/WebsiteRenderer";
 import { websitePages, websiteNavigation, setNavigationItem, addExternalNavigation, addPageNavigation, reorderNavigation, removeNavigation, changePageSections, addWebsitePage, pageSlug, reorderPage, duplicateWebsitePage, setHomepage, deleteWebsitePage, cloneSectionWithNewIds } from "../editor/pages";
 import { DESIGN_COLLECTIONS, collectionSections, collectionWebsite } from "../editor/collections";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { getStore } from "../services/storeService";
 import { getProducts, updateProduct } from "../services/productService";
 import { uploadProductImage } from "../services/imageService";
 import { isSupportedImageFile } from "../media/uploadPolicy.js";
-import AiDesigner from "../components/AiDesigner";
+
 import EditorProductForm from '../components/EditorProductForm';
 import MediaFields from '../media/MediaFields';
 import { mediaItems, primaryImage } from '../media/media';
 import "../styles/websiteEditor.css";
 import "../styles/editorControls.css";
+
+const AiDesigner = lazy(() => import("../components/AiDesigner"));
 
 const FONTS = [
   "Inter", "DM Sans", "Playfair Display",
@@ -724,7 +726,7 @@ export default function WebsiteEditor() {
     {collectionPreview && <div className="full-preview"><header><span>{collectionPreview.name} · Design Collection preview</span><div><button type="button" onClick={() => applyCollection(collectionPreview)}>Add sections to current page</button><button type="button" onClick={() => addCollectionPages(collectionPreview)}>Add all 4 pages</button><button type="button" onClick={() => setCollectionPreview(null)}>Close</button></div></header><WebsiteRenderer model={collectionWebsite(collectionPreview,createSection)} /></div>}
     {showPublish && <div className="editor-modal-backdrop" role="presentation"><section className="editor-modal publish-modal" role="dialog" aria-modal="true"><p className="modal-kicker">Published</p><h2>Your website is live.</h2><p>Your last design is now saved to your GetCyb store and will be shown on your public website.</p>{publishUrl ? <a href={publishUrl} target="_blank" rel="noreferrer">Open your website ↗</a> : <div className="publish-missing-url">Finish Store Setup to choose your public website address.</div>}<button className="topbar-action" type="button" onClick={() => setShowPublish(false)}>Done</button></section></div>}
     {productForm && <div className="editor-modal-backdrop"><section className="editor-modal" role="dialog" aria-modal="true" aria-label="Product details"><EditorProductForm product={productForm.product} onCancel={()=>setProductForm(null)} onSaved={(product,list)=>{setProducts(list);if(productForm.insert==='add')addProduct(product);else if(productForm.insert==='replace'&&selected)updateSection({productId:product.id,title:product.name,body:product.description,image:product.imageUrl,media:mediaItems(product),price:product.sellingPrice});setProductForm(null);showToast('Product saved to Products');}}/></section></div>}
-    {showAiDesigner && <AiDesigner model={model} products={products} onApply={next => { commit(migrateLegacyEditor(next), { message: "AI changes added to your editor" }); setActivePageId(websitePages(next)[0]?.id || "home"); setSelectedId(websitePages(next)[0]?.sections?.[0]?.id || null); }} onClose={() => setShowAiDesigner(false)} />}
+    {showAiDesigner && <Suspense fallback={<span role="status">Loading AI designer…</span>}><AiDesigner model={model} products={products} onApply={next => { commit(migrateLegacyEditor(next), { message: "AI changes added to your editor" }); setActivePageId(websitePages(next)[0]?.id || "home"); setSelectedId(websitePages(next)[0]?.sections?.[0]?.id || null); }} onClose={() => setShowAiDesigner(false)} /></Suspense>}
     {toast && <div className="editor-toast" role="status">{toast}</div>}
   </div>;
 }

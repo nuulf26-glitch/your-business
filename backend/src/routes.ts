@@ -364,8 +364,8 @@ export class BusinessController {
     if(!business)return {revenue:0,netRevenue:0,grossCollected:0,orders:0,averageOrderValue:0,refunds:0,unpaidCodOrders:0,conversionRate:null,uniqueVisits:0,days:[],bestSellers:[],inventoryAlerts:[]};
     const [orders,products,views]=await Promise.all([
       this.db.order.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:3000}),
-      this.db.product.findMany({where:{businessId:business.id},take:3000}),
-      this.db.businessRecord.findMany({where:{businessId:business.id,type:'pageViews'},orderBy:{createdAt:'desc'},take:5000}),
+      this.db.product.findMany({where:{businessId:business.id},take:3000,select:{id:true,name:true,data:true}}),
+      this.db.businessRecord.findMany({where:{businessId:business.id,type:'pageViews'},orderBy:{createdAt:'desc'},take:5000,select:{id:true,data:true}}),
     ]);
     const paid=orders.filter(row=>String((row.data as any)?.paymentStatus||'').toLowerCase()==='paid');
     const grossCollectedCents=orders.reduce((sum,row)=>sum+collectedAmountCents(row),0);
