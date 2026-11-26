@@ -18,6 +18,8 @@ import { productDataValidationError } from './product-policy';
 import { calculateStoreOrderTotals, validateStoreCommerceSettings } from './store-commerce-policy';
 import { hasStagingTestPublishingEntitlement } from './staging-test-entitlement';
 import { findPublishedContactForm, validatePublishedFormAnswers } from './form-policy';
+import { orderPaymentStatus } from './order-payment-status';
+import { decryptMerchantPaymentSecret, StripeGatewayAdapter } from './merchant-payments';
 
 const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 function stagingDiagnosticsEnabled(){
@@ -511,7 +513,7 @@ export class CustomerController {
     if(!customer)throw new NotFoundException('Customer not found');
     const email=String((customer.data as any)?.email||'').trim().toLowerCase();
     const orders=email?(await this.db.order.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:500})).filter(row=>String((row.data as any)?.email||'').trim().toLowerCase()===email):[];
-    return {id,...(customer.data as Record<string,unknown>),orders:orders.map(row=>({...publicOrderData(row.data),id:row.id,status:String((row.data as any)?.fulfillmentStatus||row.status),paymentStatus:(row.data as any)?.paymentStatus||'Pending',createdAt:row.createdAt}))};
+    return {id,...(customer.data as Record<string,unknown>),orders:orders.map(row=>{const data=publicOrderData(row.data),status=String((row.data as any)?.fulfillmentStatus||row.status);return {...data,id:row.id,status,paymentStatus:orderPaymentStatus(row.data as any,status),createdAt:row.createdAt};})};
   }
   @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput){
     const business=await this.business(req);
@@ -555,22 +557,24 @@ export class CustomerController {
 @Controller('orders')
 @UseGuards(SessionGuard)
 export class OrderController {
+  private stripeGateway=new StripeGatewayAdapter();
   constructor(private db:DbService){}
   private async business(req:Request & {user:any}){const business=await selectedBusiness(this.db,req);if(!business)throw new NotFoundException('Business not found');return business;}
   @Get() async list(@Req() req:Request & {user:any}) {
     const business=await this.business(req),rows=await this.db.order.findMany({where:{businessId:business.id},orderBy:{createdAt:'desc'},take:500});
     const search=String(req.query.search||'').trim().toLowerCase(),status=String(req.query.status||'').toLowerCase(),payment=String(req.query.paymentStatus||'').toLowerCase();
     return rows.filter(row=>{
-      const data=publicOrderData(row.data),fulfillment=String((row.data as any)?.fulfillmentStatus||row.status).toLowerCase(),paid=String((row.data as any)?.paymentStatus||'').toLowerCase();
+      const data=publicOrderData(row.data),fulfillment=String((row.data as any)?.fulfillmentStatus||row.status).toLowerCase(),paid=orderPaymentStatus(row.data as any,fulfillment).toLowerCase();
       const matchesSearch=!search||[row.id,data.customerName,data.email,data.phone,...(Array.isArray(data.items)?data.items.map((item:any)=>item.name):[])].some(value=>String(value||'').toLowerCase().includes(search));
       return matchesSearch&&(!status||fulfillment===status)&&(!payment||paid===payment);
-    }).map(row=>({...row,data:publicOrderData(row.data)}));
+    }).map(row=>{const data=publicOrderData(row.data);return {...row,data:{...data,paymentStatus:orderPaymentStatus(data,String(data.fulfillmentStatus||row.status))}};});
   }
   @Get(':id') async one(@Req() req:Request & {user:any}) {
     const business=await this.business(req),row=await this.db.order.findFirst({where:{id:String(req.params['id']),businessId:business.id}});
     if(!row)throw new NotFoundException('Order not found');
     const data=publicOrderData(row.data);
-    return {...data,id:row.id,status:String(data.fulfillmentStatus||row.status),paymentStatus:data.paymentStatus||'Pending',createdAt:row.createdAt};
+    const fulfillmentStatus=String(data.fulfillmentStatus||row.status);
+    return {...data,id:row.id,status:fulfillmentStatus,paymentStatus:orderPaymentStatus(data,fulfillmentStatus),createdAt:row.createdAt};
   }
   @Post() async create(@Req() req:Request & {user:any},@Body() dto:JsonInput) {
     const business=await this.business(req),data=dto.data as Record<string,any>,amount=Number(data.total??data.amount);
@@ -637,7 +641,12 @@ export class OrderController {
       const current=await tx.order.findFirst({where:{id,businessId:business.id}});
       if(!current)throw new NotFoundException('Order not found');
       const data={...(current.data as Record<string,any>)},prior=String(data.paymentStatus||'Pending').toLowerCase();
-      if(status==='paid'&&prior==='paid')return current;
+      if(status==='paid'&&(['cancelled','returned'].includes(String(data.fulfillmentStatus||'').toLowerCase())||['cancelled','returned'].includes(String(current.status||'').toLowerCase())))throw new ConflictException('A cancelled or returned order cannot be marked paid.');
+      if(data.gatewayProvider==='tap')throw new ConflictException('Tap payments can only be marked paid or refunded after Tap confirms the transaction. Use the provider refund action for refunds.');
+      if(status==='paid'&&prior==='paid'){
+        if(['bank_transfer','external_payment_link'].includes(String(data.manualPaymentProvider||''))&&tx.businessRecord?.updateMany){const now=new Date().toISOString();await tx.businessRecord.updateMany({where:{businessId:business.id,type:'merchantPayment',data:{path:['orderId'],equals:id}},data:{status:'confirmed',data:{provider:data.manualPaymentProvider,orderId:id,amountCents:data.collectedAmountCents??current.amountCents,currency:current.currency,reference:data.manualPaymentReference,status:'confirmed',confirmedAt:data.paidAt||now}}});}
+        return current;
+      }
       if(status==='refunded'&&prior==='refunded')return current;
       if(status==='paid'&&prior==='refunded')throw new ConflictException('A refunded order cannot be marked paid again without a new collection record.');
       if(status==='refunded'&&prior!=='paid')throw new BadRequestException('Only a collected payment can be refunded.');
@@ -655,6 +664,9 @@ export class OrderController {
       const updated=await tx.order.updateMany({where:{id,businessId:business.id,status:current.status,data:{equals:current.data as any}},data:{data:data as any}});
       if(updated.count!==1)throw new ConflictException('Order changed while the payment update was being saved. Reload and try again.');
       await this.refreshCustomerTotals(tx,business.id,String(data.email||'').trim().toLowerCase());
+      if(status==='paid'&&['bank_transfer','external_payment_link'].includes(String(data.manualPaymentProvider||''))&&tx.businessRecord?.updateMany){
+        await tx.businessRecord.updateMany({where:{businessId:business.id,type:'merchantPayment',data:{path:['orderId'],equals:id}},data:{status:'confirmed',data:{provider:data.manualPaymentProvider,orderId:id,amountCents:data.collectedAmountCents,currency:current.currency,reference:data.manualPaymentReference,status:'confirmed',confirmedAt:now}}});
+      }
       return tx.order.findUnique({where:{id}});
     });
   }
@@ -663,6 +675,19 @@ export class OrderController {
     const valid=['new','processing','packed','shipped','delivered','cancelled','returned'];
     if(!valid.includes(status))throw new BadRequestException('Invalid fulfillment status');
     const business=await this.business(req);
+    if(status==='cancelled'){
+      const attempt=await this.db.businessRecord.findFirst({where:{businessId:business.id,type:'merchantPayment',data:{path:['orderId'],equals:id}}}),attemptData=attempt?.data as any;
+      if(attempt&&attemptData?.provider==='stripe'&&attemptData?.stripePaymentIntentId&&!['failed','FAILED','canceled','CANCELED','cancelled','succeeded','SUCCEEDED'].includes(String(attempt.status||''))){
+        const credential=await this.db.businessRecord.findFirst({where:{legacyFirebasePath:`payment-provider:${business.id}:stripe`,businessId:business.id,type:'merchantPaymentProvider',status:{in:['connected','disconnected']}}}),encrypted=credential?.data as any;
+        if(!encrypted||encrypted.provider!=='stripe'||encrypted.mode!=='test')throw new ConflictException('Stripe test credentials are unavailable to cancel the pending payment.');
+        let secret='';try{secret=String(JSON.parse(decryptMerchantPaymentSecret(encrypted)).restrictedTestKey||'');}catch{throw new ConflictException('Stripe test credentials could not be decrypted to cancel the pending payment.');}
+        const currentIntent=await this.stripeGateway.retrievePayment(secret,String(attemptData.stripePaymentIntentId));
+        if(currentIntent.status==='succeeded')throw new ConflictException('This Stripe payment has already succeeded. Refund it before cancelling the order.');
+        if(!['canceled','requires_payment_method','requires_confirmation','requires_action','requires_capture'].includes(String(currentIntent.status)))throw new ConflictException('Stripe is still processing this payment. Wait for its final status before cancelling the order.');
+        if(currentIntent.status!=='canceled')await this.stripeGateway.cancelPayment(secret,String(attemptData.stripePaymentIntentId),`cyb-cancel-${createHash('sha256').update(`${business.id}:${id}`).digest('hex').slice(0,40)}`);
+        await this.db.businessRecord.update({where:{id:attempt.id},data:{status:'CANCELED',data:{...attemptData,status:'canceled',cancelledAt:new Date().toISOString()}}});
+      }
+    }
     const trackingNumber=input.trackingNumber===undefined?undefined:String(input.trackingNumber||'').trim();
     const carrier=input.carrier===undefined?undefined:String(input.carrier||'').trim();
     let trackingUrl=input.trackingUrl===undefined?undefined:String(input.trackingUrl||'').trim();
@@ -673,6 +698,11 @@ export class OrderController {
       const current=await tx.order.findFirst({where:{id,businessId:business.id}});
       if(!current)throw new NotFoundException('Order not found');
       const data={...(current.data as Record<string,any>)},prior=String(data.fulfillmentStatus||current.status||'new').toLowerCase();
+      if(['cancelled','returned'].includes(status)){
+        if(data.gatewayProvider==='tap'&&String(data.paymentStatus||'').toLowerCase()==='paid')throw new ConflictException('Refund the Tap payment before cancelling or returning this paid order.');
+        if(String(data.paymentStatus||'').toLowerCase()==='paid')throw new ConflictException('Refund the collected payment before cancelling or returning this paid order.');
+        if(!(data.gatewayProvider==='tap'&&String(data.paymentStatus||'').toLowerCase()==='refunded')&&tx.businessRecord?.findFirst){const attempt=await tx.businessRecord.findFirst({where:{businessId:business.id,type:'merchantPayment',data:{path:['orderId'],equals:id}}});const attemptData=attempt?.data as any;const isTapAttempt=attemptData?.provider==='tap'||!!attemptData?.tapChargeId;if(isTapAttempt&&!['failed','DECLINED','FAILED','CANCELLED','EXPIRED','REFUNDED'].includes(String(attempt?.status||'')))throw new ConflictException('A Tap payment is still in progress. Wait for Tap to confirm or fail it before cancelling this order.');if(status==='cancelled'&&attemptData?.provider==='stripe'&&['CANCELED','canceled','cancelled'].includes(String(attempt?.status||''))&&!['paid','refunded'].includes(String(data.paymentStatus||'').toLowerCase())){data.paymentMethod='stripe';data.gatewayProvider='stripe';data.paymentStatus='Cancelled';}}
+      }
       if(prior===status&&trackingNumber===undefined&&carrier===undefined&&trackingUrl===undefined)return current;
       const transitions:Record<string,string[]>={new:['processing','cancelled'],pending:['processing','cancelled'],processing:['packed','cancelled'],packed:['shipped','cancelled'],shipped:['delivered','returned'],delivered:['returned'],cancelled:[],returned:[]};
       if(prior!==status&&!(transitions[prior]||[]).includes(status))throw new ConflictException(`Cannot move fulfillment from ${prior} to ${status}.`);
@@ -680,6 +710,7 @@ export class OrderController {
       if(prior!==status){
         if(status==='cancelled'||status==='returned'){
           if(!data.inventoryRestoredAt){await this.restoreInventory(tx,business.id,data);data.inventoryRestoredAt=now;data.inventoryHistory=[...(Array.isArray(data.inventoryHistory)?data.inventoryHistory:[]),{type:'released',recordedAt:now,reason:status}];}
+          if(status==='cancelled'&&['bank_transfer','external_payment_link'].includes(String(data.manualPaymentProvider||''))&&String(data.paymentStatus||'').toLowerCase()==='awaiting manual confirmation')data.paymentStatus='Cancelled';
         }
         data.fulfillmentStatus=status;
         data.timeline=[...timeline,{type:'fulfillment',status,recordedAt:now}];
@@ -689,6 +720,13 @@ export class OrderController {
       if(trackingUrl!==undefined)data.trackingUrl=trackingUrl||null;
       const updated=await tx.order.updateMany({where:{id,businessId:business.id,status:current.status,data:{equals:current.data as any}},data:{status,data:data as any}});
       if(updated.count!==1)throw new ConflictException('Order changed while fulfillment was being updated. Reload and try again.');
+      if(status==='cancelled'&&['bank_transfer','external_payment_link'].includes(String(data.manualPaymentProvider||''))&&tx.businessRecord?.updateMany){
+        const manualPayment=await tx.businessRecord.findFirst?.({where:{businessId:business.id,type:'merchantPayment',data:{path:['orderId'],equals:id}}});
+        const paymentData=manualPayment?.data as any;
+        if(manualPayment?.status==='awaiting_confirmation'&&['bank_transfer','external_payment_link'].includes(String(paymentData?.provider||''))){
+          await tx.businessRecord.updateMany({where:{businessId:business.id,type:'merchantPayment',data:{path:['orderId'],equals:id}},data:{status:'cancelled',data:{...paymentData,status:'cancelled',cancelledAt:now}}});
+        }
+      }
       return tx.order.findUnique({where:{id}});
     });
   }
@@ -844,7 +882,8 @@ export class PublicOrderController {
     const storedHash=(row?.data as any)?.customerActionTokenHash;
     if(!row||typeof storedHash!=='string'||!/^[a-f0-9]{64}$/i.test(storedHash)||!token||!timingSafeEqual(Buffer.from(tokenHash(token),'hex'),Buffer.from(storedHash,'hex')))throw new NotFoundException('Order not found');
     const data=row.data as Record<string,any>;
-    return {id:row.id,status:data.fulfillmentStatus||row.status,fulfillmentStatus:data.fulfillmentStatus||row.status,paymentStatus:data.paymentStatus||'Pending',trackingNumber:data.trackingNumber||null,shippingCarrier:data.shippingCarrier||null,trackingUrl:data.trackingUrl||null,timeline:Array.isArray(data.timeline)?data.timeline:[],items:Array.isArray(data.items)?data.items.map((item:any)=>({name:item.name,quantity:item.quantity,variantName:item.variantName})):[],total:data.total,currency:data.currency,createdAt:row.createdAt};
+    const fulfillmentStatus=data.fulfillmentStatus||row.status;
+    return {id:row.id,status:fulfillmentStatus,fulfillmentStatus,paymentStatus:orderPaymentStatus(data,fulfillmentStatus),trackingNumber:data.trackingNumber||null,shippingCarrier:data.shippingCarrier||null,trackingUrl:data.trackingUrl||null,timeline:Array.isArray(data.timeline)?data.timeline:[],items:Array.isArray(data.items)?data.items.map((item:any)=>({name:item.name,quantity:item.quantity,variantName:item.variantName})):[],total:data.total,currency:data.currency,createdAt:row.createdAt};
   }
   @Post(':id/cash-on-delivery') async setCashOnDelivery(@Req() req:Request,@Body() dto:TokenInput){
     const id=String(req.params['id']),row=await this.db.order.findUnique({where:{id}}),storedHash=(row?.data as any)?.customerActionTokenHash;
@@ -852,6 +891,8 @@ export class PublicOrderController {
     const current=row.data as Record<string,any>,payment=String(current.paymentStatus||'Pending').toLowerCase();
     if(payment==='cash on delivery')return {ok:true};
     if(payment==='paid'||payment==='refunded')throw new NotFoundException('Order not found');
+    const paymentAttempt=await this.db.businessRecord?.findFirst?.({where:{businessId:row.businessId,type:'merchantPayment',data:{path:['orderId'],equals:id}}});
+    if(paymentAttempt&&!['failed','DECLINED','FAILED','CANCELLED','EXPIRED'].includes(String(paymentAttempt.status||'')))throw new ConflictException('A card payment is still in progress. Wait for Tap to confirm or fail it before selecting cash on delivery.');
     const now=new Date().toISOString(),timeline=Array.isArray(current.timeline)?current.timeline:[];
     const data={...current,fulfillmentStatus:current.fulfillmentStatus||'new',paymentMethod:'cash',paymentStatus:'Cash on delivery',completedAt:now,timeline:[...timeline,{type:'payment-method',status:'Cash on delivery',recordedAt:now}]};
     const result=await this.db.order.updateMany({where:{id,status:'new',data:{equals:row.data as any}},data:{data:data as any}});
