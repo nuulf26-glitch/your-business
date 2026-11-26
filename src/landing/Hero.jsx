@@ -10,7 +10,7 @@ export default function Hero() {
   return <section className="approved-home-hero">
     <div className="approved-home-hero__inner">
       <div className="approved-home-hero__badge"><span aria-hidden="true"/>Try CYB before you buy</div>
-      <h1 className="approved-home-hero__title">Build your website<span>before you pay.</span></h1>
+      <h1 className="approved-home-hero__title">Build your website <span>before you pay.</span></h1>
       <p className="approved-home-hero__description">Describe your business, preview your website, and see what CYB can create before you pay.</p>
       <div className="approved-home-hero__form">
         <input aria-label="Describe your business" value={idea} onChange={event=>setIdea(event.target.value)} onKeyDown={event=>{if(event.key==='Enter')start();}} placeholder="e.g. A minimalist beige skincare store…"/>
