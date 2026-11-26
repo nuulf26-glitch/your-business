@@ -1,4 +1,5 @@
 import { OrderController, ProductController, PublicProductController } from '../src/routes';
+import { encryptMerchantPaymentSecret } from '../src/merchant-payments';
 
 describe('OrderController inventory release', () => {
   function fixture(options: { variants?: any[]; stock?: number; line?: any; paymentAttempt?: any } = {}) {
@@ -46,6 +47,7 @@ describe('OrderController inventory release', () => {
         findFirst: jest.fn().mockResolvedValue({ id: 'business_1', ownerId: 'merchant_1' }),
         findUnique: jest.fn().mockResolvedValue({ id: 'business_1', slug: 'test-shop', settings: {}, website: { published: {} } }),
       },
+      businessRecord: { findFirst: jest.fn(async () => options.paymentAttempt || null), update: jest.fn().mockResolvedValue({}) },
       product: { findMany: jest.fn(async ({ where }: any) => where.businessId === product.businessId ? [product] : []) },
       $transaction: jest.fn(async (callback: any) => {
         let release!: () => void;
@@ -144,6 +146,46 @@ describe('OrderController inventory release', () => {
     expect(order.status).toBe('new');
     expect(product.data.stock).toBe(1);
     expect(tx.product.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('cancels a pending Stripe test intent before persisting cancellation and restoring stock', async () => {
+    const originalFetch=global.fetch,oldKey=process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY;
+    process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY='1'.repeat(64);
+    const paymentAttempt={id:'stripe_attempt_1',businessId:'business_1',status:'requires_action',data:{provider:'stripe',orderId:'order_1',stripePaymentIntentId:'pi_test_1'}};
+    const {controller,product,order,db}=fixture({stock:1,line:{id:'product_1',quantity:1},paymentAttempt});
+    const credentials={provider:'stripe',mode:'test',...encryptMerchantPaymentSecret(JSON.stringify({restrictedTestKey:'rk_test_merchant_key'}))};
+    db.businessRecord={findFirst:jest.fn().mockResolvedValueOnce(paymentAttempt).mockResolvedValueOnce({data:credentials,status:'connected'}),update:jest.fn(async()=>{paymentAttempt.status='CANCELED';return {};})};
+    global.fetch=jest.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({id:'pi_test_1',status:'requires_action'}),{status:200}))
+      .mockResolvedValueOnce(new Response(JSON.stringify({id:'pi_test_1',status:'canceled'}),{status:200})) as any;
+    try {
+      const result=await controller.updateStatus(request,{status:'cancelled'} as any) as any;
+      expect(result).toMatchObject({status:'cancelled',data:{fulfillmentStatus:'cancelled',paymentMethod:'stripe',gatewayProvider:'stripe',paymentStatus:'Cancelled'}});
+      expect(product.data.stock).toBe(2);
+      expect(db.businessRecord.update).toHaveBeenCalledWith(expect.objectContaining({where:{id:'stripe_attempt_1'},data:expect.objectContaining({status:'CANCELED'})}));
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect((global.fetch as any).mock.calls[1][0]).toBe('https://api.stripe.com/v1/payment_intents/pi_test_1/cancel');
+    } finally {
+      global.fetch=originalFetch;
+      if(oldKey===undefined)delete process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY;else process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY=oldKey;
+    }
+  });
+
+  it('blocks cancellation and keeps inventory reserved when Stripe confirms a successful payment', async () => {
+    const originalFetch=global.fetch,oldKey=process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY;
+    process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY='2'.repeat(64);
+    const paymentAttempt={id:'stripe_attempt_2',businessId:'business_1',status:'requires_action',data:{provider:'stripe',orderId:'order_1',stripePaymentIntentId:'pi_test_2'}};
+    const {controller,product,order,db}=fixture({stock:1,line:{id:'product_1',quantity:1},paymentAttempt});
+    const credentials={provider:'stripe',mode:'test',...encryptMerchantPaymentSecret(JSON.stringify({restrictedTestKey:'rk_test_merchant_key'}))};
+    db.businessRecord={findFirst:jest.fn().mockResolvedValueOnce(paymentAttempt).mockResolvedValueOnce({data:credentials,status:'connected'}),update:jest.fn()};
+    global.fetch=jest.fn().mockResolvedValue(new Response(JSON.stringify({id:'pi_test_2',status:'succeeded'}),{status:200})) as any;
+    try {
+      await expect(controller.updateStatus(request,{status:'cancelled'} as any)).rejects.toThrow('Refund it before cancelling');
+      expect(order.status).toBe('new');expect(product.data.stock).toBe(1);expect(global.fetch).toHaveBeenCalledTimes(1);expect(db.businessRecord.update).not.toHaveBeenCalled();
+    } finally {
+      global.fetch=originalFetch;
+      if(oldKey===undefined)delete process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY;else process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY=oldKey;
+    }
   });
 
   it('returns the same post-cancellation available quantity to merchant inventory and storefront', async () => {

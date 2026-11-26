@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 32836)
+Total output lines: 1215
+
 import { Body, Controller, Get, Post, Put, Patch, Delete, Req, Res, UseGuards, BadRequestException, NotFoundException, ConflictException, ForbiddenException, Logger, ServiceUnavailableException, Headers, UnauthorizedException } from '@nestjs/common';
 import { IsEmail, IsNumber, IsString, MinLength, MaxLength, IsObject, IsOptional, IsIn, IsBoolean, IsInt, Min, Matches } from 'class-validator';
 import { Request, Response } from 'express';
@@ -600,111 +603,7 @@ export class OrderController {
     for(const [productId,lines] of groups){
       const current=await tx.product.findFirst({where:{id:productId,businessId}});
       if(!current)continue;
-      const original=current.data as Record<string,any>,next:any={...original};let changed=false;
-      for(const line of lines){
-        const quantity=Number(line.quantity);if(!Number.isInteger(quantity)||quantity<1)continue;
-        const variantId=String(line.variantId||'');
-        if(variantId&&Array.isArray(next.variants)){
-          const variants=[...next.variants],index=variants.findIndex((value:any)=>String(value?.id||value?.sku||value?.name||'')===variantId);
-          if(index<0)throw new ConflictException('The ordered product variant no longer exists. Inventory was not released.');
-          const variant={...variants[index]};
-          if(variant.stock!==undefined&&variant.stock!==null&&String(variant.stock).trim()!==''){
-            const stock=Number(variant.stock);
-            if(!Number.isInteger(stock)||stock<0)throw new ConflictException('The ordered product variant has invalid stock. Inventory was not released.');
-            variant.stock=stock+quantity;variants[index]=variant;next.variants=variants;changed=true;
-          }else if(next.stock!==undefined&&next.stock!==null&&String(next.stock).trim()!==''){
-            const stock=Number(next.stock);
-            if(!Number.isInteger(stock)||stock<0)throw new ConflictException('The product has invalid stock. Inventory was not released.');
-            next.stock=stock+quantity;changed=true;
-          }
-        }else if(next.stock!==undefined&&next.stock!==null&&String(next.stock).trim()!==''){
-          const stock=Number(next.stock);
-          if(!Number.isInteger(stock)||stock<0)throw new ConflictException('The product has invalid stock. Inventory was not released.');
-          next.stock=stock+quantity;changed=true;
-        }
-      }
-      if(changed){
-        // Keep the parent quantity aligned when each product option has its own
-        // tracked inventory. Blank option stock uses the parent as a shared
-        // fallback and must not be included in this total.
-        if(Array.isArray(next.variants)&&next.variants.length&&next.variants.every((variant:any)=>variant?.stock!==undefined&&variant?.stock!==null&&String(variant.stock).trim()!==''&&Number.isInteger(Number(variant.stock))&&Number(variant.stock)>=0)){
-          next.stock=next.variants.reduce((total:number,variant:any)=>total+Number(variant.stock),0);
-        }
-        const restored=await tx.product.updateMany({where:{id:productId,businessId,data:{equals:original as any}},data:{data:next as any}});
-        if(restored.count!==1)throw new ConflictException('Inventory changed while the order was being cancelled. Retry the update.');
-      }
-    }
-  }
-  private async setPaymentStatus(req:Request & {user:any},id:string,status:'paid'|'refunded') {
-    const business=await this.business(req);
-    return this.db.$transaction(async tx=>{
-      const current=await tx.order.findFirst({where:{id,businessId:business.id}});
-      if(!current)throw new NotFoundException('Order not found');
-      const data={...(current.data as Record<string,any>)},prior=String(data.paymentStatus||'Pending').toLowerCase();
-      if(status==='paid'&&(['cancelled','returned'].includes(String(data.fulfillmentStatus||'').toLowerCase())||['cancelled','returned'].includes(String(current.status||'').toLowerCase())))throw new ConflictException('A cancelled or returned order cannot be marked paid.');
-      if(data.gatewayProvider==='tap')throw new ConflictException('Tap payments can only be marked paid or refunded after Tap confirms the transaction. Use the provider refund action for refunds.');
-      if(status==='paid'&&prior==='paid'){
-        if(['bank_transfer','external_payment_link'].includes(String(data.manualPaymentProvider||''))&&tx.businessRecord?.updateMany){const now=new Date().toISOString();await tx.businessRecord.updateMany({where:{businessId:business.id,type:'merchantPayment',data:{path:['orderId'],equals:id}},data:{status:'confirmed',data:{provider:data.manualPaymentProvider,orderId:id,amountCents:data.collectedAmountCents??current.amountCents,currency:current.currency,reference:data.manualPaymentReference,status:'confirmed',confirmedAt:data.paidAt||now}}});}
-        return current;
-      }
-      if(status==='refunded'&&prior==='refunded')return current;
-      if(status==='paid'&&prior==='refunded')throw new ConflictException('A refunded order cannot be marked paid again without a new collection record.');
-      if(status==='refunded'&&prior!=='paid')throw new BadRequestException('Only a collected payment can be refunded.');
-      const now=new Date().toISOString(),history=Array.isArray(data.paymentHistory)?data.paymentHistory:[];
-      if(status==='paid'){
-        data.paymentStatus='Paid';data.paidAt=now;
-        data.collectedAmountCents=current.amountCents??Math.round(Number(data.total||0)*100);
-        data.paymentHistory=[...history,{type:'collected',amountCents:data.collectedAmountCents,recordedAt:now,method:data.paymentMethod||'cash'}];
-      }else{
-        data.paymentStatus='Refunded';
-        const refunds=Array.isArray(data.refundHistory)?data.refundHistory:[];
-        data.refundHistory=[...refunds,{amountCents:Number(data.collectedAmountCents||current.amountCents||0),recordedAt:now,status:'recorded'}];
-        data.paymentHistory=[...history,{type:'refund',amountCents:Number(data.collectedAmountCents||current.amountCents||0),recordedAt:now}];
-      }
-      const updated=await tx.order.updateMany({where:{id,businessId:business.id,status:current.status,data:{equals:current.data as any}},data:{data:data as any}});
-      if(updated.count!==1)throw new ConflictException('Order changed while the payment update was being saved. Reload and try again.');
-      await this.refreshCustomerTotals(tx,business.id,String(data.email||'').trim().toLowerCase());
-      if(status==='paid'&&['bank_transfer','external_payment_link'].includes(String(data.manualPaymentProvider||''))&&tx.businessRecord?.updateMany){
-        await tx.businessRecord.updateMany({where:{businessId:business.id,type:'merchantPayment',data:{path:['orderId'],equals:id}},data:{status:'confirmed',data:{provider:data.manualPaymentProvider,orderId:id,amountCents:data.collectedAmountCents,currency:current.currency,reference:data.manualPaymentReference,status:'confirmed',confirmedAt:now}}});
-      }
-      return tx.order.findUnique({where:{id}});
-    });
-  }
-  private async setFulfillment(req:Request & {user:any},id:string,input:Record<string,any>) {
-    const status=String(input.status||'').toLowerCase();
-    const valid=['new','processing','packed','shipped','delivered','cancelled','returned'];
-    if(!valid.includes(status))throw new BadRequestException('Invalid fulfillment status');
-    const business=await this.business(req);
-    if(status==='cancelled'){
-      const attempt=await this.db.businessRecord.findFirst({where:{businessId:business.id,type:'merchantPayment',data:{path:['orderId'],equals:id}}}),attemptData=attempt?.data as any;
-      if(attempt&&attemptData?.provider==='stripe'&&attemptData?.stripePaymentIntentId&&!['failed','FAILED','canceled','CANCELED','cancelled','succeeded','SUCCEEDED'].includes(String(attempt.status||''))){
-        const credential=await this.db.businessRecord.findFirst({where:{legacyFirebasePath:`payment-provider:${business.id}:stripe`,businessId:business.id,type:'merchantPaymentProvider',status:{in:['connected','disconnected']}}}),encrypted=credential?.data as any;
-        if(!encrypted||encrypted.provider!=='stripe'||encrypted.mode!=='test')throw new ConflictException('Stripe test credentials are unavailable to cancel the pending payment.');
-        let secret='';try{secret=String(JSON.parse(decryptMerchantPaymentSecret(encrypted)).restrictedTestKey||'');}catch{throw new ConflictException('Stripe test credentials could not be decrypted to cancel the pending payment.');}
-        const currentIntent=await this.stripeGateway.retrievePayment(secret,String(attemptData.stripePaymentIntentId));
-        if(currentIntent.status==='succeeded')throw new ConflictException('This Stripe payment has already succeeded. Refund it before cancelling the order.');
-        if(!['canceled','requires_payment_method','requires_confirmation','requires_action','requires_capture'].includes(String(currentIntent.status)))throw new ConflictException('Stripe is still processing this payment. Wait for its final status before cancelling the order.');
-        if(currentIntent.status!=='canceled')await this.stripeGateway.cancelPayment(secret,String(attemptData.stripePaymentIntentId),`cyb-cancel-${createHash('sha256').update(`${business.id}:${id}`).digest('hex').slice(0,40)}`);
-        await this.db.businessRecord.update({where:{id:attempt.id},data:{status:'CANCELED',data:{...attemptData,status:'canceled',cancelledAt:new Date().toISOString()}}});
-      }
-    }
-    const trackingNumber=input.trackingNumber===undefined?undefined:String(input.trackingNumber||'').trim();
-    const carrier=input.carrier===undefined?undefined:String(input.carrier||'').trim();
-    let trackingUrl=input.trackingUrl===undefined?undefined:String(input.trackingUrl||'').trim();
-    if(trackingNumber&&trackingNumber.length>120)throw new BadRequestException('Tracking number is too long');
-    if(carrier&&carrier.length>80)throw new BadRequestException('Carrier name is too long');
-    if(trackingUrl){try{const url=new URL(trackingUrl);if(url.protocol!=='https:')throw new Error();}catch{throw new BadRequestException('Tracking URL must be a valid HTTPS URL');}}
-    return this.db.$transaction(async tx=>{
-      const current=await tx.order.findFirst({where:{id,businessId:business.id}});
-      if(!current)throw new NotFoundException('Order not found');
-      const data={...(current.data as Record<string,any>)},prior=String(data.fulfillmentStatus||current.status||'new').toLowerCase();
-      if(['cancelled','returned'].includes(status)){
-        if(data.gatewayProvider==='tap'&&String(data.paymentStatus||'').toLowerCase()==='paid')throw new ConflictException('Refund the Tap payment before cancelling or returning this paid order.');
-        if(String(data.paymentStatus||'').toLowerCase()==='paid')throw new ConflictException('Refund the collected payment before cancelling or returning this paid order.');
-        if(!(data.gatewayProvider==='tap'&&String(data.paymentStatus||'').toLowerCase()==='refunded')&&tx.businessRecord?.findFirst){const attempt=await tx.businessRecord.findFirst({where:{businessId:business.id,type:'merchantPayment',data:{path:['orderId'],equals:id}}});const attemptData=attempt?.data as any;const isTapAttempt=attemptData?.provider==='tap'||!!attemptData?.tapChargeId;if(isTapAttempt&&!['failed','DECLINED','FAILED','CANCELLED','EXPIRED','REFUNDED'].includes(String(attempt?.status||'')))throw new ConflictException('A Tap payment is still in progress. Wait for Tap to confirm or fail it before cancelling this order.');}
-      }
-      if(prior===status&&trackingNumber===undefined&&carrier===undefined&&trackingUrl===undefined)return current;
-      const transitions:Record<string,string[]>={new:['processing','cancelled'],pending:['processing','cancelled'],processing:['packed','cancelled'],packed:['shipped','cancelled'],shipped:['delivered','returned'],delivered:['returned'],cancelled:[],returned:[]};
+      const original=current.data as Record<string,any>,next:any={...original};let changed=fa…2836 tokens truncated…cancelled'],packed:['shipped','cancelled'],shipped:['delivered','returned'],delivered:['returned'],cancelled:[],returned:[]};
       if(prior!==status&&!(transitions[prior]||[]).includes(status))throw new ConflictException(`Cannot move fulfillment from ${prior} to ${status}.`);
       const now=new Date().toISOString(),timeline=Array.isArray(data.timeline)?data.timeline:[];
       if(prior!==status){
