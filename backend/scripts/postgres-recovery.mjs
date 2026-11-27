@@ -180,7 +180,7 @@ async function restore(archiveFile) {
   if (!await databaseIsEmpty(connection)) throw new Error('Restore refused. The target database is not empty; restore into a new database.');
   const result = await inspectArchive(path.resolve(archiveFile), key);
   try {
-    run('pg_restore', ['--no-owner', '--no-acl', '--exit-on-error', result.dump], {
+    run('pg_restore', ['--no-owner', '--no-acl', '--exit-on-error', '--dbname', connection.database, result.dump], {
       ...connection.env,
       PGDATABASE: connection.database,
     });
