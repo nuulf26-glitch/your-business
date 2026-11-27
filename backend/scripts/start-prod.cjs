@@ -21,14 +21,14 @@ const emitOutput = (result) => {
   if (result.stdout) process.stdout.write(redactConnectionStrings(result.stdout));
   if (result.stderr) process.stderr.write(redactConnectionStrings(result.stderr));
 };
-const runPrisma = (command) => spawnSync("npx", ["prisma", "migrate", command], {
+
+const status = spawnSync("npx", ["prisma", "migrate", "status"], {
   env: commandEnv,
   encoding: "utf8",
   maxBuffer: 4 * 1024 * 1024,
 });
-
-const status = runPrisma("status");
 emitOutput(status);
+
 if (status.error) {
   console.error("Could not check Prisma migration status:", status.error.message);
   process.exit(1);
@@ -37,33 +37,15 @@ if (status.error) {
 if (status.status !== 0) {
   const statusOutput = `${status.stdout || ""}\n${status.stderr || ""}`;
   const hasPendingMigrations = /have not yet been applied|not yet been applied/i.test(statusOutput);
-  if (!hasPendingMigrations) {
-    console.error("Prisma migration status is not clean; refusing to start the API or modify the database.");
-    process.exit(status.status ?? 1);
+  if (hasPendingMigrations) {
+    console.error("Pending Prisma migrations detected; refusing to start. Review and apply them through the approved migration process.");
+  } else {
+    console.error("Prisma migration status is not clean; refusing to start the API.");
   }
-
-  const maxAttempts = 4;
-  let migration;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    migration = runPrisma("deploy");
-    emitOutput(migration);
-    if (migration.error) {
-      console.error("Could not start Prisma migration:", migration.error.message);
-      process.exit(1);
-    }
-    if (migration.status === 0) break;
-
-    const output = `${migration.stdout || ""}\n${migration.stderr || ""}`;
-    const lockTimeout = /P1002[\s\S]*?advisory lock|Timed out trying to acquire a postgres advisory lock/i.test(output);
-    if (!lockTimeout || attempt === maxAttempts) process.exit(migration.status ?? 1);
-
-    console.warn(`Prisma advisory lock is busy; retrying migration deploy (${attempt + 1}/${maxAttempts}).`);
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, attempt * 10_000);
-  }
-} else {
-  console.info("Prisma migrations are up to date; skipping migration deploy.");
+  process.exit(status.status ?? 1);
 }
 
+console.info("Prisma migrations are up to date; no database changes were made.");
 const api = spawnSync(process.execPath, ["dist/main.js"], {
   env: process.env,
   stdio: "inherit",
