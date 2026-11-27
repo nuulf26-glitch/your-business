@@ -1,6 +1,6 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
-import path from "node:path";
+import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const startupScript = path.resolve(process.cwd(), "scripts/start-prod.cjs");
