@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { mkdir } from "node:fs/promises";
 
 const user = {
   id: "synthetic-user", email: "visual-review@example.test", emailVerified: true,
@@ -126,6 +127,43 @@ test("synthetic login keeps the cookie-backed session after reload and opens das
   await expect(page.locator(".workspace-navigation")).toBeVisible({ timeout: 15000 });
   expect(calls.some((call) => call.pathname === "/auth/login" && call.method === "POST")).toBeTruthy();
   expect(calls.filter((call) => call.pathname === "/auth/me").length).toBeGreaterThan(1);
+});
+
+test("first-time website setup, dashboard guidance, and AI dialog support a beginner flow", async ({ page }) => {
+  await mkdir("artifacts/functional-visual", { recursive: true });
+  await seedProtectedUser(page);
+  const calls = await mockAppApi(page);
+  await page.goto("/dashboard");
+  await expect(page.getByRole("heading", { name: "Your website is a draft" })).toBeVisible({ timeout: 15000 });
+  await expect(page.getByRole("button", { name: "Continue building" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open live website" })).toHaveCount(0);
+  await page.screenshot({ path: "artifacts/functional-visual/ux-dashboard-desktop.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("button", { name: "Continue in the editor" })).toBeVisible();
+  await page.screenshot({ path: "artifacts/functional-visual/ux-dashboard-mobile.png", fullPage: true });
+  await page.getByRole("button", { name: "Continue in the editor" }).click();
+  await expect(page.getByText(/Select an area on your website to edit it/)).toBeVisible();
+  const aiButton = page.getByRole("button", { name: /Design with AI/ });
+  await aiButton.click();
+  const dialog = page.getByRole("dialog", { name: "Create or edit your website with AI" });
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(aiButton).toBeFocused();
+
+  await page.goto("/create-website");
+  await page.getByLabel("Business Name").fill("Café & Co.");
+  await expect(page.getByLabel("Website Address")).toHaveValue("cafe-co");
+  await page.getByRole("button", { name: /Online Store:/ }).click();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.screenshot({ path: "artifacts/functional-visual/ux-setup-desktop.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBeTruthy();
+  await page.screenshot({ path: "artifacts/functional-visual/ux-setup-mobile.png", fullPage: true });
+  await page.getByRole("button", { name: "Create my website" }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  expect(calls.some(call => call.pathname === "/businesses/mine" && call.method === "PUT" && call.body?.slug === "cafe-co")).toBeTruthy();
 });
 
 test("editor draft save and publish use the existing API contracts", async ({ page }) => {
