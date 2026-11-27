@@ -71,12 +71,17 @@ try {
   const encrypted = await readFile(backupFile);
   const flipped = Buffer.from(encrypted);
   flipped[flipped.length - 1] ^= 0x01;
+  const versionTampered = Buffer.from(encrypted);
+  versionTampered[Buffer.byteLength('CYBPG02\n') + 1] ^= 0x01;
   const corruptPath = path.join(workDir, 'corrupt.cybpg');
   const truncatedPath = path.join(workDir, 'truncated.cybpg');
+  const tamperedVersionPath = path.join(workDir, 'tampered-version.cybpg');
   await writeFile(corruptPath, flipped, { mode: 0o600 });
   await writeFile(truncatedPath, encrypted.subarray(0, Math.max(0, encrypted.length - 12)), { mode: 0o600 });
+  await writeFile(tamperedVersionPath, versionTampered, { mode: 0o600 });
   run(process.execPath, ['scripts/postgres-recovery.mjs', 'verify', corruptPath], process.env, false);
   run(process.execPath, ['scripts/postgres-recovery.mjs', 'verify', truncatedPath], process.env, false);
+  run(process.execPath, ['scripts/postgres-recovery.mjs', 'verify', tamperedVersionPath], process.env, false);
 
   // Restoring to an existing, populated database is always refused.
   run(process.execPath, ['scripts/postgres-recovery.mjs', 'restore', backupFile], { ...pgEnv, DATABASE_URL: url, CYB_RESTORE_CONFIRM_DATABASE: 'cyb_recovery_source' }, false);

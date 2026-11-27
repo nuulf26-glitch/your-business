@@ -71,10 +71,12 @@ function run(command, args, env, input) {
 function encrypt(plain, key, postgresMajor) {
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
-  const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()]);
   const major = Buffer.alloc(2);
   major.writeUInt16BE(postgresMajor);
-  return Buffer.concat([MAGIC, major, iv, cipher.getAuthTag(), ciphertext]);
+  const header = Buffer.concat([MAGIC, major]);
+  cipher.setAAD(header);
+  const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()]);
+  return Buffer.concat([header, iv, cipher.getAuthTag(), ciphertext]);
 }
 
 function decrypt(archive, key) {
@@ -88,6 +90,7 @@ function decrypt(archive, key) {
   const tagStart = ivStart + 12;
   const ciphertextStart = tagStart + 16;
   const decipher = createDecipheriv('aes-256-gcm', key, archive.subarray(ivStart, tagStart));
+  decipher.setAAD(archive.subarray(0, ivStart));
   decipher.setAuthTag(archive.subarray(tagStart, ciphertextStart));
   try {
     return { plain: Buffer.concat([decipher.update(archive.subarray(ciphertextStart)), decipher.final()]), major };
