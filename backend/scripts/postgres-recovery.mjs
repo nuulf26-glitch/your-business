@@ -54,8 +54,16 @@ function run(command, args, env, input) {
     windowsHide: true,
   });
   if (result.error || result.status !== 0) {
-    // PostgreSQL client diagnostics can contain query text or connection data.
-    throw new Error(`${command} failed. Check private operator logs for the underlying cause.`);
+    // Keep only error-class lines; omit DETAIL/CONTEXT/STATEMENT, which may include row data or SQL.
+    const diagnostic = String(result.stderr || '').split(/\r?\n/)
+      .filter((line) => /\b(?:error|fatal):/i.test(line) && !/^\s*(?:detail|context|statement):/i.test(line))
+      .slice(0, 2)
+      .join(' ')
+      .replace(/postgres(?:ql)?:\/\/[^\s"'<>]+/gi, '[DATABASE_URL REDACTED]');
+    const safeDiagnostic = [env.PGHOST, env.PGUSER, env.PGDATABASE, env.PGPASSWORD]
+      .filter(Boolean)
+      .reduce((text, secret) => text.split(String(secret)).join('[CONNECTION DETAIL REDACTED]'), diagnostic);
+    throw new Error(`${command} failed${safeDiagnostic ? `: ${safeDiagnostic}` : ` (exit ${result.status ?? result.error?.code ?? 'unknown'})`}.`);
   }
   return result.stdout || '';
 }
