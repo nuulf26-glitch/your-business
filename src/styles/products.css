@@ -423,6 +423,17 @@
   }
 }
 
+@media (max-width: 900px) {
+  .product-list-title {
+    flex-wrap: wrap;
+  }
+
+  .product-list-actions {
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+}
+
 @media (max-width: 760px) {
   .products-page {
     padding: 24px 18px 50px;

@@ -9,7 +9,7 @@ import { businessCall } from "./business/api";
 import WebsiteRenderer from "./editor/WebsiteRenderer";
 import { publishedWebsite } from "./editor/publishing";
 import { grantAnalyticsConsent, analyticsConsentKey, trackWebsiteEvent } from "./services/websiteAnalytics";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import "./styles/publicStore.css";
@@ -27,6 +27,7 @@ function PublicStore() {
   const [websiteSetup, setWebsiteSetup] = useState(null);
   const [editorData, setEditorData] = useState(null);
   const [products, setProducts] = useState([]);
+  const inventoryRequestVersion = useRef(0);
   const [productSearch, setProductSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [productSort, setProductSort] = useState("featured");
@@ -42,7 +43,32 @@ function PublicStore() {
 
   useEffect(() => {
     let active = true;
+    const refreshInventory = async () => {
+      if (document.visibilityState === "hidden") return;
+      const requestVersion = ++inventoryRequestVersion.current;
+      try {
+        const latest = await getProductsByStore(storeUrl);
+        if (active && requestVersion === inventoryRequestVersion.current) setProducts(latest);
+      } catch {
+        // Keep the last known catalog during a transient refresh failure.
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshInventory();
+    };
+    window.addEventListener("focus", refreshInventory);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      active = false;
+      window.removeEventListener("focus", refreshInventory);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [storeUrl]);
+
+  useEffect(() => {
+    let active = true;
     async function loadStore() {
+      const requestVersion = ++inventoryRequestVersion.current;
       setLoading(true);
       setLoadError(false);
       setWebsiteSetup(null);
@@ -66,7 +92,7 @@ function PublicStore() {
         const storeProducts =
           await getProductsByStore(storeUrl);
 
-        if (active) setProducts(storeProducts);
+        if (active && requestVersion === inventoryRequestVersion.current) setProducts(storeProducts);
       } catch (error) {
         if (active) setLoadError(true);
         console.error(
