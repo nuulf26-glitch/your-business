@@ -13,7 +13,16 @@ try {
 }
 
 function readCachedUser() {
-  try { return JSON.parse(sessionStorage.getItem(cachedUserKey) || 'null'); }
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(cachedUserKey) || 'null');
+    const activeAccountId = localStorage.getItem('getcyb_account_id') || '';
+    if (!cached) return null;
+    if (!activeAccountId || cached.id !== activeAccountId) {
+      sessionStorage.removeItem(cachedUserKey);
+      return null;
+    }
+    return cached;
+  }
   catch { sessionStorage.removeItem(cachedUserKey); return null; }
 }
 
@@ -81,12 +90,16 @@ export async function getAppUser() {
 export function subscribeAppUser(callback) {
   let active = true;
   const refresh = () => getAppUser().then((user) => { if (active) callback(user); });
-  const handleStorage = (event) => {
-    if (event.key === authSyncKey) refresh();
+  const refreshAfterAccountChange = () => {
+    if (active) callback(undefined);
+    refresh();
   };
-  const handleBroadcast = () => refresh();
+  const handleStorage = (event) => {
+    if (event.key === authSyncKey) refreshAfterAccountChange();
+  };
+  const handleBroadcast = () => refreshAfterAccountChange();
 
-  window.addEventListener('getcyb-auth-changed', refresh);
+  window.addEventListener('getcyb-auth-changed', refreshAfterAccountChange);
   window.addEventListener('storage', handleStorage);
   authChannel?.addEventListener('message', handleBroadcast);
 
@@ -96,7 +109,7 @@ export function subscribeAppUser(callback) {
 
   return () => {
     active = false;
-    window.removeEventListener('getcyb-auth-changed', refresh);
+    window.removeEventListener('getcyb-auth-changed', refreshAfterAccountChange);
     window.removeEventListener('storage', handleStorage);
     authChannel?.removeEventListener('message', handleBroadcast);
   };

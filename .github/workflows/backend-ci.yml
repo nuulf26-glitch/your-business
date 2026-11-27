@@ -2,7 +2,7 @@ name: GETCYB backend CI
 
 on:
   push:
-    branches: [main, codex/custom-backend-migration]
+    branches: [main, codex/custom-backend-migration, codex/v1-combined-release-candidate]
     paths: ["backend/**", ".github/workflows/backend-ci.yml"]
   pull_request:
     paths: ["backend/**", ".github/workflows/backend-ci.yml"]
@@ -10,6 +10,20 @@ on:
 jobs:
   api:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: getcyb
+          POSTGRES_PASSWORD: getcyb
+          POSTGRES_DB: getcyb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U getcyb -d getcyb"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     defaults:
       run:
         working-directory: backend
@@ -25,6 +39,18 @@ jobs:
       - run: npm ci
       - run: npm run prisma:generate
       - run: npm run prisma:validate
+      - name: Apply Prisma migrations for database-backed suites
+        if: github.head_ref != 'codex/v1-combined-release-candidate' && github.ref_name != 'codex/v1-combined-release-candidate'
+        run: npm run prisma:migrate
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: npm test
+      - name: Run backend unit suite without a database migration
+        if: github.head_ref == 'codex/v1-combined-release-candidate' || github.ref_name == 'codex/v1-combined-release-candidate'
+        run: npm test
+        env:
+          CYB_TEST_BYOG_DB: "0"
+      - name: Run full backend suite for existing branches
+        if: github.head_ref != 'codex/v1-combined-release-candidate' && github.ref_name != 'codex/v1-combined-release-candidate'
+        run: npm test
+        env:
+          CYB_TEST_BYOG_DB: "1"
       - run: npm run build

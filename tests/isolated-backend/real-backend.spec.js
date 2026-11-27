@@ -327,5 +327,88 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   const storedProducts = await requestFromPage(page, "/products");
   expect(storedProducts.find((item) => item.id === product.id).data.variants[0].stock).toBe(4);
 
+  // Manual collection methods use server-priced orders and remain unpaid until
+  // the authenticated merchant confirms receipt. No external provider is called.
+  const providerStateBefore = await requestFromPage(page, "/payments/providers");
+  expect(providerStateBefore.providers.find((provider) => provider.id === "cash_on_delivery")).toMatchObject({ enabled: true, status: "available" });
+  expect(providerStateBefore.providers.find((provider) => provider.id === "tap")).toMatchObject({ enabled: false, status: "approval_required", liveEnabled: false });
+  expect(providerStateBefore.providers.find((provider) => provider.id === "stripe")).toMatchObject({ enabled: true, status: "not_connected", secretConfigured: false, connectionVerified: false, liveEnabled: false, methods: [] });
+  for (const providerId of ["paypal", "tap", "paytabs", "amazon_payment_services", "payd"]) {
+    expect(providerStateBefore.providers.find((provider) => provider.id === providerId)?.enabled).toBe(false);
+  }
+  const manualOptions = {
+    bankTransfer: { enabled: true, bankName: "Synthetic Test Bank", accountName: "Synthetic Merchant", iban: "AE070331234567890123456", swift: "SYNTAEAD" },
+    externalPaymentLink: { enabled: true, urlTemplate: "https://payments.example.org/checkout?amount={amount}&order={order}&currency={currency}" },
+  };
+  await requestFromPage(page, "/payments/providers/manual-options", "POST", manualOptions);
+  const configuredProviders = await requestFromPage(page, "/payments/providers");
+  expect(configuredProviders.providers.find((provider) => provider.id === "bank_transfer")).toMatchObject({ enabled: true, status: "connected" });
+  expect(configuredProviders.providers.find((provider) => provider.id === "external_payment_link")).toMatchObject({ enabled: true, status: "connected" });
+  const secondaryProviders = await requestFromPage(page, "/payments/providers", "GET", undefined, secondStore.id);
+  expect(secondaryProviders.providers.find((provider) => provider.id === "bank_transfer")).toMatchObject({ enabled: false, status: "not_configured" });
+  expect(secondaryProviders.providers.find((provider) => provider.id === "external_payment_link")).toMatchObject({ enabled: false, status: "not_configured" });
+
+  const createManualOrder = async (label) => requestFromPage(page, "/public/orders", "POST", {
+    idempotencyKey: `${label}-${randomUUID().replaceAll("-", "")}`,
+    customerActionToken: `action-${randomUUID().replaceAll("-", "")}`,
+    data: { storeUrl: slug, customerName: `Synthetic ${label} Customer`, email: `${label}-${process.env.GITHUB_RUN_ID || "local"}@example.test`, items: [{ id: product.id, variantId: "synthetic-small", quantity: 1 }] },
+  });
+
+  const bankOrder = await createManualOrder("bank-transfer");
+  const bankMethods = await requestFromPage(page, `/public/orders/${encodeURIComponent(bankOrder.id)}/payment-methods?token=${encodeURIComponent(bankOrder.cashOnDeliveryToken)}`);
+  expect(bankMethods.methods.map((method) => method.id)).toEqual(expect.arrayContaining(["cash_on_delivery", "bank_transfer", "external_payment_link"]));
+  const bankOwnerOrder = (await requestFromPage(page, "/orders")).find((order) => order.id === bankOrder.id);
+  expect(bankOwnerOrder).toBeTruthy();
+  const bankExpectedAmount = Number(bankOwnerOrder.amountCents);
+  const bankPayment = await requestFromPage(page, `/public/orders/${encodeURIComponent(bankOrder.id)}/payment/manual`, "POST", { token: bankOrder.cashOnDeliveryToken, method: "bank_transfer" });
+  expect(bankPayment).toMatchObject({ provider: "bank_transfer", amountCents: bankExpectedAmount, currency: bankOwnerOrder.currency, status: "awaiting_confirmation", bankTransfer: { iban: manualOptions.bankTransfer.iban } });
+  expect(await requestFromPage(page, `/public/orders/${encodeURIComponent(bankOrder.id)}/payment/manual`, "POST", { token: bankOrder.cashOnDeliveryToken, method: "bank_transfer" })).toEqual(bankPayment);
+  const bankStoredOrder = await requestFromPage(page, `/orders/${encodeURIComponent(bankOrder.id)}`);
+  expect(bankStoredOrder.paymentStatus).toBe("Awaiting manual confirmation");
+  const crossMerchantOrderAccess = await page.evaluate(async ({ id, businessId }) => {
+    const response = await fetch(`/api/v1/orders/${encodeURIComponent(id)}`, { credentials: "include", headers: { "x-cyb-business-id": businessId } });
+    return response.status;
+  }, { id: bankOrder.id, businessId: secondStore.id });
+  expect(crossMerchantOrderAccess).toBe(404);
+  await requestFromPage(page, `/orders/${encodeURIComponent(bankOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
+  await requestFromPage(page, `/orders/${encodeURIComponent(bankOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
+  const bankPaidOrder = await requestFromPage(page, `/orders/${encodeURIComponent(bankOrder.id)}`);
+  expect(bankPaidOrder.paymentStatus).toBe("Paid");
+  const bankTransactions = await requestFromPage(page, "/payments/providers");
+  expect(bankTransactions.transactions.filter((transaction) => transaction.orderId === bankOrder.id && transaction.provider === "bank_transfer")).toHaveLength(1);
+  expect(bankTransactions.transactions.find((transaction) => transaction.orderId === bankOrder.id)).toMatchObject({ status: "confirmed", amountCents: bankExpectedAmount, currency: bankOwnerOrder.currency });
+
+  const externalOrder = await createManualOrder("external-link");
+  const externalOwnerOrder = (await requestFromPage(page, "/orders")).find((order) => order.id === externalOrder.id);
+  expect(externalOwnerOrder).toBeTruthy();
+  const externalExpectedAmount = Number(externalOwnerOrder.amountCents);
+  const externalPayment = await requestFromPage(page, `/public/orders/${encodeURIComponent(externalOrder.id)}/payment/manual`, "POST", { token: externalOrder.cashOnDeliveryToken, method: "external_payment_link" });
+  expect(externalPayment).toMatchObject({ provider: "external_payment_link", amountCents: externalExpectedAmount, currency: externalOwnerOrder.currency, status: "awaiting_confirmation" });
+  const externalUrl = new URL(externalPayment.url);
+  expect(externalUrl.searchParams.get("amount")).toBe((externalExpectedAmount / 100).toFixed(2));
+  expect(externalUrl.searchParams.get("order")).toBe(`CYB-${externalOrder.id}`);
+  expect(externalUrl.searchParams.get("currency")).toBe(externalOwnerOrder.currency);
+  expect(externalPayment.url).not.toContain(bankOrder.id);
+  expect((await requestFromPage(page, `/orders/${encodeURIComponent(externalOrder.id)}`)).paymentStatus).toBe("Awaiting manual confirmation");
+  await requestFromPage(page, `/orders/${encodeURIComponent(externalOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
+  await requestFromPage(page, `/orders/${encodeURIComponent(externalOrder.id)}/payment`, "PATCH", { data: { status: "paid" } });
+  const externalTransactions = await requestFromPage(page, "/payments/providers");
+  expect(externalTransactions.transactions.filter((transaction) => transaction.orderId === externalOrder.id && transaction.provider === "external_payment_link")).toHaveLength(1);
+  expect(externalTransactions.transactions.find((transaction) => transaction.orderId === externalOrder.id)).toMatchObject({ status: "confirmed", amountCents: externalExpectedAmount, currency: externalOwnerOrder.currency });
+
+  const cancelledManualOrder = await createManualOrder("cancelled-external-link");
+  await requestFromPage(page, `/public/orders/${encodeURIComponent(cancelledManualOrder.id)}/payment/manual`, "POST", { token: cancelledManualOrder.cashOnDeliveryToken, method: "external_payment_link" });
+  await requestFromPage(page, `/orders/${encodeURIComponent(cancelledManualOrder.id)}/fulfillment`, "PATCH", { data: { status: "cancelled" } });
+  const cancelledPaymentAttempt = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/v1/orders/${encodeURIComponent(id)}/payment`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: { status: "paid" } }) });
+    return { status: response.status, body: await response.json().catch(() => null) };
+  }, cancelledManualOrder.id);
+  expect(cancelledPaymentAttempt.status).toBe(409);
+  const cancelledStoredOrder = await requestFromPage(page, `/orders/${encodeURIComponent(cancelledManualOrder.id)}`);
+  expect(cancelledStoredOrder).toMatchObject({ status: "cancelled", fulfillmentStatus: "cancelled" });
+  expect(cancelledStoredOrder.paymentStatus).toBe("Cancelled");
+  const cancelledTransactions = await requestFromPage(page, "/payments/providers");
+  expect(cancelledTransactions.transactions.find((transaction) => transaction.orderId === cancelledManualOrder.id && transaction.provider === "external_payment_link")).toMatchObject({ status: "cancelled" });
+
   await secondTab.close();
 });
