@@ -164,6 +164,30 @@
   box-shadow: 0 28px 70px rgba(0, 0, 0, 0.08);
 }
 
+.wizard-category-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.wizard-category-fieldset legend {
+  padding: 0;
+  color: #222222;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wizard-help {
+  display: block;
+  margin: 0;
+  color: #5f5f5a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.wizard-category-fieldset .wizard-help { margin-top: 7px; }
+
 .wizard-step-label {
   margin-bottom: 26px;
   font-size: 11px;
@@ -575,6 +599,16 @@
   color: #a33a3a;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.wizard-next-button:disabled {
+  cursor: wait;
+  opacity: .7;
+}
+
+.create-website-page :focus-visible {
+  outline: 3px solid #725b3d;
+  outline-offset: 3px;
 }
 
 /* Buttons */
