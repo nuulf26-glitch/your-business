@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import WebsiteRenderer from "../editor/WebsiteRenderer";
 import { preserveProductReferences } from "../editor/aiPreviewModel.js";
 import { customBackendRequest } from "../services/customBackendSession";
@@ -18,7 +18,36 @@ export default function AiDesigner({ model = {}, products = [], onApply, onClose
   const [confirmOverwrite, setConfirmOverwrite] = useState(false);
   const [appliedNotice, setAppliedNotice] = useState("");
   const inFlight = useRef(false);
+  const dialogRef = useRef(null);
+  const returnFocusRef = useRef(null);
+  const onCloseRef = useRef(onClose);
   const hasExistingWebsite = Boolean(model.pages?.some(page => page.sections?.length) || model.sections?.length);
+
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+
+  useEffect(() => {
+    returnFocusRef.current = document.activeElement;
+    dialogRef.current?.querySelector("button, textarea, input")?.focus();
+    function onKeyDown(event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = [...dialogRef.current.querySelectorAll('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])')];
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      returnFocusRef.current?.focus?.();
+    };
+  }, []);
 
   async function design(event, mode = "create") {
     event.preventDefault(); if (inFlight.current || !prompt.trim()) return; inFlight.current = true; setBusy(true); setError(""); setAppliedNotice("");
@@ -27,7 +56,14 @@ export default function AiDesigner({ model = {}, products = [], onApply, onClose
       setPendingModel(mode === "modify" ? preserveProductReferences(model, result.model) : result.model);
       setPendingSummary(result.changesSummary || "A complete editable first draft");
     } catch (e) {
-      setError(e.message);
+      const detail = String(e.message || "");
+      setError(e.status === 429 || /too many|rate.?limit/i.test(detail)
+        ? "CYB AI is busy right now. Your prompt is still here; wait a moment and try again."
+        : /timeout|timed out|abort/i.test(detail)
+          ? "This request took too long to finish. Your prompt is still here; try again, or use a shorter description."
+          : /network|fetch failed|connection/i.test(detail)
+            ? "We couldn’t reach CYB AI. Check your connection and try again; your prompt is still here."
+            : detail || "We couldn’t create a design. Your prompt is still here; please try again.");
     } finally { inFlight.current = false; setBusy(false); }
   }
 
@@ -64,7 +100,7 @@ export default function AiDesigner({ model = {}, products = [], onApply, onClose
   }
 
   return <div className="ai-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="ai-dialog" role="dialog" aria-modal="true" aria-busy={busy} aria-labelledby="ai-title">
+    <section ref={dialogRef} className="ai-dialog" role="dialog" aria-modal="true" aria-busy={busy} aria-labelledby="ai-title" tabIndex={-1}>
       <header className="ai-header"><div><span className="ai-kicker">CYB AI</span><h2 id="ai-title">{publicMode ? "Get help with CYB" : "Create or edit your website with AI"}</h2></div><button type="button" aria-label="Close" onClick={onClose}>×</button></header>
       <nav className="ai-tabs" aria-label="AI tools">{!publicMode && <><button type="button" className={tab === "design" ? "active" : ""} onClick={() => { setTab("design"); setPendingModel(null); setConfirmOverwrite(false); setError(""); }}>Create Website with AI</button><button type="button" className={tab === "edit" ? "active" : ""} onClick={() => { setTab("edit"); setPendingModel(null); setConfirmOverwrite(false); setError(""); }}>Edit Website with AI</button></>}<button type="button" className={tab === "help" ? "active" : ""} onClick={() => { setTab("help"); setPendingModel(null); setConfirmOverwrite(false); setError(""); }}>Ask for help</button></nav>
       {(tab === "design" || tab === "edit") && <>{appliedNotice && <p className="ai-success" role="status">{appliedNotice}</p>}{pendingModel ? <div className="ai-result"><p>{tab === "edit" ? "Preview the proposed edits. Your current website stays unchanged until you apply them." : "Preview your editable first draft before applying it to the editor."}</p><div className="ai-result-preview"><strong>{pendingModel.brandName}</strong><span>{pendingSummary || pendingModel.pages?.[0]?.sections?.map(section => section.title).filter(Boolean).slice(0, 4).join(" · ")}</span></div><div className="ai-preview-devices" role="group" aria-label="Preview size">{["laptop", "ipad", "phone"].map(device => <button type="button" key={device} className={previewDevice === device ? "active" : ""} onClick={() => setPreviewDevice(device)}>{device === "ipad" ? "Tablet" : device === "phone" ? "Mobile" : "Desktop"}</button>)}</div><div className={`ai-visual-preview ${previewDevice}`}><WebsiteRenderer model={pendingModel} products={products} device={previewDevice} /></div>{confirmOverwrite && <p className="ai-confirm" role="alert">This will replace the current website draft in your editor. Confirm only if you want to replace it.</p>}<div className="ai-actions">{confirmOverwrite ? <><button type="button" className="ai-secondary" onClick={() => setConfirmOverwrite(false)}>Keep current website</button><button type="button" className="ai-primary" onClick={applyPendingDesign}>Confirm replacement</button></> : <><button type="button" className="ai-secondary" onClick={() => setPendingModel(null)}>Try another prompt</button><button type="button" className="ai-secondary" onClick={cancelPreview}>Cancel</button><button type="button" className="ai-primary" onClick={applyPendingDesign}>{tab === "edit" ? "Apply changes" : hasExistingWebsite ? "Replace website…" : "Apply design"}</button></>}</div></div> : <form className="ai-form" onSubmit={event => design(event, tab === "edit" ? "modify" : "create")}><p>{tab === "edit" ? "Describe a change in plain language. CYB AI will prepare an editable update and preserve the rest of your website." : "Describe your business and the website you want. CYB AI will create an editable first draft."}</p><label htmlFor="ai-prompt">{tab === "edit" ? "What should I change?" : "Describe your website"}</label><textarea id="ai-prompt" rows="5" maxLength={1200} required minLength={8} value={prompt} onChange={event => setPrompt(event.target.value)} placeholder={tab === "edit" ? "Example: Make the background black, make the main heading larger, and move the story section above the products." : "Example: Create a luxury skincare website with beige colours, a hero, product gallery, testimonials, and contact form."}/><small>{tab === "edit" ? "You can ask for another change after this one." : "You can keep editing the result in the visual editor."}</small><button className="ai-primary" disabled={busy || prompt.trim().length < 8}>{busy ? <><span className="ai-spinner" aria-hidden="true" />{tab === "edit" ? "Preparing your changes…" : "Creating your draft…"}</> : (tab === "edit" ? "Preview changes" : "Create my website")}</button></form>}</>}
