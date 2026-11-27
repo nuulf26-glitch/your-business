@@ -449,6 +449,7 @@ test('CRM filters, saved lists, activity timeline, and responsive customer views
 });
 
 test('analytics dashboard shows real report fields, saves a range, and stays responsive', async ({ page }) => {
+  await mkdir("artifacts/functional-visual", { recursive: true });
   await seedProtectedUser(page);
   const calls = await mockAppApi(page);
   await page.goto('/analytics');
@@ -465,5 +466,6 @@ test('analytics dashboard shows real report fields, saves a range, and stays res
   for (const viewport of [{ width: 1440, height: 900 }, { width: 768, height: 1024 }, { width: 390, height: 844 }, { width: 375, height: 812 }]) {
     await page.setViewportSize(viewport);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `Analytics overflow at ${viewport.width}px`).toBeTruthy();
+    if (viewport.width === 375) await page.screenshot({ path: "artifacts/functional-visual/ux-analytics-mobile.png", fullPage: true });
   }
 });
