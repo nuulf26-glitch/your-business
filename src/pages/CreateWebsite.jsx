@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/createWebsite.css";
 import { saveStore } from "../services/storeService";
+import { websiteSlug } from "./websiteSlug.js";
 
 import { BUSINESS_CATEGORIES } from "../business/categories";
 const businessGoals = BUSINESS_CATEGORIES;
@@ -14,8 +15,12 @@ function CreateWebsite() {
   const [businessGoal, setBusinessGoal] = useState(""); 
   const [storeUrl, setStoreUrl] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [customUrl, setCustomUrl] = useState(false);
 
-  async function handleFinish() {
+  async function handleFinish(event) {
+    event.preventDefault();
+    if (saving) return;
     setError("");
 
     if (!businessName.trim()) {
@@ -31,21 +36,31 @@ function CreateWebsite() {
       return;
     }
 
+    const slug = websiteSlug(storeUrl);
+    if (!slug) {
+      setError("Enter a website address using letters or numbers.");
+      return;
+    }
+
     const websiteData = {
       businessName: businessName.trim(),
       description: description.trim(),
       businessGoal: businessGoal,
       businessCategory: businessGoal,
       template: "luxury", 
-      storeUrl: storeUrl
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, "-"),
+      storeUrl: slug,
     };
 
-localStorage.setItem("websiteSetup", JSON.stringify(websiteData));
-
-try { await saveStore(websiteData); navigate("/dashboard"); } catch { setError("Could not save your website. Please try again."); }
+    setSaving(true);
+    try {
+      await saveStore(websiteData);
+      localStorage.setItem("websiteSetup", JSON.stringify(websiteData));
+      navigate("/dashboard");
+    } catch (saveError) {
+      setError(saveError.message || "We couldn’t save your website details. Check your connection and try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -59,14 +74,15 @@ try { await saveStore(websiteData); navigate("/dashboard"); } catch { setError("
           <div className="wizard-sidebar-content">
             <span className="wizard-eyebrow">Website Setup</span>
             <h1>Create your business website</h1>
-            <p>Complete these details to prepare your online presence in one single step.</p>
+          <p>Tell us what your business does. You can change these details and your design later.</p>
           </div>
           <p className="wizard-sidebar-footer">You can customize everything inside the editor later.</p>
         </aside>
 
         <main className="wizard-main">
-          <div className="wizard-card">
+          <form className="wizard-card" onSubmit={handleFinish} aria-busy={saving}>
             <div className="wizard-step-content">
+              <div className="wizard-step-label">Your business basics · 1 of 1</div>
               
               {/* 1. Business Name */}
               <div className="wizard-field">
@@ -74,9 +90,16 @@ try { await saveStore(websiteData); navigate("/dashboard"); } catch { setError("
                 <input
                   id="businessName"
                   type="text"
+                  autoComplete="organization"
+                  maxLength={120}
+                  required
                   value={businessName}
-                  onChange={(e) => setBusinessName(e.target.value)}
-                  placeholder="Enter your business name"
+                  onChange={(e) => {
+                    const name = e.target.value;
+                    setBusinessName(name);
+                    if (!customUrl) setStoreUrl(websiteSlug(name));
+                  }}
+                  placeholder="e.g. Nouf Beauty Studio"
                 />
               </div>
 
@@ -88,20 +111,26 @@ try { await saveStore(websiteData); navigate("/dashboard"); } catch { setError("
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Describe what your business sells or offers..."
+                  maxLength={1000}
                   rows="3"
                 />
+                <small className="wizard-help">A short description helps you keep your website focused. You can leave this blank for now.</small>
               </div>
 
               {/* 3. The 6 Original Generic Options */}
               <div className="wizard-field" style={{ marginTop: "30px" }}>
-                <label>What type of business do you run?</label>
-                <div className="template-choice-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "12px", marginTop: "10px" }}>
+                <fieldset className="wizard-category-fieldset" aria-describedby="business-type-help">
+                  <legend>What type of business do you run?</legend>
+                  <p id="business-type-help" className="wizard-help">Choose the closest match. This helps organize your dashboard.</p>
+                <div className="template-choice-grid" role="group" aria-label="Business type" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "12px", marginTop: "10px" }}>
                   {businessGoals.map((item) => (
                     <button
                       type="button"
                       key={item.id}
                       className={`template-choice-card ${businessGoal === item.id ? "selected" : ""}`}
                       onClick={() => setBusinessGoal(item.id)}
+                      aria-pressed={businessGoal === item.id}
+                      aria-label={`${item.title}: ${item.description}`}
                       style={{ padding: "15px", textAlign: "left", display: "block", height: "auto" }}
                     >
                       <strong style={{ display: "block", fontSize: "1rem", marginBottom: "4px" }}>{item.title}</strong>
@@ -109,34 +138,40 @@ try { await saveStore(websiteData); navigate("/dashboard"); } catch { setError("
                     </button>
                   ))}
                 </div>
+                </fieldset>
               </div>
 
               {/* 4. Store URL */}
               <div className="wizard-field" style={{ marginTop: "35px" }}>
                 <label htmlFor="storeUrl">Website Address</label>
                 <div className="wizard-url-field">
-                  <span>store/</span>
+                  <span>getcyb.fit/store/</span>
                   <input
                     id="storeUrl"
                     type="text"
                     value={storeUrl}
-                    onChange={(e) => setStoreUrl(e.target.value)}
+                    autoComplete="off"
+                    maxLength={100}
+                    pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                    required
+                    onChange={(e) => { setCustomUrl(true); setStoreUrl(websiteSlug(e.target.value)); }}
                     placeholder="your-store-name"
                   />
                 </div>
+                <small className="wizard-help">This is the address customers will use. You can edit it later in Store Setup.</small>
               </div>
 
             </div>
 
-            {error && <p className="wizard-error">{error}</p>}
+            {error && <p className="wizard-error" role="alert">{error}</p>}
 
             <div className="wizard-actions" style={{ marginTop: "30px", justifyContent: "flex-end" }}>
-              <button type="button" className="wizard-next-button" onClick={handleFinish}>
-                Create Website
+              <button type="submit" className="wizard-next-button" disabled={saving}>
+                {saving ? "Saving your details…" : "Create my website"}
               </button>
             </div>
 
-          </div>
+          </form>
         </main>
 
       </div>
