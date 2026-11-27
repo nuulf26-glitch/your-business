@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
-const MAGIC = Buffer.from('CYBPG01\n');
+const MAGIC = Buffer.from('CYBPG02\n');
 const DEFAULT_BACKUP_DIR = path.resolve('private-backups/postgres');
 const KEY_ENV = 'BACKUP_ENCRYPTION_KEY';
 const SAFE_SUCCESS = {
@@ -68,28 +68,53 @@ function run(command, args, env, input) {
   return result.stdout || '';
 }
 
-function encrypt(plain, key) {
+function encrypt(plain, key, postgresMajor) {
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   const ciphertext = Buffer.concat([cipher.update(plain), cipher.final()]);
-  return Buffer.concat([MAGIC, iv, cipher.getAuthTag(), ciphertext]);
+  const major = Buffer.alloc(2);
+  major.writeUInt16BE(postgresMajor);
+  return Buffer.concat([MAGIC, major, iv, cipher.getAuthTag(), ciphertext]);
 }
 
 function decrypt(archive, key) {
-  const minimum = MAGIC.length + 12 + 16 + 1;
+  const minimum = MAGIC.length + 2 + 12 + 16 + 1;
   if (archive.length < minimum || !archive.subarray(0, MAGIC.length).equals(MAGIC)) {
     throw new Error('Backup file is incomplete or has an unsupported format.');
   }
-  const ivStart = MAGIC.length;
+  const major = archive.readUInt16BE(MAGIC.length);
+  if (major < 10 || major > 99) throw new Error('Backup file has invalid PostgreSQL version metadata.');
+  const ivStart = MAGIC.length + 2;
   const tagStart = ivStart + 12;
   const ciphertextStart = tagStart + 16;
   const decipher = createDecipheriv('aes-256-gcm', key, archive.subarray(ivStart, tagStart));
   decipher.setAuthTag(archive.subarray(tagStart, ciphertextStart));
   try {
-    return Buffer.concat([decipher.update(archive.subarray(ciphertextStart)), decipher.final()]);
+    return { plain: Buffer.concat([decipher.update(archive.subarray(ciphertextStart)), decipher.final()]), major };
   } catch {
     throw new Error('Backup authentication failed; the file or encryption key is invalid.');
   }
+}
+
+function toolMajor(command) {
+  const output = run(command, ['--version'], process.env);
+  const match = output.match(/\b(?:PostgreSQL\)?\s+)(\d{2})(?:\.\d+)?/i) || output.match(/\b(\d{2})\.\d+\b/);
+  if (!match) throw new Error(`Could not determine the PostgreSQL client major version for ${command}.`);
+  return Number(match[1]);
+}
+
+function serverMajor(connection) {
+  const output = run('psql', ['--no-psqlrc', '--tuples-only', '--no-align', '--command', 'SHOW server_version_num'], connection.env).trim();
+  const version = Number(output);
+  if (!Number.isInteger(version) || version < 100000) throw new Error('Could not determine the PostgreSQL server major version.');
+  return Math.floor(version / 10000);
+}
+
+function assertVersionMatch(client, connection) {
+  const clientVersion = toolMajor(client);
+  const serverVersion = serverMajor(connection);
+  if (clientVersion !== serverVersion) throw new Error(`${client} major version ${clientVersion} must match the PostgreSQL server major version ${serverVersion}.`);
+  return serverVersion;
 }
 
 async function privateTempDir() {
@@ -123,10 +148,11 @@ async function inspectArchive(archiveFile, key) {
   const dump = path.join(dir, 'database.dump');
   try {
     const archive = await readFile(archiveFile);
-    const plain = decrypt(archive, key);
-    await writePrivateFile(dump, plain);
+    const decoded = decrypt(archive, key);
+    if (toolMajor('pg_restore') !== decoded.major) throw new Error('pg_restore major version must match the version recorded in this backup.');
+    await writePrivateFile(dump, decoded.plain);
     run('pg_restore', ['--list', dump], process.env);
-    return { bytes: archive.length, sha256: createHash('sha256').update(archive).digest('hex'), dump };
+    return { bytes: archive.length, sha256: createHash('sha256').update(archive).digest('hex'), dump, major: decoded.major };
   } catch (error) {
     await rm(dir, { recursive: true, force: true });
     throw error;
@@ -140,6 +166,7 @@ async function cleanupInspect(result) {
 async function backup(outputFile) {
   const key = readKey();
   const connection = connectionEnv(process.env.DATABASE_URL);
+  const postgresMajor = assertVersionMatch('pg_dump', connection);
   const target = path.resolve(outputFile || path.join(DEFAULT_BACKUP_DIR, `cyb-postgres-${new Date().toISOString().replaceAll(':', '').replaceAll('.', '')}.cybpg`));
   const dir = await privateTempDir();
   const dump = path.join(dir, 'database.dump');
@@ -148,7 +175,7 @@ async function backup(outputFile) {
     await chmod(dump, 0o600);
     run('pg_restore', ['--list', dump], process.env);
     const plain = await readFile(dump);
-    await writeAtomicPrivateFile(target, encrypt(plain, key));
+    await writeAtomicPrivateFile(target, encrypt(plain, key, postgresMajor));
     let result;
     try {
       result = await inspectArchive(target, key);
@@ -181,6 +208,7 @@ async function restore(archiveFile) {
   if (!archiveFile) throw new Error('Provide a backup file to restore.');
   const key = readKey();
   const connection = connectionEnv(process.env.DATABASE_URL);
+  const postgresMajor = assertVersionMatch('pg_restore', connection);
   if (!/^[A-Za-z0-9_][A-Za-z0-9_-]{0,62}$/.test(connection.database)) throw new Error('Restore target database name is not safe to confirm.');
   if (process.env.CYB_RESTORE_CONFIRM_DATABASE !== connection.database) {
     throw new Error('Restore refused. Set CYB_RESTORE_CONFIRM_DATABASE to the exact empty target database name.');
@@ -188,6 +216,7 @@ async function restore(archiveFile) {
   if (!await databaseIsEmpty(connection)) throw new Error('Restore refused. The target database is not empty; restore into a new database.');
   const result = await inspectArchive(path.resolve(archiveFile), key);
   try {
+    if (result.major !== postgresMajor) throw new Error(`Restore target PostgreSQL major version ${postgresMajor} does not match backup version ${result.major}.`);
     run('pg_restore', ['--no-owner', '--no-acl', '--exit-on-error', '--dbname', connection.database, result.dump], {
       ...connection.env,
       PGDATABASE: connection.database,

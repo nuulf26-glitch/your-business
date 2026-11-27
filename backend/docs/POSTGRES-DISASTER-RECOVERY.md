@@ -1,6 +1,6 @@
 # PostgreSQL backup and recovery
 
-CYB PostgreSQL backups are custom-format `pg_dump` archives encrypted with AES-256-GCM. The encryption key is supplied outside the repository through `BACKUP_ENCRYPTION_KEY` (32 bytes encoded as hexadecimal or base64). Keep the key in the approved secret manager separately from the encrypted archive. Never print it, place it in command arguments, commit it, or upload plaintext dumps as CI artifacts.
+CYB PostgreSQL backups are custom-format `pg_dump` archives encrypted with AES-256-GCM. The encrypted header records the PostgreSQL major version; backup and restore refuse a client/server version mismatch and restore refuses a database major-version mismatch. Use matching `pg_dump`/`pg_restore` client tools for the database major version. The encryption key is supplied outside the repository through `BACKUP_ENCRYPTION_KEY` (32 bytes encoded as hexadecimal or base64). Keep the key in the approved secret manager separately from the encrypted archive. Never print it, place it in command arguments, commit it, or upload plaintext dumps as CI artifacts.
 
 The scripts require PostgreSQL client tools (`pg_dump`, `pg_restore`, and `psql`). They read connection details from `DATABASE_URL`; credentials are passed to libpq through process environment and are not included in command arguments or success output.
 
@@ -43,6 +43,6 @@ CYB_RESTORE_CONFIRM_DATABASE=cyb_recovery_target \
 
 ## Automated verification
 
-The `PostgreSQL recovery regression` GitHub Actions workflow creates a disposable PostgreSQL 16 service, applies the repository Prisma migrations to that disposable service, and inserts only synthetic `example.test` rows. It encrypts and verifies a backup, restores into a new empty database, checks user/business/website/product/customer/order relationships and merchant-scoped queries, checks Prisma migration history, and confirms that tampered, truncated, unconfirmed-target, and populated-target recovery attempts are rejected. The workflow creates no downloadable backup artifact and tears down the service with the job.
+The `PostgreSQL recovery regression` GitHub Actions workflow creates a disposable PostgreSQL 16 service with matching client tools, applies the repository Prisma migrations to that disposable service, and inserts only synthetic `example.test` rows. It encrypts and verifies a backup, restores into a new empty database, checks user/business/website/product/customer/order relationships and merchant-scoped queries, checks Prisma migration history, and confirms that tampered, truncated, unconfirmed-target, and populated-target recovery attempts are rejected. The workflow creates no downloadable backup artifact and tears down the service with the job.
 
 These tests prove recovery behavior for synthetic data and the tested schema revision. They do **not** establish recoverability of any existing CYB customer data, a provider-managed backup, retention settings, point-in-time recovery, encryption-key custody, or an infrastructure-level restore drill. Those remain separate launch checks.
