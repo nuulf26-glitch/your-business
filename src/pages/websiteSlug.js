@@ -8,3 +8,7 @@ export function websiteSlug(value = "") {
     .slice(0, 100)
     .replace(/-+$/g, "");
 }
+
+export function suggestedWebsiteSlug(businessName = "") {
+  return websiteSlug(businessName) || (businessName.trim() ? "my-business" : "");
+}
