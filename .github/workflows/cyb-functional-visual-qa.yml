@@ -49,6 +49,9 @@ jobs:
       - name: Lint frontend
         run: npm run lint
 
+      - name: Run website setup regressions
+        run: node --test tests/website-slug.test.js
+
       - name: Render functional routes at four viewport sizes
         run: |
           npx playwright test tests/functional-visual/flows.spec.js --grep "editor page management"
