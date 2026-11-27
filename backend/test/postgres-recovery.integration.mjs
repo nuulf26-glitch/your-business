@@ -27,7 +27,9 @@ const pgEnv = {
 const run = (cmd, args, env = pgEnv, expectSuccess = true) => {
   const result = spawnSync(cmd, args, { env, encoding: 'utf8', timeout: 10 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
   if (expectSuccess ? result.status !== 0 : result.status === 0) {
-    throw new Error(`${cmd} returned an unexpected result; subprocess output is suppressed to protect data.`);
+    // Recovery CLI errors are intentionally generic and contain no SQL, connection strings, or records.
+    const safeFailure = String(result.stderr || '').trim().slice(0, 1000);
+    throw new Error(`${cmd} returned an unexpected result.${safeFailure ? ` ${safeFailure}` : ''}`);
   }
   return result;
 };
