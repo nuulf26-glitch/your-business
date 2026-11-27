@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-const startupScript = path.resolve(__dirname, "../scripts/start-prod.cjs");
+const startupScript = path.resolve(process.cwd(), "scripts/start-prod.cjs");
 const testDatabaseUrl = "postgresql://test_user:test-secret@localhost:5432/test_db";
 
 function runStartup(statusCode: number, statusOutput: string) {
