@@ -187,27 +187,20 @@ const [userProfile, setUserProfile] = useState(null);
               </button>
               {notificationsOpen && <div className="dashboard-notification-popover" role="status"><strong>You’re all caught up</strong><p>New account and store updates will appear here.</p></div>}
             </div>
-            <button
+            {websiteStatus === "Published" && websiteSetup?.storeUrl && <button
               type="button"
               className="dashboard-secondary-button"
-              onClick={() => navigate("/editor")}
+              onClick={() => navigate(`/store/${websiteSetup.storeUrl}`)}
             >
-              Edit website
-            </button>
+              Open live website
+            </button>}
 
             <button
               type="button"
               className="dashboard-primary-button"
-              onClick={() =>
-                navigate(
-                  websiteSetup?.storeUrl
-  ? `/store/${websiteSetup.storeUrl}`
-  : "/editor"
-  
-                )
-              }
+              onClick={() => navigate("/editor")}
             >
-              View website
+              {websiteStatus === "Published" ? "Edit website" : "Continue building"}
             </button>
           </div>
         </header>
@@ -246,6 +239,14 @@ const [userProfile, setUserProfile] = useState(null);
   {refundMessage && <p role="status">{refundMessage}</p>}
 
 </section>
+        {websiteStatus !== "Published" && websiteStatus !== "Checking…" && <section className="dashboard-getting-started" aria-labelledby="getting-started-title">
+          <div className="dashboard-getting-started-copy">
+            <span>Next step</span>
+            <h2 id="getting-started-title">{websiteStatus === "Unpublished changes" ? "Your live website has unpublished changes" : "Your website is a draft"}</h2>
+            <p>Use the editor to change your text and photos, or describe a design in plain language with CYB AI. Preview desktop, tablet, and mobile before you publish.</p>
+          </div>
+          <button type="button" className="dashboard-primary-button" onClick={() => navigate("/editor")}>Continue in the editor</button>
+        </section>}
         {isStaging && (
           <section className="dashboard-payment-card" aria-labelledby="staging-stripe-title">
             <span>Staging diagnostics</span>
