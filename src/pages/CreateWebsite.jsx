@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/createWebsite.css";
 import { saveStore } from "../services/storeService";
-import { websiteSlug } from "./websiteSlug.js";
+import { suggestedWebsiteSlug, websiteSlug } from "./websiteSlug.js";
 
 import { BUSINESS_CATEGORIES } from "../business/categories";
 const businessGoals = BUSINESS_CATEGORIES;
@@ -97,7 +97,7 @@ function CreateWebsite() {
                   onChange={(e) => {
                     const name = e.target.value;
                     setBusinessName(name);
-                    if (!customUrl) setStoreUrl(websiteSlug(name));
+                    if (!customUrl) setStoreUrl(suggestedWebsiteSlug(name));
                   }}
                   placeholder="e.g. Nouf Beauty Studio"
                 />
@@ -158,7 +158,7 @@ function CreateWebsite() {
                     placeholder="your-store-name"
                   />
                 </div>
-                <small className="wizard-help">This is the address customers will use. You can edit it later in Store Setup.</small>
+                <small className="wizard-help">Use English letters, numbers, and hyphens. If your business name uses another script, adjust this suggested address. You can edit it later in Store Setup.</small>
               </div>
 
             </div>
