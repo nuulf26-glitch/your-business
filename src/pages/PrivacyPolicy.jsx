@@ -128,8 +128,7 @@ function PrivacyPolicy() {
           <article>
             <h2>11. Contact</h2>
             <p>
-              Questions about privacy may be sent to:
-              privacy@yourbusiness.example
+              Questions about privacy may be sent to: <a href="mailto:createyourbusiness6@gmail.com">createyourbusiness6@gmail.com</a>.
             </p>
           </article>
         </section>

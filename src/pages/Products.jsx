@@ -10,11 +10,15 @@ import {
   getProducts,
   updateProduct,
   deleteProduct,
+  duplicateProduct,
+  archiveProduct,
 } from "../services/productService";
 
 import "../styles/products.css";
+import DashboardLayout from "../layouts/DashboardLayout";
 import MediaFields from '../media/MediaFields';
 import { mediaItems, primaryImage } from '../media/media';
+import { InlineState } from "../components/ui/DesignPrimitives";
 
 const emptyForm = {
   name: "",
@@ -26,6 +30,7 @@ const emptyForm = {
   imageUrl: "",
   imageName: "",
   media: [],
+  variants: [],
   status: "active",
   salePrice: "",
   salePercent: "",
@@ -52,21 +57,29 @@ function Products() {
   const [mediaBusy,setMediaBusy]=useState(false);
   const [saving,setSaving]=useState(false);
   const [statusSavingId, setStatusSavingId] = useState(null);
+  const [listState, setListState] = useState("loading");
+  const [loadVersion, setLoadVersion] = useState(0);
 
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-  async function loadProducts() {
-    try {
-      const data = await getProducts();
-      setProducts(data);
-    } catch (error) {
-      console.error("Could not load products:", error);
+    let active = true;
+    async function loadProducts() {
+      setListState("loading");
+      try {
+        const data = await getProducts();
+        if (active) {
+          setProducts(data);
+          setListState("ready");
+        }
+      } catch (error) {
+        console.error("Could not load products:", error);
+        if (active) setListState("error");
+      }
     }
-  }
-
-  loadProducts();
-}, []);
+    loadProducts();
+    return () => { active = false; };
+  }, [loadVersion]);
 
 
 
@@ -237,6 +250,17 @@ function Products() {
     }
   }
 
+  function addVariant() {
+    setForm(current => ({ ...current, variants: [...(current.variants || []), { id: "variant-" + Date.now(), name: "", sku: "", price: current.sellingPrice || "", stock: "" }] }));
+  }
+
+  function updateVariant(index, key, value) {
+    setForm(current => ({ ...current, variants: (current.variants || []).map((variant, row) => row === index ? { ...variant, [key]: value } : variant) }));
+  }
+
+  function removeVariant(index) {
+    setForm(current => ({ ...current, variants: (current.variants || []).filter((_, row) => row !== index) }));
+  }
   function handleChange(event) {
     const { name, value } = event.target;
 
@@ -329,7 +353,8 @@ function Products() {
         form.description.trim(),
 
       media: form.media,
-      imageUrl: primaryImage(form.media) || form.imageUrl,
+      variants: (form.variants || []).map((variant, index) => ({ id: String(variant.id || ("variant-" + (index + 1))), name: String(variant.name || "").trim(), sku: String(variant.sku || "").trim(), price: variant.price === "" ? sellingPrice : Number(variant.price), ...(variant.stock === "" ? {} : { stock: Number(variant.stock) }) })),
+      imageUrl: primaryImage(form.media),
       status: form.status || "active",
       salePrice: form.salePrice,
       salePercent: form.salePercent,
@@ -379,6 +404,7 @@ setProducts(updatedProducts);
     setForm({
       ...emptyForm,
       ...product,
+      variants: Array.isArray(product.variants) ? product.variants.map(variant => ({ ...variant, id: String(variant.id || ""), name: String(variant.name || ""), sku: String(variant.sku || ""), price: String(variant.price ?? variant.sellingPrice ?? product.sellingPrice ?? ""), stock: variant.stock === undefined || variant.stock === null ? "" : String(variant.stock) })) : [],
       media: mediaItems(product),
       name: product.name || "",
 
@@ -414,6 +440,26 @@ setProducts(updatedProducts);
       top: 0,
       behavior: "smooth",
     });
+  }
+
+  async function handleDuplicate(productId) {
+    try {
+      const duplicate = await duplicateProduct(productId);
+      setProducts(current => [duplicate, ...current]);
+      setImageError("Product duplicated as a hidden draft. Review its details before publishing.");
+    } catch (error) {
+      setImageError(error.message || "Could not duplicate product.");
+    }
+  }
+
+  async function handleArchive(productId) {
+    if (!window.confirm("Archive this product? It will be removed from the public store.")) return;
+    try {
+      await archiveProduct(productId);
+      setProducts(current => current.map(product => product.id === productId ? { ...product, status: "archived" } : product));
+    } catch (error) {
+      setImageError(error.message || "Could not archive product.");
+    }
   }
 
   async function handleDelete(productId) {
@@ -460,6 +506,7 @@ setProducts(updatedProducts);
   }
 
   return (
+    <DashboardLayout>
     <div className="products-page">
       <header className="products-header">
         <div>
@@ -827,6 +874,16 @@ setProducts(updatedProducts);
               />
             </div>
 
+            <section className="product-variants-editor" aria-label="Product variants">
+              <div className="product-variants-heading"><div><strong>Variants</strong><p>Add size, color, or other options. Leave stock blank to use the product stock total.</p></div><button type="button" onClick={addVariant}>Add variant</button></div>
+              {(form.variants || []).map((variant, index) => <div className="product-variant-row" key={variant.id || index}>
+                <label>Option name<input aria-label={"Variant " + (index + 1) + " name"} value={variant.name || ""} onChange={event => updateVariant(index, "name", event.target.value)} placeholder="Small / Black" required /></label>
+                <label>SKU<input aria-label={"Variant " + (index + 1) + " SKU"} value={variant.sku || ""} onChange={event => updateVariant(index, "sku", event.target.value)} maxLength={100} placeholder="Optional SKU" /></label>
+                <label>Price<input aria-label={"Variant " + (index + 1) + " price"} type="number" min="0" step="0.01" value={variant.price ?? form.sellingPrice} onChange={event => updateVariant(index, "price", event.target.value)} /></label>
+                <label>Stock<input aria-label={"Variant " + (index + 1) + " stock"} type="number" min="0" step="1" value={variant.stock ?? ""} onChange={event => updateVariant(index, "stock", event.target.value)} placeholder="Use product stock" /></label>
+                <button type="button" onClick={() => removeVariant(index)} aria-label={"Remove variant " + (index + 1)}>Remove</button>
+              </div>)}
+            </section>
             <div className="product-form-actions">
               {editingId && (
                 <button
@@ -896,7 +953,11 @@ setProducts(updatedProducts);
             </select>
           </div>
 
-          {filteredProducts.length === 0 ? (
+          {listState === "loading" ? (
+            <InlineState kind="loading" title="Loading products" description="Your inventory will appear here in a moment." />
+          ) : listState === "error" ? (
+            <InlineState kind="error" title="Products could not load" description="Check your connection and try again. Your product data has not been changed." onRetry={() => setLoadVersion(version => version + 1)} />
+          ) : filteredProducts.length === 0 ? (
             <div className="products-empty-state">
               <h3>No products found</h3>
 
@@ -958,6 +1019,9 @@ setProducts(updatedProducts);
                             >
                               Edit
                             </button>
+
+                            <button type="button" onClick={() => handleDuplicate(product.id)}>Duplicate</button>
+                            <button type="button" onClick={() => handleArchive(product.id)} disabled={normalizeStatus(product) === "archived"}>Archive</button>
 
                             <button
                               type="button"
@@ -1108,6 +1172,7 @@ setProducts(updatedProducts);
         </article>
       </section>
     </div>
+    </DashboardLayout>
   );
 }
 

@@ -1,9 +1,11 @@
-import { customBackendRequest } from '../services/customBackendSession';
+import { customBackendRequest } from '../services/customBackendSession.js';
 
 export async function businessCall(name, data = {}) {
   if (name === 'loadWebsiteDraft') { const result = await customBackendRequest('/websites/draft'); return result?.draft || null; }
-  if (name === 'saveWebsiteDraft') return customBackendRequest('/websites/draft', { method: 'PUT', body: JSON.stringify({ model: data.model }) });
-  if (name === 'publishWebsiteSnapshot') { await customBackendRequest('/websites/draft', { method: 'PUT', body: JSON.stringify({ model: data.model }) }); return customBackendRequest('/websites/publish', { method: 'POST', body: JSON.stringify({ model: data.model }) }); }
+  if (name === 'loadWebsiteRecord') return customBackendRequest('/websites/draft');
+  if (name === 'publicationDiagnostic') return customBackendRequest('/websites/publication-diagnostic');
+  if (name === 'saveWebsiteDraft') return customBackendRequest('/websites/draft', { method: 'PUT', body: JSON.stringify({ model: data.model, expectedRevision: data.expectedRevision }) });
+  if (name === 'publishWebsiteSnapshot') return customBackendRequest('/websites/publish', { method: 'POST', body: JSON.stringify({ model: data.model, expectedRevision: data.expectedRevision }) });
   if (name === 'listWebsiteVersions') return customBackendRequest('/websites/versions');
   if (name === 'unpublishWebsite') return customBackendRequest('/websites/unpublish', { method: 'POST' });
   if (name === 'loadPublishedWebsite') {
@@ -29,6 +31,7 @@ export async function businessCall(name, data = {}) {
   if (name === 'rescheduleBooking') return customBackendRequest(`/businesses/mine/records/${encodeURIComponent(data.id)}/reschedule`, { method: 'PATCH', body: JSON.stringify({ data: { start: data.start } }) });
   if (name === 'submitInquiry') return customBackendRequest('/public/inquiries', { method: 'POST', body: JSON.stringify({ data }) });
   if (name === 'createPickupOrder') return customBackendRequest('/public/pickup-orders', { method: 'POST', body: JSON.stringify({ data }) });
-  if (name === 'recordPageView') return customBackendRequest('/public/analytics/pageview', { method: 'POST', body: JSON.stringify({ data }) });
+  if (name === 'recordPageView') return customBackendRequest('/analytics/event', { method: 'POST', body: JSON.stringify({ data: { ...data, type: 'page_view', eventId: data.eventId || crypto.randomUUID(), userAgent: navigator.userAgent } }) });
+  if (name === 'recordAnalyticsEvent') return customBackendRequest('/analytics/event', { method: 'POST', body: JSON.stringify({ data: { ...data, eventId: data.eventId || crypto.randomUUID(), userAgent: navigator.userAgent } }) });
   throw new Error(`The ${name} feature is not connected to the custom backend yet.`);
 }

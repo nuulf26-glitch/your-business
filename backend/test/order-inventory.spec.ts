@@ -1,0 +1,236 @@
+import { OrderController, ProductController, PublicProductController } from '../src/routes';
+import { encryptMerchantPaymentSecret } from '../src/merchant-payments';
+
+describe('OrderController inventory release', () => {
+  function fixture(options: { variants?: any[]; stock?: number; line?: any; paymentAttempt?: any } = {}) {
+    const product: any = {
+      id: 'product_1', businessId: 'business_1',
+      data: {
+        stock: options.stock ?? 2,
+        ...(options.variants ? { variants: options.variants } : {}),
+      },
+    };
+    const order: any = {
+      id: 'order_1', businessId: 'business_1', status: 'new',
+      data: {
+        fulfillmentStatus: 'new', paymentStatus: 'Cash on delivery',
+        items: [options.line || { id: product.id, variantId: 'blue-medium', quantity: 1 }],
+      },
+    };
+    const tx: any = {
+      businessRecord: {
+        findFirst: jest.fn(async () => options.paymentAttempt || null),
+        updateMany: jest.fn(async () => ({ count: 1 })),
+      },
+      product: {
+        findFirst: jest.fn(async ({ where }: any) => where.businessId === product.businessId && where.id === product.id ? product : null),
+        findMany: jest.fn(async ({ where }: any) => where.businessId === product.businessId ? [product] : []),
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          if (where.businessId !== product.businessId || where.id !== product.id || JSON.stringify(where.data.equals) !== JSON.stringify(product.data)) return { count: 0 };
+          product.data = data.data;
+          return { count: 1 };
+        }),
+      },
+      order: {
+        findFirst: jest.fn(async ({ where }: any) => where.businessId === order.businessId && where.id === order.id ? order : null),
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          if (where.businessId !== order.businessId || where.id !== order.id || order.status !== where.status || JSON.stringify(order.data) !== JSON.stringify(where.data.equals)) return { count: 0 };
+          Object.assign(order, data);
+          return { count: 1 };
+        }),
+        findUnique: jest.fn(async () => order),
+      },
+    };
+    let tail = Promise.resolve();
+    const db: any = {
+      business: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'business_1', ownerId: 'merchant_1' }),
+        findUnique: jest.fn().mockResolvedValue({ id: 'business_1', slug: 'test-shop', settings: {}, website: { published: {} } }),
+      },
+      businessRecord: { findFirst: jest.fn(async () => options.paymentAttempt || null), update: jest.fn().mockResolvedValue({}) },
+      product: { findMany: jest.fn(async ({ where }: any) => where.businessId === product.businessId ? [product] : []) },
+      $transaction: jest.fn(async (callback: any) => {
+        let release!: () => void;
+        const previous = tail;
+        tail = new Promise<void>(resolve => { release = resolve; });
+        await previous;
+        try { return await callback(tx); } finally { release(); }
+      }),
+    };
+    return { controller: new OrderController(db), product, order, tx, db };
+  }
+
+  const request: any = { user: { id: 'merchant_1' }, params: { id: 'order_1' } };
+
+  it('restores the selected variant and recomputes parent stock after cancellation', async () => {
+    const { controller, product } = fixture({
+      stock: 5,
+      variants: [
+        { id: 'blue-medium', name: 'Blue / Medium', stock: 2 },
+        { id: 'red-medium', name: 'Red / Medium', stock: 3 },
+      ],
+    });
+    await controller.updateStatus(request, { status: 'cancelled' } as any);
+    expect(product.data).toMatchObject({ stock: 6, variants: [{ id: 'blue-medium', stock: 3 }, { id: 'red-medium', stock: 3 }] });
+  });
+
+  it('restores non-variant product stock on cancellation', async () => {
+    const { controller, product } = fixture({ stock: 2, line: { id: 'product_1', quantity: 1 } });
+    const savedOrder = await controller.updateStatus(request, { status: 'cancelled' } as any) as any;
+    expect(product.data.stock).toBe(3);
+    expect(savedOrder).toMatchObject({ status: 'cancelled', data: { fulfillmentStatus: 'cancelled' } });
+  });
+
+  it('allows cancellation of an awaiting bank-transfer order and restores its inventory', async () => {
+    const { controller, product, order, tx } = fixture({
+      stock: 1,
+      line: { id: 'product_1', quantity: 1 },
+      paymentAttempt: {
+        status: 'awaiting_confirmation',
+        data: { provider: 'bank_transfer', orderId: 'order_1', status: 'awaiting_confirmation' },
+      },
+    });
+    order.data.manualPaymentProvider = 'bank_transfer';
+    order.data.paymentStatus = 'Awaiting manual confirmation';
+
+    const savedOrder = await controller.updateStatus(request, { status: 'cancelled' } as any) as any;
+
+    expect(savedOrder).toMatchObject({ status: 'cancelled', data: { fulfillmentStatus: 'cancelled' } });
+    expect(savedOrder.data.paymentStatus).toBe('Cancelled');
+    expect(order.data.inventoryHistory).toHaveLength(1);
+    expect(product.data.stock).toBe(2);
+    expect(tx.businessRecord.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ businessId: 'business_1', type: 'merchantPayment' }),
+      data: expect.objectContaining({ status: 'cancelled', data: expect.objectContaining({ status: 'cancelled' }) }),
+    }));
+  });
+
+  it('does not allow a cancelled manual-payment order to be marked collected', async () => {
+    const { controller, order, tx } = fixture({
+      paymentAttempt: {
+        status: 'awaiting_confirmation',
+        data: { provider: 'external_payment_link', orderId: 'order_1', status: 'awaiting_confirmation' },
+      },
+    });
+    order.status = 'cancelled';
+    order.data.fulfillmentStatus = 'cancelled';
+    order.data.manualPaymentProvider = 'external_payment_link';
+
+    await expect(controller.updatePayment(request, { data: { status: 'paid' } } as any)).rejects.toThrow('cancelled or returned order cannot be marked paid');
+    expect(order.data.paymentStatus).toBe('Cash on delivery');
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('requires a collected payment to be refunded before cancellation', async () => {
+    const { controller, order, tx } = fixture();
+    order.data.paymentStatus = 'Paid';
+    order.data.paidAt = new Date().toISOString();
+
+    await expect(controller.updateStatus(request, { status: 'cancelled' } as any)).rejects.toThrow('Refund the collected payment before cancelling');
+    expect(order.status).toBe('new');
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('keeps inventory reserved while a Tap payment attempt is still active', async () => {
+    const { controller, product, order, tx } = fixture({
+      stock: 1,
+      line: { id: 'product_1', quantity: 1 },
+      paymentAttempt: {
+        status: 'starting',
+        data: { provider: 'tap', orderId: 'order_1', status: 'starting' },
+      },
+    });
+
+    await expect(controller.updateStatus(request, { status: 'cancelled' } as any)).rejects.toThrow('A Tap payment is still in progress');
+
+    expect(order.status).toBe('new');
+    expect(product.data.stock).toBe(1);
+    expect(tx.product.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('cancels a pending Stripe test intent before persisting cancellation and restoring stock', async () => {
+    const originalFetch=global.fetch,oldKey=process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY;
+    process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY='1'.repeat(64);
+    const paymentAttempt={id:'stripe_attempt_1',businessId:'business_1',status:'requires_action',data:{provider:'stripe',orderId:'order_1',stripePaymentIntentId:'pi_test_1'}};
+    const {controller,product,order,db}=fixture({stock:1,line:{id:'product_1',quantity:1},paymentAttempt});
+    const credentials={provider:'stripe',mode:'test',...encryptMerchantPaymentSecret(JSON.stringify({restrictedTestKey:'rk_test_merchant_key'}))};
+    db.businessRecord={findFirst:jest.fn().mockResolvedValueOnce(paymentAttempt).mockResolvedValueOnce({data:credentials,status:'connected'}),update:jest.fn(async()=>{paymentAttempt.status='CANCELED';return {};})};
+    global.fetch=jest.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({id:'pi_test_1',status:'requires_action'}),{status:200}))
+      .mockResolvedValueOnce(new Response(JSON.stringify({id:'pi_test_1',status:'canceled'}),{status:200})) as any;
+    try {
+      const result=await controller.updateStatus(request,{status:'cancelled'} as any) as any;
+      expect(result).toMatchObject({status:'cancelled',data:{fulfillmentStatus:'cancelled',paymentMethod:'stripe',gatewayProvider:'stripe',paymentStatus:'Cancelled'}});
+      expect(product.data.stock).toBe(2);
+      expect(db.businessRecord.update).toHaveBeenCalledWith(expect.objectContaining({where:{id:'stripe_attempt_1'},data:expect.objectContaining({status:'CANCELED'})}));
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect((global.fetch as any).mock.calls[1][0]).toBe('https://api.stripe.com/v1/payment_intents/pi_test_1/cancel');
+    } finally {
+      global.fetch=originalFetch;
+      if(oldKey===undefined)delete process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY;else process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY=oldKey;
+    }
+  });
+
+  it('blocks cancellation and keeps inventory reserved when Stripe confirms a successful payment', async () => {
+    const originalFetch=global.fetch,oldKey=process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY;
+    process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY='2'.repeat(64);
+    const paymentAttempt={id:'stripe_attempt_2',businessId:'business_1',status:'requires_action',data:{provider:'stripe',orderId:'order_1',stripePaymentIntentId:'pi_test_2'}};
+    const {controller,product,order,db}=fixture({stock:1,line:{id:'product_1',quantity:1},paymentAttempt});
+    const credentials={provider:'stripe',mode:'test',...encryptMerchantPaymentSecret(JSON.stringify({restrictedTestKey:'rk_test_merchant_key'}))};
+    db.businessRecord={findFirst:jest.fn().mockResolvedValueOnce(paymentAttempt).mockResolvedValueOnce({data:credentials,status:'connected'}),update:jest.fn()};
+    global.fetch=jest.fn().mockResolvedValue(new Response(JSON.stringify({id:'pi_test_2',status:'succeeded'}),{status:200})) as any;
+    try {
+      await expect(controller.updateStatus(request,{status:'cancelled'} as any)).rejects.toThrow('Refund it before cancelling');
+      expect(order.status).toBe('new');expect(product.data.stock).toBe(1);expect(global.fetch).toHaveBeenCalledTimes(1);expect(db.businessRecord.update).not.toHaveBeenCalled();
+    } finally {
+      global.fetch=originalFetch;
+      if(oldKey===undefined)delete process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY;else process.env.PAYMENT_CREDENTIALS_ENCRYPTION_KEY=oldKey;
+    }
+  });
+
+  it('returns the same post-cancellation available quantity to merchant inventory and storefront', async () => {
+    const { controller, product, db } = fixture({
+      stock: 1,
+      line: { id: 'product_1', quantity: 1 },
+    });
+
+    await controller.updateStatus(request, { status: 'cancelled' } as any);
+
+    const merchantProducts = await new ProductController(db).list({ user: { id: 'merchant_1' } } as any) as any[];
+    const storefrontProducts = await new PublicProductController(db).list({ params: { slug: 'test-shop' } } as any) as any[];
+    expect(merchantProducts[0].data.stock).toBe(2);
+    expect(storefrontProducts[0].stock).toBe(merchantProducts[0].data.stock);
+  });
+
+  it('does not release variant or parent inventory a second time on retries', async () => {
+    const { controller, product, order, tx } = fixture({
+      stock: 2, variants: [{ id: 'blue-medium', name: 'Blue / Medium', stock: 2 }],
+    });
+    await controller.updateStatus(request, { status: 'cancelled' } as any);
+    const released = structuredClone(product.data);
+    await controller.updateStatus(request, { status: 'cancelled' } as any);
+    expect(product.data).toEqual(released);
+    expect(order.data.inventoryHistory).toHaveLength(1);
+    expect(tx.product.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('serializes concurrent cancellation retries and releases inventory once', async () => {
+    const { controller, product, order, tx } = fixture({
+      stock: 2, variants: [{ id: 'blue-medium', name: 'Blue / Medium', stock: 2 }],
+    });
+    await Promise.all(Array.from({ length: 5 }, () => controller.updateStatus(request, { status: 'cancelled' } as any)));
+    expect(product.data).toMatchObject({ stock: 3, variants: [{ id: 'blue-medium', stock: 3 }] });
+    expect(order.data.inventoryHistory).toHaveLength(1);
+    expect(tx.product.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects cancellation if the ordered variant is missing, leaving the order and stock unchanged', async () => {
+    const { controller, product, order, tx } = fixture({
+      stock: 2, variants: [{ id: 'different-variant', name: 'Other', stock: 2 }],
+    });
+    await expect(controller.updateStatus(request, { status: 'cancelled' } as any)).rejects.toThrow('variant no longer exists');
+    expect(order.status).toBe('new');
+    expect(product.data).toMatchObject({ stock: 2, variants: [{ id: 'different-variant', stock: 2 }] });
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
+  });
+});

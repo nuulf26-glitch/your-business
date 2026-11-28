@@ -1,43 +1,67 @@
 import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { logout } from "../services/authService";
-import { subscribeAppUser } from "../services/customBackendSession";
-import { getStore } from "../services/storeService";
+import { subscribeAppUser, getActiveBusinessId, setActiveBusinessId } from "../services/customBackendSession";
+import { listStores, createStore } from "../services/storeService";
+import "../styles/workspace-layout.css";
 
 function DashboardLayout({ children }) {
   const navigate = useNavigate();
 
   const [storeUrl, setStoreUrl] = useState("");
   const [loadingStore, setLoadingStore] = useState(true);
+  const [stores, setStores] = useState([]);
+  const [activeBusinessId, setActiveBusinessIdState] = useState(getActiveBusinessId());
+  const [createStoreOpen, setCreateStoreOpen] = useState(false);
+  const [newStoreName, setNewStoreName] = useState("");
+  const [newStoreSlug, setNewStoreSlug] = useState("");
+  const [creatingStore, setCreatingStore] = useState(false);
+  const [storeError, setStoreError] = useState("");
 
   useEffect(() => {
+    let active = true;
+    let requestVersion = 0;
     const unsubscribe = subscribeAppUser(
       async (currentUser) => {
+        const version = ++requestVersion;
         if (!currentUser) {
           setStoreUrl("");
+          setStores([]);
+          setActiveBusinessIdState("");
+          setActiveBusinessId("");
           setLoadingStore(false);
           return;
         }
 
+        setLoadingStore(true);
+        setStoreUrl("");
+        setStores([]);
+        setActiveBusinessIdState("");
         try {
-          setLoadingStore(true);
-
-          const storeData = await getStore();
-          setStoreUrl(storeData?.storeUrl || "");
+          const rows = await listStores();
+          if (!active || version !== requestVersion) return;
+          setStores(rows);
+          const savedId = getActiveBusinessId();
+          const selected = rows.find(store => store.id === savedId) || rows[0] || null;
+          if (selected && selected.id !== savedId) setActiveBusinessId(selected.id);
+          setActiveBusinessIdState(selected?.id || "");
+          setStoreUrl(selected?.storeUrl || "");
         } catch (error) {
-          console.error(
-            "Error loading store URL:",
-            error
-          );
-
+          if (!active || version !== requestVersion) return;
+          console.error("Error loading stores:", error);
           setStoreUrl("");
+          setStores([]);
         } finally {
-          setLoadingStore(false);
+          if (active && version === requestVersion) setLoadingStore(false);
         }
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+      active = false;
+      requestVersion += 1;
+      unsubscribe();
+    };
   }, []);
 
   async function handleLogout() {
@@ -46,6 +70,28 @@ function DashboardLayout({ children }) {
       navigate("/login");
     } catch (error) {
       console.error("Logout failed:", error);
+    }
+  }
+
+  function handleStoreSelection(event) {
+    const nextId = event.target.value;
+    if (!nextId || nextId === activeBusinessId) return;
+    setActiveBusinessId(nextId);
+    setActiveBusinessIdState(nextId);
+  }
+
+  async function handleCreateStore(event) {
+    event.preventDefault();
+    setStoreError("");
+    setCreatingStore(true);
+    try {
+      const store = await createStore({ storeName: newStoreName.trim(), businessName: newStoreName.trim(), storeUrl: newStoreSlug.trim().toLowerCase(), businessCategory: "general" });
+      setActiveBusinessId(store.id);
+      window.location.reload();
+    } catch (error) {
+      setStoreError(error.message || "Could not create the store.");
+    } finally {
+      setCreatingStore(false);
     }
   }
 
@@ -69,69 +115,60 @@ function DashboardLayout({ children }) {
   }
 
   const navigationItems = [
-    { label: "Business workspace", path: "/business" },
+    { label: "Overview", path: "/dashboard" },
+    { label: "Create website", path: "/create-website" },
     { label: "Website editor", path: "/editor" },
-    {
-      label: "Dashboard",
-      path: "/dashboard",
-    },
-    {
-      label: "Products",
-      path: "/products",
-    },
-    {
-      label: "Orders",
-      path: "/orders",
-    },
-    {
-      label: "Customers",
-      path: "/customers",
-    },
-    {
-      label: "Shipping",
-      path: "/shipping",
-    },
-    {
-      label: "Settings",
-      path: "/settings",
-    },
+    { label: "Templates", path: "/templates" },
+    { label: "Store setup", path: "/store-setup" },
+    { label: "Store design", path: "/store-designer" },
+    { label: "Products", path: "/products" },
+    { label: "Orders", path: "/orders" },
+    { label: "Customers", path: "/customers" },
+    { label: "CRM", path: "/crm" },
+    { label: "Analytics & reports", path: "/analytics" },
+    { label: "Content & CMS", path: "/cms" },
+    { label: "Business tools", path: "/business" },
+    { label: "Shipping", path: "/shipping" },
+    { label: "Settings", path: "/settings" },
   ];
 
   return (
-    <div style={styles.page}>
-      <aside style={styles.sidebar}>
-        <h2 style={styles.logo}>
-          CYB
-        </h2>
+    <div className="workspace-layout">
+      <aside className="workspace-sidebar">
+        <NavLink className="workspace-logo" to="/dashboard" aria-label="CYB dashboard">CYB<span>BUSINESS STUDIO</span></NavLink>
 
+        {stores.length > 0 && <section className="workspace-store-switcher" aria-label="Store management">
+          <label htmlFor="active-store">Active store</label>
+          <select id="active-store" aria-label="Active store" value={activeBusinessId} onChange={handleStoreSelection} disabled={loadingStore}>
+            {stores.map(store => <option key={store.id} value={store.id}>{store.storeName || store.businessName || store.name}</option>)}
+          </select>
+          <button type="button" className="workspace-add-store" onClick={() => { setCreateStoreOpen(value => !value); setStoreError(""); }}>+ Add store</button>
+          {createStoreOpen && <form className="workspace-create-store" onSubmit={handleCreateStore}>
+            <label htmlFor="new-store-name">Store name</label>
+            <input id="new-store-name" value={newStoreName} onChange={event => { const name = event.target.value; setNewStoreName(name); setNewStoreSlug(name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")); }} maxLength={120} required />
+            <label htmlFor="new-store-slug">Store URL</label>
+            <input id="new-store-slug" value={newStoreSlug} onChange={event => setNewStoreSlug(event.target.value.toLowerCase())} maxLength={100} pattern="[a-z0-9-]+" required />
+            {storeError && <p role="alert">{storeError}</p>}
+            <button type="submit" disabled={creatingStore}>{creatingStore ? "Creating…" : "Create store"}</button>
+          </form>}
+        </section>}
         <button
           type="button"
           onClick={handleStorePreview}
           disabled={loadingStore}
-          style={{
-            ...styles.previewButton,
-            opacity: loadingStore ? 0.6 : 1,
-            cursor: loadingStore
-              ? "not-allowed"
-              : "pointer",
-          }}
+          className="workspace-preview-button"
         >
           {loadingStore
             ? "Loading Store..."
             : "Open Store Preview"}
         </button>
 
-        <nav style={styles.navigation}>
+        <nav className="workspace-navigation" aria-label="Workspace">
           {navigationItems.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
-              style={({ isActive }) => ({
-                ...styles.link,
-                backgroundColor: isActive
-                  ? "rgba(255, 255, 255, 0.14)"
-                  : "transparent",
-              })}
+              className={({ isActive }) => isActive ? "workspace-nav-link active" : "workspace-nav-link"}
             >
               {item.label}
             </NavLink>
@@ -141,90 +178,17 @@ function DashboardLayout({ children }) {
         <button
           type="button"
           onClick={handleLogout}
-          style={styles.logoutButton}
+          className="workspace-logout-button"
         >
           Logout
         </button>
       </aside>
 
-      <main style={styles.main}>
-        {children}
+      <main className="workspace-main">
+        {loadingStore ? <div className="workspace-loading" role="status">Loading workspace…</div> : <div key={`${getActiveBusinessId()}:${storeUrl}`}>{children}</div>}
       </main>
     </div>
   );
 }
-
-const styles = {
-  page: {
-    display: "flex",
-    minHeight: "100vh",
-    backgroundColor: "#f7f7fb",
-  },
-
-  sidebar: {
-    width: "250px",
-    minWidth: "250px",
-    height: "100vh",
-    padding: "30px",
-    boxSizing: "border-box",
-    backgroundColor: "#111827",
-    color: "#ffffff",
-    display: "flex",
-    flexDirection: "column",
-    position: "sticky",
-    top: 0,
-  },
-
-  logo: {
-    margin: 0,
-    fontSize: "24px",
-  },
-
-  previewButton: {
-    width: "100%",
-    marginTop: "28px",
-    padding: "13px 12px",
-    border: "1px solid rgba(255, 255, 255, 0.3)",
-    borderRadius: "10px",
-    backgroundColor: "#ffffff",
-    color: "#111827",
-    fontSize: "14px",
-    fontWeight: "700",
-  },
-
-  navigation: {
-    marginTop: "22px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-  },
-
-  link: {
-    padding: "12px 14px",
-    borderRadius: "9px",
-    color: "#ffffff",
-    textDecoration: "none",
-    fontSize: "17px",
-  },
-
-  logoutButton: {
-    width: "100%",
-    marginTop: "auto",
-    padding: "14px",
-    border: "none",
-    borderRadius: "12px",
-    backgroundColor: "#ef4444",
-    color: "#ffffff",
-    fontSize: "15px",
-    fontWeight: "600",
-    cursor: "pointer",
-  },
-
-  main: {
-    flex: 1,
-    minWidth: 0,
-    padding: "40px",
-  },
-};
 
 export default DashboardLayout;

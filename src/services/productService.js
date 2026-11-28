@@ -13,3 +13,6 @@ export async function getProductsByStore(storeUrl) { return businessCall('loadPu
 export async function getProductById(id) { return businessCall('loadPublicProduct', { id }); }
 export async function deleteProduct(id) { return customBackendRequest(`/products/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
 export async function updateProduct(id, updatedProduct) { return fromProduct(await customBackendRequest(`/products/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify({ data: updatedProduct }) })); }
+
+export async function duplicateProduct(id) { return fromProduct(await customBackendRequest(`/products/${encodeURIComponent(id)}/duplicate`, { method: 'POST' })); }
+export async function archiveProduct(id) { return customBackendRequest(`/products/${encodeURIComponent(id)}/archive`, { method: 'PATCH' }); }

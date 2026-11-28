@@ -21,6 +21,9 @@ function StoreSetup() {
   const [storeUrl, setStoreUrl] = useState("");
   const [description, setDescription] = useState("");
   const [themeColor, setThemeColor] = useState("#111111");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
 
   const [loadingStore, setLoadingStore] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -46,6 +49,9 @@ function StoreSetup() {
 
         setStoreUrl(store.storeUrl || "");
         setDescription(store.description || "");
+        setLogoUrl(store.logoUrl || "");
+        setContactEmail(store.contactEmail || "");
+        setContactPhone(store.contactPhone || "");
 
         setThemeColor(
           store.themeColor ||
@@ -94,6 +100,9 @@ function StoreSetup() {
         description: description.trim(),
         themeColor,
         primaryColor: themeColor,
+        logoUrl: logoUrl.trim(),
+        contactEmail: contactEmail.trim(),
+        contactPhone: contactPhone.trim(),
         language: "English",
         currency: "USD",
       });
@@ -104,6 +113,7 @@ localStorage.setItem(
     storeUrl: cleanedStoreUrl,
     description: description.trim(),
     themeColor,
+    logoUrl: logoUrl.trim(),
   })
 );
 
@@ -249,6 +259,9 @@ localStorage.setItem(
             </div>
           </section>
 
+
+
+
           <section className="store-setup-card">
             <div className="store-setup-card-number">
               02
@@ -375,6 +388,30 @@ localStorage.setItem(
                   </p>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <section className="store-setup-card">
+            <div className="store-setup-card-number">04</div>
+            <div className="store-setup-card-content">
+              <div className="store-setup-card-heading">
+                <div><span>Store contact details</span><h2>Help customers reach you</h2></div>
+                <p>These details appear in your public storefront and order experience.</p>
+              </div>
+              <div className="store-setup-field">
+                <label htmlFor="logoUrl">Logo image URL</label>
+                <input id="logoUrl" type="url" value={logoUrl} onChange={event => setLogoUrl(event.target.value)} placeholder="https://…" />
+                <small>Use an image URL from your CYB media library.</small>
+              </div>
+              <div className="store-setup-field">
+                <label htmlFor="contactEmail">Customer contact email</label>
+                <input id="contactEmail" type="email" value={contactEmail} onChange={event => setContactEmail(event.target.value)} placeholder="hello@yourstore.com" />
+              </div>
+              <div className="store-setup-field">
+                <label htmlFor="contactPhone">Customer contact phone</label>
+                <input id="contactPhone" type="tel" value={contactPhone} onChange={event => setContactPhone(event.target.value)} placeholder="+971…" />
+              </div>
+
             </div>
           </section>
 

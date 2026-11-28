@@ -97,17 +97,17 @@ function Footer() {
           <div>
             <span>Built for modern businesses</span>
             <p>
-              Create a website draft with a free account. Activate lifetime
-              access when you are ready to publish.
+              Start with a free, private website preview. Activate lifetime
+              access when you are ready.
             </p>
           </div>
 
           <button
             type="button"
             className="footer-secondary-button"
-            onClick={() => navigate("/signup")}
+            onClick={() => navigate("/try")}
           >
-            Start building
+            Try it free
           </button>
         </div>
 

@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import "../styles/orders.css";
-import { getOrders, updateOrderStatus as saveOrderStatus, deleteOrder as removeOrder } from "../services/orderService";
+import DashboardLayout from "../layouts/DashboardLayout";
+import { getOrders, updateOrderStatus as saveOrderStatus, updatePaymentStatus as savePaymentStatus, deleteOrder as removeOrder } from "../services/orderService";
+import { InlineState } from "../components/ui/DesignPrimitives";
+import { orderMetrics } from "../business/metrics";
+import { canMarkOrderCollected } from "../business/orderPaymentPolicy";
 const statuses = [
   "New",
-  "Paid",
   "Processing",
+  "Packed",
   "Shipped",
   "Delivered",
   "Cancelled",
+  "Returned",
 ];
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -23,19 +28,32 @@ function Orders() {
   const [orders, setOrders] = useState([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [listState, setListState] = useState("loading");
+  const [loadVersion, setLoadVersion] = useState(0);
+  const [paymentUpdates, setPaymentUpdates] = useState({});
+  const [actionError, setActionError] = useState("");
 
   useEffect(() => {
-  async function loadOrders() {
-    try {
-      setOrders(await getOrders());
-    } catch (error) {
-      console.error("Could not load orders:", error);
-      setOrders([]);
+    let active = true;
+    async function loadOrders() {
+      setListState("loading");
+      try {
+        const data = await getOrders();
+        if (active) {
+          setOrders(data);
+          setListState("ready");
+        }
+      } catch (error) {
+        console.error("Could not load orders:", error);
+        if (active) {
+          setOrders([]);
+          setListState("error");
+        }
+      }
     }
-  }
-
-  loadOrders();
-}, []);
+    loadOrders();
+    return () => { active = false; };
+  }, [loadVersion]);
  
 
   const filteredOrders = useMemo(() => {
@@ -55,7 +73,8 @@ function Orders() {
         orderId.includes(normalizedSearch) ||
         customerName.includes(normalizedSearch) ||
         email.includes(normalizedSearch) ||
-        productName.includes(normalizedSearch);
+        productName.includes(normalizedSearch) ||
+        String(order.orderNumber || "").toLowerCase().includes(normalizedSearch);
 
       const matchesStatus =
         statusFilter === "All" ||
@@ -68,7 +87,10 @@ function Orders() {
   const totals = useMemo(() => {
     return orders.reduce(
       (result, order) => {
-        result.revenue += Number(order.total) || 0;
+        const payment = orderMetrics([order]);
+        result.revenue += payment.netRevenue;
+        result.grossCollected += payment.grossCollected;
+        result.refunds += payment.refunds;
 
         if (order.status === "New") {
           result.newOrders += 1;
@@ -86,6 +108,8 @@ function Orders() {
       },
       {
         revenue: 0,
+        grossCollected: 0,
+        refunds: 0,
         newOrders: 0,
         processing: 0,
         delivered: 0,
@@ -94,15 +118,18 @@ function Orders() {
   }, [orders]);
 
     async function updateStatus(orderId, newStatus) {
+  setActionError("");
   try {
-    await saveOrderStatus(orderId, newStatus);
+    const savedOrder = await saveOrderStatus(orderId, newStatus);
 
     setOrders((currentOrders) =>
       currentOrders.map((item) =>
         item.id === orderId
           ? {
               ...item,
-              status: newStatus,
+              ...savedOrder,
+              status: savedOrder.status || newStatus,
+              fulfillmentStatus: savedOrder.fulfillmentStatus || String(newStatus).toLowerCase(),
             }
           : item
       )
@@ -113,9 +140,23 @@ function Orders() {
       "Could not update order status:",
       error
     );
+    setActionError(error.message || "Could not update order status. Please retry.");
   }
 }
 
+  async function updatePaymentStatus(orderId, status) {
+    if (paymentUpdates[orderId]) return;
+    setPaymentUpdates(current => ({ ...current, [orderId]: true }));
+    setActionError("");
+    try {
+      const savedOrder = await savePaymentStatus(orderId, status);
+      setOrders(current => current.map(item => item.id === orderId ? { ...item, ...savedOrder } : item));
+    } catch (error) {
+      setActionError(error.message || "Could not update order payment status. Please retry.");
+    } finally {
+      setPaymentUpdates(current => ({ ...current, [orderId]: false }));
+    }
+  }
   async function deleteOrder(orderId) {
   const confirmed = window.confirm(
     "Are you sure you want to delete this order?"
@@ -168,7 +209,9 @@ function Orders() {
   }
 
   return (
+    <DashboardLayout>
     <div className="orders-page">
+      {actionError && <p role="alert" className="orders-action-error">{actionError}</p>}
       <header className="orders-header">
         <div>
           <span>Order management</span>
@@ -183,9 +226,9 @@ function Orders() {
 
       <section className="orders-summary-grid">
         <article>
-          <span>Total revenue</span>
+          <span>Net revenue</span>
           <strong>{formatCurrency(totals.revenue)}</strong>
-          <p>Revenue from all orders</p>
+          <p>Gross collected {formatCurrency(totals.grossCollected)} · refunds {formatCurrency(totals.refunds)}</p>
         </article>
 
         <article>
@@ -243,7 +286,11 @@ function Orders() {
           </select>
         </div>
 
-        {filteredOrders.length === 0 ? (
+        {listState === "loading" ? (
+          <InlineState kind="loading" title="Loading orders" description="Your latest order list is being prepared." />
+        ) : listState === "error" ? (
+          <InlineState kind="error" title="Orders could not load" description="Check your connection and try again. No order changes were made." onRetry={() => setLoadVersion(version => version + 1)} />
+        ) : filteredOrders.length === 0 ? (
           <div className="orders-empty-state">
             <h3>No orders yet</h3>
 
@@ -268,7 +315,7 @@ function Orders() {
 
               {filteredOrders.map((order) => (
                 <div className="orders-row" key={order.id}>
-                  <strong>#{order.id}</strong>
+                  <strong>#{order.orderNumber || order.id}</strong>
 
                   <div className="orders-customer">
                     <strong>{getCustomerName(order)}</strong>
@@ -281,24 +328,14 @@ function Orders() {
                   <strong>{formatCurrency(order.total)}</strong>
                   <span>{getOrderDate(order)}</span>
 
-                  <select
-                    className={`order-status-select ${getStatusClass(
-                      order.status
-                    )}`}
-                    value={order.status || "New"}
-                    onChange={(event) =>
-                      updateStatus(
-                        order.id,
-                        event.target.value
-                      )
-                    }
-                  >
-                    {statuses.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="order-fulfillment-and-payment">
+                    <select className={`order-status-select ${getStatusClass(order.fulfillmentStatus || order.status)}`} value={String(order.fulfillmentStatus || order.status || "New").replace(/^./, letter => letter.toUpperCase())} onChange={event => updateStatus(order.id, event.target.value)}>
+                      {statuses.map(status => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                    <small>Payment: {order.paymentStatus || "Pending"}</small>
+                    {canMarkOrderCollected(order) && !["paid", "refunded"].includes(String(order.paymentStatus || "").toLowerCase()) && <button type="button" disabled={!!paymentUpdates[order.id]} onClick={() => updatePaymentStatus(order.id, "paid")}>{paymentUpdates[order.id] ? "Saving…" : "Mark collected"}</button>}
+                    {String(order.paymentStatus || "").toLowerCase() === "paid" && <button type="button" disabled={!!paymentUpdates[order.id]} onClick={() => updatePaymentStatus(order.id, "refunded")}>{paymentUpdates[order.id] ? "Saving…" : "Record refund"}</button>}
+                  </div>
 
                   <button
                     type="button"
@@ -314,6 +351,7 @@ function Orders() {
         )}
       </section>
     </div>
+    </DashboardLayout>
   );
 }
 

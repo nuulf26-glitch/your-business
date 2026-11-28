@@ -1,6 +1,7 @@
 /* ================================
    Public Store
 ================================ */
+.website-analytics-consent{position:fixed;z-index:9999;left:18px;right:18px;bottom:18px;max-width:640px;margin-left:auto;display:flex;align-items:center;gap:20px;padding:14px 16px;background:#fffdf9;border:1px solid #d9cdbf;box-shadow:0 12px 35px rgba(30,25,20,.16);color:#29231e}.website-analytics-consent p{margin:0;font-size:12px;line-height:1.5}.website-analytics-consent>div{display:flex;flex-shrink:0;gap:7px}.website-analytics-consent button{border:1px solid #d7c9b9;background:transparent;color:#29231e;padding:8px 10px;font-size:11px;cursor:pointer}.website-analytics-consent button:first-child{background:#26211d;color:#fff;border-color:#26211d}@media(max-width:560px){.website-analytics-consent{left:10px;right:10px;bottom:10px;display:block}.website-analytics-consent>div{margin-top:10px}.website-analytics-consent button{flex:1}}
 
 .public-store-page {
   min-height: 100vh;
@@ -533,4 +534,33 @@
 .public-product-content button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+
+.public-store-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) repeat(2, minmax(150px, 1fr));
+  gap: 14px;
+  margin: 24px 0;
+  align-items: end;
+}
+.public-store-filters label {
+  display: grid;
+  gap: 7px;
+  color: #635e57;
+  font-size: 0.8rem;
+}
+.public-store-filters input,
+.public-store-filters select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #d8d1c6;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #211f1c;
+  background: #fff;
+  font: inherit;
+}
+@media (max-width: 640px) {
+  .public-store-filters { grid-template-columns: 1fr; gap: 10px; }
 }

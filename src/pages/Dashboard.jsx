@@ -1,13 +1,15 @@
 import { getStore } from "../services/storeService";
 import { getProducts } from "../services/productService";
 import { orderMetrics } from "../business/metrics";
-import { logout } from "../services/authService";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../styles/dashboard.css";
+import DashboardLayout from "../layouts/DashboardLayout";
 import { getOrders } from "../services/orderService";
 import { getCustomers } from "../services/customerService";
-import { getAppUser, customBackendRequest } from "../services/customBackendSession";
+import { customBackendRequest, getAppUser } from "../services/customBackendSession";
+import { loadWebsiteRecord } from "../editor/versionService";
+import { websitePublicationStatus } from "../editor/websiteStatus";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -24,37 +26,62 @@ function Dashboard() {
  const [orders, setOrders] = useState([]);
 const [customers, setCustomers] = useState([]);
 const [products, setProducts] = useState([]);
+const [commerceAnalytics, setCommerceAnalytics] = useState(null);
 const [userProfile, setUserProfile] = useState(null);
-const [refundLoading, setRefundLoading] = useState(false);
-const [refundMessage, setRefundMessage] = useState("");
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundMessage, setRefundMessage] = useState("");
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [websiteRecord, setWebsiteRecord] = useState(null);
+  const [websiteStatus, setWebsiteStatus] = useState("Checking…");
+  const [stripeStatus, setStripeStatus] = useState(null);
+  const [stripeStatusError, setStripeStatusError] = useState("");
+  const [stripeStatusLoading, setStripeStatusLoading] = useState(false);
+  const [dashboardLoadState, setDashboardLoadState] = useState("loading");
+  const [dashboardRetryCount, setDashboardRetryCount] = useState(0);
   useEffect(() => {
+    let active = true;
+
     async function loadDashboardData() {
+      setDashboardLoadState("loading");
       try {
         const user = await getAppUser();
+        if (!active) return;
         setUserProfile(user || null);
         if (!user) {
-          setOrders([]);
-          setCustomers([]);
+          navigate("/login", { replace: true });
           return;
         }
 
-        const currentStore = await getStore();
-        setStore(currentStore);
-        setProducts(await getProducts());
-        const [ordersData, customersData] = await Promise.all([getOrders(), getCustomers()]);
+        const [storeResult, websiteResult, productResult, ordersResult, customersResult, commerceResult] = await Promise.allSettled([getStore(), loadWebsiteRecord(), getProducts(), getOrders(), getCustomers(), customBackendRequest("/businesses/mine/commerce-analytics")]);
+        if (!active) return;
+        const failedResult = [storeResult, websiteResult, productResult, ordersResult, customersResult, commerceResult].find((result) => result.status === "rejected");
+        if (failedResult) throw failedResult.reason;
+
+        if (storeResult.status === 'fulfilled') setStore(storeResult.value);
+        if (websiteResult.status === 'fulfilled') {
+          setWebsiteRecord(websiteResult.value);
+          setWebsiteStatus(websitePublicationStatus(websiteResult.value));
+        } else setWebsiteStatus('Unavailable');
+        if (productResult.status === 'fulfilled') setProducts(productResult.value);
+        const ordersData = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
+        const customersData = customersResult.status === 'fulfilled' ? customersResult.value : [];
         setOrders(ordersData);
         setCustomers(customersData);
+        if (commerceResult.status === "fulfilled") setCommerceAnalytics(commerceResult.value);
+        setDashboardLoadState("ready");
 
       } catch (error) {
         console.error(
           "Could not load dashboard data:",
           error
         );
+        if (active) setDashboardLoadState("error");
       }
     }
 
     loadDashboardData();
-  }, []);
+    return () => { active = false; };
+  }, [dashboardRetryCount, navigate]);
   async function requestRefund() {
     if (!window.confirm("Cancel your CYB access and refund the $246 lifetime payment?")) return;
     setRefundLoading(true);
@@ -71,7 +98,8 @@ const [refundMessage, setRefundMessage] = useState("");
   }
 
   const websiteSetup = store;
-  const editorData = store?.draftEditorData || store?.editorData;
+  const isStaging = window.location.hostname === "getcyb-staging-web.onrender.com";
+  const editorData = websiteRecord?.draft || store?.draftEditorData || store?.editorData;
   const businessName = editorData?.brandName || store?.businessName || store?.storeName || 'Your Business';
   const selectedTemplate = editorData?.template || store?.template || 'minimal';
   const metrics = useMemo(() => orderMetrics(orders), [orders]);
@@ -80,8 +108,9 @@ const [refundMessage, setRefundMessage] = useState("");
 
   const lowStockProducts = useMemo(() => {
     return products.filter((product) => {
-      const stock = Number(product.stock) || 0;
-      return stock > 0 && stock <= 5;
+      if (product.stock === undefined || product.stock === null || String(product.stock).trim() === "") return false;
+      const stock = Number(product.stock);
+      return Number.isFinite(stock) && stock >= 0 && stock <= 5;
     }).length;
   }, [products]);
 
@@ -123,70 +152,24 @@ const [refundMessage, setRefundMessage] = useState("");
   }
 
   return (
+    <DashboardLayout>
     <div className="dashboard-page">
-      <aside className="dashboard-sidebar">
-        <button
-          type="button"
-          className="dashboard-logo"
-          onClick={() => navigate("/")}
-        >
-          Your Business
-        </button>
-
-        <nav className="dashboard-navigation">
-          <button type="button" className="active">
-            Overview
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/editor")}
-          >
-            Website Editor
-          </button>
-
-          
-
-          <button
-            type="button"
-            onClick={() => navigate("/products")}
-          >
-            Products
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/orders")}
-          >
-            Orders
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/customers")}
-          >
-            Customers
-          </button>
-        </nav>
-
-        <div className="dashboard-sidebar-bottom">
-          <button
-            type="button"
-            onClick={() => navigate("/settings")}
-          >
-            Settings
-          </button>
-
-          <button
-            type="button"
-            onClick={async () => { await logout(); navigate("/login"); }}
-          >
-            Log out
-          </button>
-        </div>
-      </aside>
-
-      <main className="dashboard-main">
+      <main className="dashboard-main" aria-busy={dashboardLoadState === "loading"}>
+        {dashboardLoadState === "loading" ? (
+          <div className="dashboard-load-state" role="status" aria-live="polite">
+            <span className="dashboard-loading-indicator" aria-hidden="true" />
+            <p>Loading your business dashboard…</p>
+          </div>
+        ) : dashboardLoadState === "error" ? (
+          <div className="dashboard-load-state dashboard-load-error" role="alert">
+            <h1>We couldn’t load your dashboard.</h1>
+            <p>Your business data is unchanged. Check your connection and try again.</p>
+            <button type="button" className="dashboard-primary-button" onClick={() => setDashboardRetryCount((count) => count + 1)}>
+              Try again
+            </button>
+          </div>
+        ) : (
+          <>
         <header className="dashboard-header">
           <div>
             <span>Business dashboard</span>
@@ -198,36 +181,38 @@ const [refundMessage, setRefundMessage] = useState("");
           </div>
 
           <div className="dashboard-header-actions">
-            <button
+            <div className="dashboard-notification-wrap">
+              <button type="button" className="dashboard-notification-button" aria-label="Notifications" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(open => !open)}>
+                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </button>
+              {notificationsOpen && <div className="dashboard-notification-popover" role="status"><strong>You’re all caught up</strong><p>New account and store updates will appear here.</p></div>}
+            </div>
+            {websiteStatus === "Published" && websiteSetup?.storeUrl && <button
               type="button"
               className="dashboard-secondary-button"
-              onClick={() => navigate("/editor")}
+              onClick={() => navigate(`/store/${websiteSetup.storeUrl}`)}
             >
-              Edit website
-            </button>
+              Open live website
+            </button>}
 
             <button
               type="button"
               className="dashboard-primary-button"
-              onClick={() =>
-                navigate(
-                  websiteSetup?.storeUrl
-  ? `/store/${websiteSetup.storeUrl}`
-  : "/editor"
-  
-                )
-              }
+              onClick={() => navigate("/editor")}
             >
-              View website
+              {websiteStatus === "Published" ? "Edit website" : "Continue building"}
             </button>
           </div>
         </header>
 <section className="dashboard-payment-card">
+
   {userProfile?.paid ? (
     <>
       <span>Account status</span>
-      <h2>Active account ✅</h2>
-      <p>Your Business platform is unlocked.</p>
+      <h2>Active account ✓</h2>
+      <p>
+        Your Business platform is unlocked.
+      </p>
       <p>You can cancel and request a full refund within 30 days of payment.</p>
       <button type="button" className="dashboard-secondary-button" onClick={requestRefund} disabled={refundLoading}>
         {refundLoading ? "Processing refund…" : "Cancel account & get refund"}
@@ -235,24 +220,76 @@ const [refundMessage, setRefundMessage] = useState("");
     </>
   ) : (
     <>
-      <span>Account inactive</span>
-      <h2>Activate your account</h2>
-      <p>Complete your payment to unlock your website builder, store, and dashboard features.</p>
-      <button type="button" className="dashboard-primary-button" onClick={() => navigate("/platform-payment")}>Pay Now</button>
+      <span>Account status</span>
+      <h2>Your account is ready</h2>
+      <p>
+        Your draft is saved. Activate CYB Lifetime Access with a one-time
+        $246 payment to publish your website and unlock the full platform.
+      </p>
+
+      <button
+        type="button"
+        className="dashboard-primary-button"
+        onClick={() => navigate("/platform-payment")}
+      >
+        Activate for $246 — one-time
+      </button>
     </>
   )}
   {refundMessage && <p role="status">{refundMessage}</p>}
+
 </section>
+        {websiteStatus !== "Published" && websiteStatus !== "Checking…" && <section className="dashboard-getting-started" aria-labelledby="getting-started-title">
+          <div className="dashboard-getting-started-copy">
+            <span>Next step</span>
+            <h2 id="getting-started-title">{websiteStatus === "Unpublished changes" ? "Your live website has unpublished changes" : "Your website is a draft"}</h2>
+            <p>Use the editor to change your text and photos, or describe a design in plain language with CYB AI. Preview desktop, tablet, and mobile before you publish.</p>
+          </div>
+          <button type="button" className="dashboard-primary-button" onClick={() => navigate("/editor")}>Continue in the editor</button>
+        </section>}
+        {isStaging && (
+          <section className="dashboard-payment-card" aria-labelledby="staging-stripe-title">
+            <span>Staging diagnostics</span>
+            <h2 id="staging-stripe-title">Verify Stripe test mode</h2>
+            <p>Read-only check. No checkout or payment is created.</p>
+            <button
+              type="button"
+              className="dashboard-secondary-button"
+              disabled={stripeStatusLoading}
+              onClick={async () => {
+                setStripeStatusLoading(true);
+                setStripeStatusError("");
+                try {
+                  setStripeStatus(await customBackendRequest("/payments/stripe/staging-status"));
+                } catch (error) {
+                  setStripeStatusError(error instanceof Error ? error.message : "Could not verify Stripe configuration.");
+                } finally {
+                  setStripeStatusLoading(false);
+                }
+              }}
+            >
+              {stripeStatusLoading ? "Checking…" : "Check test-mode status"}
+            </button>
+            {stripeStatus && (
+              <p role="status" aria-live="polite">
+                {stripeStatus.verified && stripeStatus.amountCents === 24600
+                  ? `Verified test mode · $${(stripeStatus.amountCents / 100).toFixed(2)} ${stripeStatus.currency?.toUpperCase()}`
+                  : `Test mode: ${stripeStatus.testMode ? "yes" : "no"} · Verified: ${stripeStatus.verified ? "yes" : "no"} · Amount: ${stripeStatus.amountCents == null ? "invalid" : `$${(stripeStatus.amountCents / 100).toFixed(2)}`} ${stripeStatus.currency?.toUpperCase() || ""}`}
+              </p>
+            )}
+            {stripeStatusError && <p role="alert">{stripeStatusError}</p>}
+          </section>
+        )}
         <button type="button" className="dashboard-secondary-button" onClick={() => navigate('/business')}>Business workspace ↗</button>
         <section className="dashboard-stats-grid"><article className="dashboard-stat-card"><span>Net profit</span><strong>{metrics.profit == null ? 'Not available' : formatCurrency(metrics.profit)}</strong><p>{metrics.profit == null ? 'Add order cost of goods and expenses to calculate profit.' : 'Based on recorded order costs and expenses.'}</p></article><article className="dashboard-stat-card"><span>Profit margin</span><strong>{metrics.margin == null ? '—' : `${metrics.margin.toFixed(1)}%`}</strong></article></section>
         {/* Top Stat Summary Grid */}
         <section className="dashboard-stats-grid">
           <article className="dashboard-stat-card">
             <div>
-              <span>Total revenue</span>
+              <span>Net revenue</span>
               <strong>{formatCurrency(totalRevenue)}</strong>
             </div>
-            <p>Paid, completed or delivered orders</p>
+            <p>Gross collected minus recorded refunds</p>
           </article>
 
           <article className="dashboard-stat-card">
@@ -284,6 +321,16 @@ const [refundMessage, setRefundMessage] = useState("");
           </article>
         </section>
 
+        {commerceAnalytics && <section className="dashboard-stats-grid" aria-label="Store analytics">
+          <article className="dashboard-stat-card"><span>Gross collected</span><strong>{formatCurrency(commerceAnalytics.grossCollected)}</strong><p>{commerceAnalytics.collectedOrders || 0} orders with confirmed collections</p></article>
+          <article className="dashboard-stat-card"><span>Net revenue</span><strong>{formatCurrency(commerceAnalytics.netRevenue)}</strong><p>Gross collected after refunds</p></article>
+          <article className="dashboard-stat-card"><span>Average paid order</span><strong>{formatCurrency(commerceAnalytics.averageOrderValue)}</strong><p>Unpaid COD is excluded</p></article>
+          <article className="dashboard-stat-card"><span>Unpaid COD</span><strong>{commerceAnalytics.unpaidCodOrders || 0}</strong><p>Orders awaiting collection</p></article>
+          <article className="dashboard-stat-card"><span>Refunds</span><strong>{formatCurrency(commerceAnalytics.refunds)}</strong><p>Recorded refunded amount</p></article>
+          <article className="dashboard-stat-card"><span>Store conversion</span><strong>{commerceAnalytics.conversionRate == null ? "Not measurable" : `${(commerceAnalytics.conversionRate * 100).toFixed(1)}%`}</strong><p>{commerceAnalytics.uniqueVisits || 0} unique visits counted</p></article>
+          <article className="dashboard-stat-card"><span>Best sellers</span><strong>{commerceAnalytics.bestSellers?.[0]?.name || "No paid sales yet"}</strong><p>{commerceAnalytics.bestSellers?.[0]?.quantity || 0} units sold</p></article>
+          <article className="dashboard-stat-card"><span>Inventory alerts</span><strong>{commerceAnalytics.inventoryAlerts?.length || 0}</strong><p>{commerceAnalytics.inventoryAlerts?.slice(0, 3).map(item => `${item.name}: ${item.stock}`).join(" · ") || "All tracked stock is above threshold"}</p></article>
+        </section>}
         {/* Main Section Columns */}
         <section className="dashboard-main-grid">
           <article className="dashboard-card dashboard-sales-card">
@@ -380,10 +427,7 @@ const [refundMessage, setRefundMessage] = useState("");
               <div>
                 <span>Status</span>
                 <strong>
-                  {localStorage.getItem("websitePublished") ===
-                  "true"
-                    ? "Published"
-                    : "Draft"}
+                  {websiteStatus}
                 </strong>
               </div>
 
@@ -521,8 +565,11 @@ const [refundMessage, setRefundMessage] = useState("");
             </button>
           </article>
         </section>
+          </>
+        )}
       </main>
     </div>
+    </DashboardLayout>
   );
 }
 

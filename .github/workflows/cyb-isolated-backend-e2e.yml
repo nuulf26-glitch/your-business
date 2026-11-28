@@ -1,0 +1,148 @@
+name: CYB isolated backend end-to-end verification
+
+on:
+  push:
+    branches: [codex/cyb-phase3-online-store-20261117, codex/cyb-phase4-crm-20261121, codex/cyb-phase5-analytics-20261121, codex/cyb-phase6-payments-20261122, codex/cyb-cms-core-stacked-20261122, codex/cyb-marketing-automation-stacked-20261122, codex/cyb-memberships-stacked-20261122, codex/cyb-unified-inbox-stacked-20261122, codex/cyb-courses-stacked-20261122]
+  pull_request:
+    branches: [codex/cyb-v1-integration-20261123, codex/cyb-render-integration-20261109, codex/cyb-phase2-editor-20261116, codex/cyb-phase3-online-store-20261117, codex/cyb-phase4-crm-20261121, codex/cyb-phase5-analytics-20261121, codex/cyb-phase12-security-regression-20261122, codex/cyb-conditional-forms-20261122, codex/cyb-cms-core-stacked-20261122, codex/cyb-marketing-automation-stacked-20261122, codex/cyb-memberships-stacked-20261122, codex/cyb-unified-inbox-stacked-20261122, codex/cyb-courses-stacked-20261122, codex/cyb-staging-startup-safety]
+    paths:
+      - "tests/isolated-backend/**"
+      - "vite.config.isolated-e2e.js"
+      - "playwright.isolated-backend.config.js"
+      - ".github/workflows/cyb-isolated-backend-e2e.yml"
+      - "src/**"
+      - "backend/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cyb-isolated-backend-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-e2e:
+    name: Real CYB API with ephemeral synthetic PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cyb_e2e
+          # This database is bound to the ephemeral GitHub Actions service
+          # network only; trust avoids publishing a throwaway password in logs.
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: cyb_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cyb_e2e -d cyb_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      NODE_ENV: test
+      PORT: 3001
+      FRONTEND_ORIGIN: http://127.0.0.1:4173
+      PUBLIC_APP_URL: http://127.0.0.1:4173
+      CYB_TEST_THROTTLE_DB: "1"
+      COOKIE_SAME_SITE: lax
+      COOKIE_DOMAIN: ""
+      E2E_TEST_EMAIL: cyb-e2e-${{ github.run_id }}-${{ github.run_attempt }}@example.test
+      E2E_STORE_SLUG: cyb-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+      E2E_SECOND_TEST_EMAIL: cyb-e2e-second-${{ github.run_id }}-${{ github.run_attempt }}@example.test
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v4
+
+      - name: Generate disposable account credentials
+        shell: bash
+        run: |
+          set +x
+          e2e_password="$(node -e "process.stdout.write(require('node:crypto').randomBytes(24).toString('base64url'))")"
+          second_password="$(node -e "process.stdout.write(require('node:crypto').randomBytes(24).toString('base64url'))")"
+          session_secret="$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))")"
+          printf '::add-mask::%s\n' "$e2e_password"
+          printf '::add-mask::%s\n' "$second_password"
+          printf '::add-mask::%s\n' "$session_secret"
+          {
+            printf 'DATABASE_URL=postgresql://cyb_e2e@localhost:5432/cyb_e2e?schema=public\n'
+            printf 'E2E_TEST_PASSWORD=%s\n' "$e2e_password"
+            printf 'E2E_SECOND_TEST_PASSWORD=%s\n' "$second_password"
+            printf 'SESSION_SECRET=%s\n' "$session_secret"
+          } >> "$GITHUB_ENV"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+
+      - name: Install frontend and API dependencies
+        run: |
+          npm ci
+          npm ci --prefix backend
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Install FFmpeg for existing API media regression tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+
+      - name: Build, lint, validate, and apply migrations to ephemeral database
+        run: |
+          npm run build
+          npm run lint
+          npm --prefix backend run prisma:validate
+          npm --prefix backend run prisma:generate
+          npm --prefix backend run prisma:migrate
+          npm --prefix backend test
+          npm --prefix backend run build
+
+      - name: Create synthetic test account
+        run: node tests/isolated-backend/seed.cjs
+
+      - name: Start real API and exercise authenticated frontend
+        env:
+          # All payment and external-provider credentials remain absent in this job.
+          STRIPE_SECRET_KEY: ""
+          PAYPAL_CLIENT_ID: ""
+          PAYPAL_CLIENT_SECRET: ""
+          SMTP_HOST: ""
+          SMTP_USER: ""
+          SMTP_PASSWORD: ""
+          OPENAI_API_KEY: ""
+          GOOGLE_CLIENT_ID: ""
+        run: |
+          mkdir -p artifacts/isolated-backend
+          nohup npm --prefix backend start > artifacts/isolated-backend/api.log 2>&1 &
+          for attempt in {1..40}; do
+            if curl --fail --silent http://127.0.0.1:3001/api/v1/health >/dev/null; then
+              echo "Isolated API is ready."
+              break
+            fi
+            sleep 2
+          done
+          if ! curl --fail --silent http://127.0.0.1:3001/api/v1/health >/dev/null; then
+            cat artifacts/isolated-backend/api.log
+            exit 1
+          fi
+          npx playwright test --config=playwright.isolated-backend.config.js
+
+      - name: Upload isolated E2E screenshots and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cyb-isolated-real-api-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/isolated-backend/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 7

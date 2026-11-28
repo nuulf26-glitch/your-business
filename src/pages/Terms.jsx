@@ -155,8 +155,7 @@ function Terms() {
           <article>
             <h2>15. Contact</h2>
             <p>
-              Questions about these terms may be sent to:
-              legal@yourbusiness.example
+              Questions about these terms may be sent to: <a href="mailto:createyourbusiness6@gmail.com">createyourbusiness6@gmail.com</a>.
             </p>
           </article>
         </section>

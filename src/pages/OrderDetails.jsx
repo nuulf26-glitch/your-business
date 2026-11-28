@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "../layouts/DashboardLayout";
 import { customBackendRequest } from "../services/customBackendSession";
+import { canMarkOrderCollected } from "../business/orderPaymentPolicy";
+import "../styles/orderDetails.css";
 
 function OrderDetails() {
   const { orderId } = useParams();
@@ -27,7 +29,7 @@ function OrderDetails() {
         const orderData = await customBackendRequest(`/orders/${encodeURIComponent(orderId)}`);
 
         setOrder(orderData);
-        setShippingCompany(orderData.shippingCompany || "");
+        setShippingCompany(orderData.shippingCarrier || orderData.shippingCompany || "");
         setTrackingNumber(orderData.trackingNumber || "");
         setTrackingUrl(orderData.trackingUrl || "");
       } catch (loadError) {
@@ -88,7 +90,7 @@ function OrderDetails() {
       setError("");
       setSuccessMessage("");
 
-      await customBackendRequest(`/orders/${encodeURIComponent(orderId)}/status`, { method: 'PATCH', body: JSON.stringify({ status: newStatus.toLowerCase() }) });
+      await customBackendRequest(`/orders/${encodeURIComponent(orderId)}/fulfillment`, { method: 'PATCH', body: JSON.stringify({ data: { status: newStatus.toLowerCase() } }) });
 
       setOrder((currentOrder) => ({
         ...currentOrder,
@@ -104,43 +106,32 @@ function OrderDetails() {
     }
   }
 
+  async function handlePaymentChange(status) {
+    try {
+      setUpdating(true); setError(""); setSuccessMessage("");
+      const updated = await customBackendRequest(`/orders/${encodeURIComponent(orderId)}/payment`, { method: "PATCH", body: JSON.stringify({ data: { status } }) });
+      setOrder((current) => ({ ...current, ...(updated || {}), paymentStatus: status === "paid" ? "Paid" : "Refunded" }));
+      setSuccessMessage(status === "paid" ? "Payment recorded once." : "Refund recorded.");
+    } catch (paymentError) {
+      console.error("Could not update payment:", paymentError);
+      setError("Could not update the payment. Reload and retry.");
+    } finally { setUpdating(false); }
+  }
+
   async function handleSaveTracking(event) {
     event.preventDefault();
-
-    if (!shippingCompany.trim() || !trackingNumber.trim()) {
-      setError("Please enter the shipping company and tracking number.");
-      setSuccessMessage("");
-      return;
-    }
-
+    if (!shippingCompany.trim() || !trackingNumber.trim()) { setError("Please enter the shipping company and tracking number."); setSuccessMessage(""); return; }
     try {
-      setSavingTracking(true);
-      setError("");
-      setSuccessMessage("");
-
-      const trackingData = {
-        shippingCompany: shippingCompany.trim(),
-        trackingNumber: trackingNumber.trim(),
-        trackingUrl: trackingUrl.trim(),
-        shippingUpdatedAt: new Date().toISOString(),
-      };
-
-      await customBackendRequest(`/orders/${encodeURIComponent(orderId)}`, { method: 'PATCH', body: JSON.stringify({ data: trackingData }) });
-
-      setOrder((currentOrder) => ({
-        ...currentOrder,
-        ...trackingData,
-      }));
-
+      setSavingTracking(true); setError(""); setSuccessMessage("");
+      const trackingData = { carrier: shippingCompany.trim(), trackingNumber: trackingNumber.trim(), trackingUrl: trackingUrl.trim() };
+      const updated = await customBackendRequest(`/orders/${encodeURIComponent(orderId)}/fulfillment`, { method: "PATCH", body: JSON.stringify({ data: { status: order.fulfillmentStatus || order.status || "new", ...trackingData } }) });
+      setOrder((current) => ({ ...current, ...(updated || {}), shippingCarrier: trackingData.carrier, trackingNumber: trackingData.trackingNumber, trackingUrl: trackingData.trackingUrl }));
       setSuccessMessage("Tracking information saved successfully.");
     } catch (trackingError) {
       console.error("Error saving tracking information:", trackingError);
       setError("Could not save the tracking information.");
-    } finally {
-      setSavingTracking(false);
-    }
+    } finally { setSavingTracking(false); }
   }
-
   function formatDate(createdAt) {
     if (!createdAt) {
       return "No date";
@@ -189,7 +180,7 @@ function OrderDetails() {
 
   return (
     <DashboardLayout>
-      <div style={styles.page}>
+      <div className="order-details-page" style={styles.page}>
         <div style={styles.header}>
           <div>
             <button
@@ -221,15 +212,22 @@ function OrderDetails() {
               }
               style={styles.statusSelect}
             >
-              <option value="New">New</option>
-              <option value="Processing">Processing</option>
-              <option value="Shipped">Shipped</option>
-              <option value="Completed">Completed</option>
-              <option value="Cancelled">Cancelled</option>
+              <option value="new">New</option>
+              <option value="processing">Processing</option>
+              <option value="packed">Packed</option>
+              <option value="shipped">Shipped</option>
+              <option value="delivered">Delivered</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="returned">Returned</option>
             </select>
           </div>
         </div>
 
+        <div className="order-payment-summary" style={{ margin: "12px 0 20px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <strong>Payment: {order.paymentStatus || "Pending"}</strong>
+          {canMarkOrderCollected(order) && !["paid", "refunded"].includes(String(order.paymentStatus || "").toLowerCase()) && <button type="button" disabled={updating} onClick={() => handlePaymentChange("paid")}>Mark collected</button>}
+          {String(order.paymentStatus || "").toLowerCase() === "paid" && <button type="button" disabled={updating} onClick={() => handlePaymentChange("refunded")}>Record full refund</button>}
+        </div>
         {error && <div style={styles.errorMessage}>{error}</div>}
 
         {successMessage && (
@@ -238,9 +236,9 @@ function OrderDetails() {
           </div>
         )}
 
-        <div style={styles.layout}>
+        <div className="order-details-layout" style={styles.layout}>
           <div style={styles.leftColumn}>
-            <section style={styles.mainCard}>
+            <section className="order-details-card" style={styles.mainCard}>
               <h2 style={styles.sectionTitle}>
                 Customer Information
               </h2>
@@ -302,6 +300,17 @@ function OrderDetails() {
               )}
             </section>
 
+            {Array.isArray(order.timeline) && order.timeline.length > 0 && (
+              <section style={styles.mainCard}>
+                <h2 style={styles.sectionTitle}>Order timeline</h2>
+                <ol>{order.timeline.map((event, index) => (
+                  <li key={String(event.recordedAt || event.at || index) + "-" + index}>
+                    <strong>{String(event.status || event.type || "Update").replace(/^./, c => c.toUpperCase())}</strong>
+                    <span> — {formatDate(event.recordedAt || event.at)}</span>
+                  </li>
+                ))}</ol>
+              </section>
+            )}
             <section style={styles.productsCard}>
               <h2 style={styles.sectionTitle}>
                 Products ({totalItems})
@@ -334,6 +343,7 @@ function OrderDetails() {
                         {item.description ||
                           "No description available."}
                       </p>
+                      {(item.variantName || item.variant?.name || item.sku) && <p className="order-variant-option">Option: {item.variantName || item.variant?.name || item.sku}</p>}
 
                       <p style={styles.quantityText}>
                         Quantity: {Number(item.quantity || 1)}
@@ -457,7 +467,7 @@ function OrderDetails() {
 
                   <p style={styles.savedTrackingText}>
                     <strong>Company:</strong>{" "}
-                    {order.shippingCompany || "Not available"}
+                    {order.shippingCarrier || order.carrier || order.shippingCompany || "Not available"}
                   </p>
 
                   <p style={styles.savedTrackingText}>
@@ -480,7 +490,7 @@ function OrderDetails() {
             </section>
           </div>
 
-          <aside style={styles.summaryCard}>
+          <aside className="order-details-summary" style={styles.summaryCard}>
             <h2 style={styles.sectionTitle}>Order Summary</h2>
 
             <div style={styles.summaryRow}>

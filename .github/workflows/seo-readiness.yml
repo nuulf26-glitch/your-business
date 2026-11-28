@@ -1,0 +1,29 @@
+name: SEO readiness
+on:
+  pull_request:
+    paths:
+      - 'src/seo/**'
+      - 'scripts/seo-build.mjs'
+      - 'netlify/functions/store-seo.mjs'
+      - 'tests/seo.test.js'
+      - '.github/workflows/seo-readiness.yml'
+permissions:
+  contents: read
+jobs:
+  seo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: node --test tests/seo.test.js tests/publishing.test.js tests/editor-state.test.js tests/checkout-provider.test.js
+      - run: npm run build
+        env:
+          CONTEXT: production
+          URL: https://getcyb.fit
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/check-seo-browser.mjs
