@@ -114,6 +114,8 @@ describe('AI website design', () => {
       const request=JSON.parse(init.body);
       expect(request.input).toContain('Create a luxury skincare website with beige and white colors.');
       expect(request.instructions).toContain('imagePlaceholderCount:3');
+      expect(request.instructions).toContain('Do not output bracketed placeholders');
+      expect(request.instructions).toContain('publication-ready copy');
       expect(request.text.format.type).toBe('json_object');
       return {ok:true,json:async()=>({status:'completed',output_text:JSON.stringify(generated)})} as any;
     });
@@ -122,6 +124,18 @@ describe('AI website design', () => {
     expect(result.model.pages[0].sections.map((section:any)=>section.type)).toContain('collection');
     expect(result.model.pages[0].sections.map((section:any)=>section.type)).toContain('contact');
     expect(result.model.pages[0].sections.find((section:any)=>section.type==='gallery').imagePlaceholderCount).toBe(3);
+  });
+  it('replaces AI copy placeholders with complete editable copy and removes placeholder list items',()=>{
+    const normalized=normalizeGeneratedWebsite({brandName:'[Add your business name]',sections:[
+      {type:'hero',title:'[Add your mission statement here.]',body:'Add a short description of your business.'},
+      {type:'services',title:'Services',body:'Choose the service that fits.',items:['[Add more services here.]',{name:'Insert your service name',description:'Add your service details.'}]},
+      {type:'contact',title:'Contact',body:'[Add your email]'},
+    ]});
+    expect(normalized.brandName).toBe('Your business');
+    expect(normalized.sections[0]).toMatchObject({title:'Your business',body:'Discover what this business offers and how to get started.'});
+    expect(normalized.sections[1].items).toEqual([]);
+    expect(normalized.sections[2]).toMatchObject({title:'Contact',body:'Get in touch to ask a question or learn more.'});
+    expect(JSON.stringify(normalized)).not.toMatch(/\[(?:Add|Insert|Enter)/i);
   });
   it('rejects malformed responsive values and out-of-range product limits without changing the source model',()=>{
     const model={brandName:'LUNE',pages:[{id:'home',slug:'',title:'Home',sections:[{id:'products',type:'collection',title:'Products',body:''}]}]};

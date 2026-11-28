@@ -7,7 +7,9 @@ async function main() {
     const email = process.env.E2E_TEST_EMAIL;
     const password = process.env.E2E_TEST_PASSWORD;
     const slug = process.env.E2E_STORE_SLUG;
-    if (!email || !password || !slug) throw new Error('Isolated E2E account configuration is incomplete.');
+    const secondEmail = process.env.E2E_SECOND_TEST_EMAIL;
+    const secondPassword = process.env.E2E_SECOND_TEST_PASSWORD;
+    if (!email || !password || !slug || !secondEmail || !secondPassword) throw new Error('Isolated E2E account configuration is incomplete.');
     if (!process.env.DATABASE_URL?.includes('127.0.0.1') && !process.env.DATABASE_URL?.includes('localhost')) {
       throw new Error('Refusing to seed outside the local ephemeral PostgreSQL service.');
     }
@@ -40,7 +42,35 @@ async function main() {
         },
       },
     });
-    process.stdout.write('Created one synthetic E2E owner in the ephemeral local database.\n');
+    await prisma.user.create({
+      data: {
+        email: secondEmail,
+        fullName: 'Synthetic E2E Merchant B',
+        passwordHash: await argon2.hash(secondPassword),
+        role: 'OWNER',
+        emailVerifiedAt: new Date(),
+        termsConsents: {
+          create: { termsVersion: 'isolated-e2e', privacyVersion: 'isolated-e2e' },
+        },
+        subscriptions: {
+          create: {
+            plan: 'BASIC',
+            status: 'ACTIVE',
+            billingType: 'ONE_TIME',
+            trialEndsAt: new Date(),
+          },
+        },
+        businesses: {
+          create: {
+            name: 'Synthetic E2E Merchant B Store',
+            slug: `${slug}-merchant-b`,
+            category: 'retail',
+            website: { create: { draft: {} } },
+          },
+        },
+      },
+    });
+    process.stdout.write('Created two synthetic E2E owners in the ephemeral local database.\n');
   } finally {
     await prisma.$disconnect();
   }

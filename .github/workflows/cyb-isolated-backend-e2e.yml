@@ -4,7 +4,7 @@ on:
   push:
     branches: [codex/cyb-phase3-online-store-20261117, codex/cyb-phase4-crm-20261121, codex/cyb-phase5-analytics-20261121, codex/cyb-phase6-payments-20261122, codex/cyb-cms-core-stacked-20261122, codex/cyb-marketing-automation-stacked-20261122, codex/cyb-memberships-stacked-20261122, codex/cyb-unified-inbox-stacked-20261122, codex/cyb-courses-stacked-20261122]
   pull_request:
-    branches: [codex/cyb-v1-integration-20261123, codex/cyb-render-integration-20261109, codex/cyb-phase2-editor-20261116, codex/cyb-phase3-online-store-20261117, codex/cyb-phase4-crm-20261121, codex/cyb-phase5-analytics-20261121, codex/cyb-phase12-security-regression-20261122, codex/cyb-conditional-forms-20261122, codex/cyb-cms-core-stacked-20261122, codex/cyb-marketing-automation-stacked-20261122, codex/cyb-memberships-stacked-20261122, codex/cyb-unified-inbox-stacked-20261122, codex/cyb-courses-stacked-20261122]
+    branches: [codex/cyb-v1-integration-20261123, codex/cyb-render-integration-20261109, codex/cyb-phase2-editor-20261116, codex/cyb-phase3-online-store-20261117, codex/cyb-phase4-crm-20261121, codex/cyb-phase5-analytics-20261121, codex/cyb-phase12-security-regression-20261122, codex/cyb-conditional-forms-20261122, codex/cyb-cms-core-stacked-20261122, codex/cyb-marketing-automation-stacked-20261122, codex/cyb-memberships-stacked-20261122, codex/cyb-unified-inbox-stacked-20261122, codex/cyb-courses-stacked-20261122, codex/cyb-staging-startup-safety]
     paths:
       - "tests/isolated-backend/**"
       - "vite.config.isolated-e2e.js"
@@ -31,7 +31,9 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_USER: cyb_e2e
-          POSTGRES_PASSWORD: ephemeral-only-password
+          # This database is bound to the ephemeral GitHub Actions service
+          # network only; trust avoids publishing a throwaway password in logs.
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: cyb_e2e
         ports:
           - 5432:5432
@@ -45,17 +47,32 @@ jobs:
       PORT: 3001
       FRONTEND_ORIGIN: http://127.0.0.1:4173
       PUBLIC_APP_URL: http://127.0.0.1:4173
-      DATABASE_URL: postgresql://cyb_e2e:ephemeral-only-password@localhost:5432/cyb_e2e?schema=public
       CYB_TEST_THROTTLE_DB: "1"
-      SESSION_SECRET: ephemeral-e2e-session-secret-not-for-any-other-environment
       COOKIE_SAME_SITE: lax
       COOKIE_DOMAIN: ""
       E2E_TEST_EMAIL: cyb-e2e-${{ github.run_id }}-${{ github.run_attempt }}@example.test
-      E2E_TEST_PASSWORD: Synthetic-CYB-E2E-Only-2026!
       E2E_STORE_SLUG: cyb-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+      E2E_SECOND_TEST_EMAIL: cyb-e2e-second-${{ github.run_id }}-${{ github.run_attempt }}@example.test
     steps:
       - name: Check out PR branch
         uses: actions/checkout@v4
+
+      - name: Generate disposable account credentials
+        shell: bash
+        run: |
+          set +x
+          e2e_password="$(node -e "process.stdout.write(require('node:crypto').randomBytes(24).toString('base64url'))")"
+          second_password="$(node -e "process.stdout.write(require('node:crypto').randomBytes(24).toString('base64url'))")"
+          session_secret="$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))")"
+          printf '::add-mask::%s\n' "$e2e_password"
+          printf '::add-mask::%s\n' "$second_password"
+          printf '::add-mask::%s\n' "$session_secret"
+          {
+            printf 'DATABASE_URL=postgresql://cyb_e2e@localhost:5432/cyb_e2e?schema=public\n'
+            printf 'E2E_TEST_PASSWORD=%s\n' "$e2e_password"
+            printf 'E2E_SECOND_TEST_PASSWORD=%s\n' "$second_password"
+            printf 'SESSION_SECRET=%s\n' "$session_secret"
+          } >> "$GITHUB_ENV"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
