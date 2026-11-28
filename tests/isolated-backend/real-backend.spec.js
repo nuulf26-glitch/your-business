@@ -139,6 +139,8 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   // Exercise appointment discovery and its complete owner-side lifecycle with
   // business-local hours. This runs only against the disposable CI database.
   const businessHours = Object.fromEntries(Array.from({ length: 7 }, (_, day) => [day, { open: '09:00', close: '17:00' }]));
+  const catalogWithDefaultTimezone = await requestFromPage(page, '/businesses/mine/catalog', 'PUT', { data: { businessCategory: 'services' } });
+  expect(catalogWithDefaultTimezone.settings.businessCatalog.timeZone).toBe('Asia/Dubai');
   await requestFromPage(page, '/businesses/mine/catalog', 'PUT', { data: {
     businessCategory: 'services', timeZone: 'Asia/Dubai', hours: businessHours, closures: [],
     services: [{ id: 'e2e-consult', name: 'Synthetic consultation', duration: 30, price: 0, active: true }],

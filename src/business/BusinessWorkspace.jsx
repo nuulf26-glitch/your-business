@@ -32,7 +32,8 @@ export default function BusinessWorkspace(){
   function applyData({value,failures}){
     const store=value(4,null);
     setPickupOrders(value(5,[]));setStoreUrl(store?.storeUrl||'');
-    setCatalog(value(0,null)||{...structuredClone(emptyCatalog),businessCategory:store?.businessCategory||'general'});
+    const storedCatalog=value(0,null);
+    setCatalog(storedCatalog?{...storedCatalog,timeZone:String(storedCatalog.timeZone||'').trim()||'Asia/Dubai'}:{...structuredClone(emptyCatalog),businessCategory:store?.businessCategory||'general'});
     setRecords(value(1,[]));setInquiries(value(2,[]));setNotifications(value(3,[]));
     setError(failures.length?failures[0].reason?.message||'Some business data could not be loaded. Refresh to try again.':'');
     setReferenceNow(Date.now());
