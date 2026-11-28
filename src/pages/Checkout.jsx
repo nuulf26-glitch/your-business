@@ -103,7 +103,7 @@ function Checkout() {
   },[cart]);
 
   const currency=commerceSettings.currency||cart[0]?.currency||'USD';
-  const zones=Array.isArray(commerceSettings.shippingZones)?commerceSettings.shippingZones:[];
+  const zones=useMemo(()=>Array.isArray(commerceSettings.shippingZones)?commerceSettings.shippingZones:[],[commerceSettings.shippingZones]);
   const hasDeliveryZone=zones.length===0||form.deliveryMethod==='pickup'||zones.some(zone=>(zone.countryCodes||[]).includes(String(form.countryCode||'').toUpperCase()));
   const shipping=useMemo(()=>{
     if(form.deliveryMethod==='pickup')return 0;
