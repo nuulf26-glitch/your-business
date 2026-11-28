@@ -19,28 +19,37 @@ function generatedText(value: unknown, fallback = ''): string {
   return fallback;
 }
 
+function generatedCopy(value: unknown, fallback = ''): string {
+  const text=generatedText(value).trim();
+  if(/^\[[\s\S]*\]$/.test(text)||/^(?:add|insert|enter|replace|write)\b/i.test(text))return fallback;
+  return text;
+}
+
 export function normalizeGeneratedWebsite(generated: Record<string, any>) {
   const model = { ...generated };
   for (const key of ['brandName', 'tagline', 'description', 'bodyFont', 'headingFont', 'buttonRadius']) {
-    if (model[key] !== undefined) model[key] = generatedText(model[key]);
+    if (model[key] !== undefined) model[key] = generatedCopy(model[key], key==='brandName'?'Your business':'');
   }
   model.sections = model.sections.map((section: Record<string, any>) => {
     const clean = { ...section };
-    for (const key of ['label', 'title', 'body', 'buttonText', 'eyebrow', 'href']) {
-      if (clean[key] !== undefined) clean[key] = generatedText(clean[key]);
-    }
+    if (clean.label !== undefined) clean.label = generatedCopy(clean.label, clean.type||'Section');
+    if (clean.title !== undefined) clean.title = generatedCopy(clean.title, ({hero:model.brandName||'Welcome',about:'About the business',services:'Services',collection:'Our collection',gallery:'Selected work',faq:'Frequently asked questions',reviews:'Customer feedback',contact:'Get in touch',footer:model.brandName||'Get in touch'} as Record<string,string>)[clean.type]||'');
+    if (clean.body !== undefined) clean.body = generatedCopy(clean.body, ({hero:'Discover what this business offers and how to get started.',about:'Learn more about the business, its approach, and the work it does.',services:'Explore the services and choose a next step that works for you.',collection:'Explore the products available in this collection.',gallery:'A visual look at the work and details that shape this business.',faq:'Find answers to common questions about this business.',reviews:'Customer feedback will appear here when it is available.',contact:'Get in touch to ask a question or learn more.',footer:'Get in touch to learn more.'} as Record<string,string>)[clean.type]||'');
+    if (clean.buttonText !== undefined) clean.buttonText = generatedCopy(clean.buttonText, 'Get in touch');
+    if (clean.eyebrow !== undefined) clean.eyebrow = generatedCopy(clean.eyebrow);
+    if (clean.href !== undefined) clean.href = generatedCopy(clean.href);
     if (Array.isArray(clean.items) && clean.type === 'faq') {
       clean.items = clean.items.slice(0, 12).map((item: unknown) => {
-        if (typeof item === 'string') return { question: generatedText(item), answer: '' };
+        if (typeof item === 'string') return { question: generatedCopy(item), answer: '' };
         const record = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {};
-        return { question: generatedText(record.question, 'Question'), answer: generatedText(record.answer) };
-      });
+        return { question: generatedCopy(record.question, 'Question'), answer: generatedCopy(record.answer) };
+      }).filter((item: any) => item.question);
     } else if (Array.isArray(clean.items) && clean.type === 'services') {
       clean.items = clean.items.slice(0, 12).map((item: unknown) => {
-        if (typeof item === 'string') return generatedText(item);
+        if (typeof item === 'string') return generatedCopy(item);
         const record = item && typeof item === 'object' && !Array.isArray(item) ? item as Record<string, unknown> : {};
-        return { name: generatedText(record.name ?? record.title ?? record.question, 'Service'), description: generatedText(record.description ?? record.answer) };
-      });
+        return { name: generatedCopy(record.name ?? record.title ?? record.question), description: generatedCopy(record.description ?? record.answer) };
+      }).filter((item: any) => typeof item === 'string' ? !!item : !!item.name);
     }
     return clean;
   });

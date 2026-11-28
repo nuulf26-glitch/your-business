@@ -23,6 +23,13 @@ async function requestFromPage(page, path, method = 'GET', data, businessId) {
   return result.body;
 }
 
+async function requestStatusFromPage(page, path, businessId) {
+  return page.evaluate(async ({ path, businessId }) => {
+    const response = await fetch(`/api/v1${path}`, { credentials: 'include', headers: businessId ? { 'x-cyb-business-id': businessId } : {} });
+    return response.status;
+  }, { path, businessId });
+}
+
 async function checkNoHorizontalOverflow(page, label) {
   const dimensions = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
@@ -119,6 +126,50 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(publishResult.slug).toBe(slug);
   const publicWebsite = await requestFromPage(page, `/websites/public/${encodeURIComponent(slug)}`);
   expect(publicWebsite.published).toBe(true);
+  await page.goto(`/store/${encodeURIComponent(slug)}`);
+  await expect(page.getByRole('heading', { name: 'Synthetic test storefront' })).toBeVisible();
+  const updatedModel = { ...model, sections: model.sections.map((section) => section.id === 'e2e-hero' ? { ...section, title: 'Updated synthetic storefront headline' } : section) };
+  await requestFromPage(page, '/websites/draft', 'PUT', { model: updatedModel });
+  await requestFromPage(page, '/websites/publish', 'POST', { model: updatedModel });
+  const updatedPublicWebsite = await requestFromPage(page, `/websites/public/${encodeURIComponent(slug)}`);
+  expect(updatedPublicWebsite.website.sections.find((section) => section.id === 'e2e-hero').title).toBe('Updated synthetic storefront headline');
+  await page.goto(`/store/${encodeURIComponent(slug)}`);
+  await expect(page.getByRole('heading', { name: 'Updated synthetic storefront headline' })).toBeVisible();
+
+  // Exercise appointment discovery and its complete owner-side lifecycle with
+  // business-local hours. This runs only against the disposable CI database.
+  const businessHours = Object.fromEntries(Array.from({ length: 7 }, (_, day) => [day, { open: '09:00', close: '17:00' }]));
+  await requestFromPage(page, '/businesses/mine/catalog', 'PUT', { data: {
+    businessCategory: 'services', timeZone: 'Asia/Dubai', hours: businessHours, closures: [],
+    services: [{ id: 'e2e-consult', name: 'Synthetic consultation', duration: 30, price: 0, active: true }],
+    staff: [{ id: 'e2e-staff', name: 'Synthetic team member', active: true, serviceIds: ['e2e-consult'] }],
+  } });
+  const bookingDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(Date.now() + 14 * 86400000));
+  const availableSlots = await requestFromPage(page, '/public/bookings/options', 'POST', { data: { storeUrl: slug, date: bookingDate, serviceId: 'e2e-consult', kind: 'appointment' } });
+  expect(availableSlots.length).toBeGreaterThan(0);
+  const firstSlot = availableSlots[0];
+  expect(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dubai', hour: '2-digit', hourCycle: 'h23' }).format(new Date(firstSlot.start))).toBe('09');
+  const booking = await requestFromPage(page, '/public/bookings', 'POST', { data: { storeUrl: slug, name: 'Synthetic booking visitor', email: `booking-${process.env.GITHUB_RUN_ID || 'local'}@example.test`, start: firstSlot.start, serviceId: 'e2e-consult', kind: 'appointment' } });
+  expect(booking).toMatchObject({ status: 'confirmed', timeZone: 'Asia/Dubai', start: firstSlot.start });
+  const rescheduleSlot = availableSlots.find((slot) => Date.parse(slot.start) >= Date.parse(firstSlot.start) + 2 * 60 * 60 * 1000);
+  expect(rescheduleSlot).toBeTruthy();
+  await requestFromPage(page, `/businesses/mine/records/${encodeURIComponent(booking.id)}/reschedule`, 'PATCH', { data: { start: rescheduleSlot.start } });
+  expect((await requestFromPage(page, '/businesses/mine/records?type=bookings')).find((row) => row.id === booking.id).start).toBe(rescheduleSlot.start);
+  await requestFromPage(page, `/businesses/mine/records/${encodeURIComponent(booking.id)}?type=bookings`, 'PATCH', { status: 'cancelled' });
+  expect((await requestFromPage(page, '/businesses/mine/records?type=bookings')).find((row) => row.id === booking.id).status).toBe('cancelled');
+
+  // Create, edit, publish, and read a CMS entry through its public API.
+  const collection = await requestFromPage(page, '/cms/collections', 'POST', { data: { name: 'Synthetic journal', slug: 'synthetic-journal', fields: [{ key: 'summary', label: 'Summary', type: 'longText', required: true }], categories: [] } });
+  const cmsEntry = await requestFromPage(page, `/cms/collections/${encodeURIComponent(collection.id)}/entries`, 'POST', { data: { slug: 'synthetic-entry', title: 'Synthetic CMS entry', content: { summary: 'Initial synthetic summary.' } } });
+  await requestFromPage(page, `/cms/entries/${encodeURIComponent(cmsEntry.id)}`, 'PATCH', { data: { content: { summary: 'Updated synthetic summary.' } } });
+  await requestFromPage(page, `/cms/entries/${encodeURIComponent(cmsEntry.id)}/publish`, 'POST', {});
+  const publicCms = await requestFromPage(page, `/public/cms/${encodeURIComponent(slug)}/${encodeURIComponent(collection.slug)}?entry=${encodeURIComponent(cmsEntry.slug)}`);
+  expect(publicCms.entries).toHaveLength(1);
+  expect(publicCms.entries[0]).toMatchObject({ title: 'Synthetic CMS entry', content: { summary: 'Updated synthetic summary.' } });
+  await page.goto(`/store/${encodeURIComponent(slug)}/content/${encodeURIComponent(collection.slug)}`);
+  await expect(page.getByRole('heading', { name: 'Synthetic journal' })).toBeVisible();
+  await expect(page.getByText('Synthetic CMS entry', { exact: true })).toBeVisible();
+  await expect(page.getByText('Updated synthetic summary.', { exact: true })).toBeVisible();
 
   const product = await requestFromPage(page, '/products', 'POST', {
     data: { name: 'Synthetic E2E Product', description: 'Isolated test item', sellingPrice: 18, status: 'active', stock: 4, variants: [{ id: 'synthetic-small', name: 'Small', sku: 'E2E-SMALL', price: 18, stock: 4 }] },
@@ -126,6 +177,21 @@ test('real auth, editor persistence, catalog, COD checkout, and mobile views use
   expect(product.name).toBe('Synthetic E2E Product');
   const products = await requestFromPage(page, '/products');
   expect(products.some((item) => item.id === product.id)).toBe(true);
+
+  // Use a separate browser context for a second isolated merchant account and
+  // verify direct API access is denied in both directions.
+  const merchantBContext = await page.context().browser().newContext();
+  const merchantBPage = await merchantBContext.newPage();
+  await merchantBPage.goto('/login');
+  await merchantBPage.locator('#loginEmail').fill(process.env.E2E_SECOND_TEST_EMAIL);
+  await merchantBPage.locator('input[autocomplete="current-password"]').fill(process.env.E2E_SECOND_TEST_PASSWORD);
+  await merchantBPage.getByRole('button', { name: 'Log in' }).click();
+  await expect(merchantBPage).toHaveURL(/\/dashboard(?:$|\?)/);
+  const merchantBBusiness = await requestFromPage(merchantBPage, '/businesses/mine');
+  const merchantBProduct = await requestFromPage(merchantBPage, '/products', 'POST', { data: { name: 'Synthetic Merchant B Product', sellingPrice: 9, status: 'active', stock: 2 } });
+  expect(await requestStatusFromPage(merchantBPage, `/products/${encodeURIComponent(product.id)}`, merchantBBusiness.id)).toBe(404);
+  expect(await requestStatusFromPage(page, `/products/${encodeURIComponent(merchantBProduct.id)}`, merchantBBusiness.id)).toBe(404);
+  await merchantBContext.close();
 
   const stores = await requestFromPage(page, "/businesses/mine/stores");
   expect(stores.some((store) => store.slug === slug)).toBe(true);
