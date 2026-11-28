@@ -99,7 +99,11 @@ export class AnalyticsController {
       const won=ds.filter((x:any)=>String(parseData(x).status).toLowerCase()==='won').length;
       const closed=ds.filter((x:any)=>['won','lost'].includes(String(parseData(x).status).toLowerCase()));
       const paidOrders=os.filter((o:any)=>collectedCents(o)>0).length;
-      return {orders:os.length,paidOrders,unpaidOrders:Math.max(0,os.length-paidOrders),collectedRevenueCents:collected,refundsCents:refunds,netRevenueCents:collected-refunds,averageOrderValueCents:paidOrders?Math.round(collected/paidOrders):0,newCustomers:cs.length,newLeads:ls.length,leadConversionRate:ls.length?converted/ls.length:0,openPipelineValueCents:ds.filter((x:any)=>!['won','lost'].includes(String(parseData(x).status).toLowerCase())).reduce((n:number,x:any)=>n+Math.round(number(parseData(x).amount)*100),0),dealWinRate:closed.length?won/closed.length:0,completedTasks:ts.filter((x:any)=>String(x.status).toLowerCase()==='completed').length,tasks:ts.length};
+      const unpaidOrders=os.filter((o:any)=>{
+        const status=String(o.status||parseData(o).status||'').toLowerCase();
+        return collectedCents(o)<=0&&!['cancelled','canceled'].includes(status);
+      }).length;
+      return {orders:os.length,paidOrders,unpaidOrders,collectedRevenueCents:collected,refundsCents:refunds,netRevenueCents:collected-refunds,averageOrderValueCents:paidOrders?Math.round(collected/paidOrders):0,newCustomers:cs.length,newLeads:ls.length,leadConversionRate:ls.length?converted/ls.length:0,openPipelineValueCents:ds.filter((x:any)=>!['won','lost'].includes(String(parseData(x).status).toLowerCase())).reduce((n:number,x:any)=>n+Math.round(number(parseData(x).amount)*100),0),dealWinRate:closed.length?won/closed.length:0,completedTasks:ts.filter((x:any)=>String(x.status).toLowerCase()==='completed').length,tasks:ts.length};
     };
     const current=summarize(from,to),previous=summarize(priorFrom,priorTo),currency=String(windowRows(orders,from,to)[0]?.currency||settings?.commerceSettings?.currency||settings?.currency||'AED').toUpperCase();
     let webRows=windowRows(events,from,to).map(r=>({createdAt:r.createdAt,data:parseData(r)}));
