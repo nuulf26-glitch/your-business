@@ -60,6 +60,7 @@ The latest code fixes booking validation and timezone handling, the PostgreSQL a
 - Backup implementation uses encrypted PostgreSQL custom-format dumps, integrity checks, strict empty-target restore safeguards, version checks, and no automatic migrations. CI recovery evidence is synthetic only.
 - Provider retention, point-in-time recovery, encryption-key custody and rotation, media backups, failure alerts, and a provider-level restore drill remain unverified. Any restore drill must use an empty disposable database and must never restore over staging or production.
 - Staging and production API/database health checks returned OK at observation time. Production Render services still reference the older Render branch; production frontend behavior was only checked read-only. Environment variable values, retention settings, and full service-level monitoring were not inspected.
+- Direct read-only SQL queries for staging and production migration state were blocked because both database IP allowlists are empty. No allowlist changes were made. A locally connected Render MCP session or separately approved read-only access route is needed to confirm each target's `_prisma_migrations` state.
 - Do not merge or deploy this candidate to production from this runbook. Preserve the staging/production migration guards and obtain explicit approval for merge, production deployment, live payment activation, configuration changes, and any provider-level recovery drill that requires existing service/data access.
 
 ## Actions required before a go decision
